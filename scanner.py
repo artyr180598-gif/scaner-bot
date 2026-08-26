@@ -50,6 +50,7 @@ from config import (
     Settings,
     is_scannable_base,
 )
+from telegram_bot import MAIN_MENU_KEYBOARD, TelegramCommandListener
 
 log = logging.getLogger("scanner")
 
@@ -112,6 +113,7 @@ class Opportunity:
     futures_notional_usd: float
     same_exchange: bool
     created_at: float
+    data_age_seconds: float = 0.0  # возраст самой старой котировки связки
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +159,7 @@ class ExchangeSide:
         self._zombie_tasks: list[asyncio.Task] = []  # отменённые, но ещё завершающиеся
         self._ws_fail_streak = 0
         self._logged_first_quote = False
+        self.last_round_seconds: float = 0.0  # длительность последнего круга REST-опроса
         self.error_count = 0
         self._last_error_log = 0.0
 
@@ -251,9 +254,23 @@ class ExchangeSide:
             except Exception as exc:  # noqa: BLE001
                 log.warning("%s: ошибка при закрытии соединения: %s", self.label, exc)
 
+    def effective_book_max_age(self) -> float:
+        """
+        Допустимый возраст котировки с учётом режима стороны.
+
+        В WebSocket-режиме это BOOK_MAX_AGE_SECONDS. В REST-режиме при
+        огромном списке символов круг опроса может длиться минутами —
+        допустимый возраст автоматически расширяется (2 круга + запас),
+        иначе все котировки были бы «просроченными».
+        """
+        age = self.settings.book_max_age_seconds
+        if self.mode == "rest" and self.last_round_seconds > 0:
+            age = max(age, self.last_round_seconds * 2.0 + 10.0)
+        return age
+
     def fresh_quotes_count(self) -> tuple[int, int]:
-        """(свежих котировок, всего) с учётом BOOK_MAX_AGE_SECONDS."""
-        cutoff = time.time() - self.settings.book_max_age_seconds
+        """(свежих котировок, всего) с учётом эффективного возраста."""
+        cutoff = time.time() - self.effective_book_max_age()
         fresh = sum(1 for q in self.quotes.values() if q.timestamp >= cutoff)
         return fresh, len(self.quotes)
 
@@ -273,7 +290,11 @@ class ExchangeSide:
         backoff = 1.0
         while self.mode == "ws":
             try:
-                book = await self.exchange.watch_order_book(symbol)
+                # limit → самая неглубокая страничка стакана (depth5/books5/...):
+                # для тысячи подписок это экономит память и трафик.
+                book = await self.exchange.watch_order_book(
+                    symbol, self.settings.order_book_depth
+                )
                 self._ws_fail_streak = 0
                 backoff = 1.0
                 self._store_quote(symbol, book)
@@ -310,7 +331,10 @@ class ExchangeSide:
                 if self.settings.rest_throttle_seconds > 0:
                     await asyncio.sleep(self.settings.rest_throttle_seconds)
             elapsed = time.monotonic() - round_started
-            log.debug("%s: круг REST-опроса занял %.1fs", self.label, elapsed)
+            if self.last_round_seconds == 0.0 or abs(elapsed - self.last_round_seconds) > 30.0:
+                log.info("%s: круг REST-опроса занял %.1fs (%d символов)",
+                         self.label, elapsed, len(self.symbols))
+            self.last_round_seconds = elapsed
             await asyncio.sleep(max(self.settings.rest_poll_interval_seconds, 0.05))
 
     def _switch_to_rest(self, reason: str) -> None:
@@ -390,6 +414,7 @@ class ArbitrageScanner:
         self.bases: list[str] = []
         self._cooldown_until: dict[str, float] = {}
         self._last_best: Optional[tuple[float, str, str]] = None  # (net%, base, маршрут)
+        self._listener_task: Optional[asyncio.Task] = None
         self.stats: dict[str, int] = {
             "scans": 0,
             "signals_sent": 0,
@@ -445,10 +470,20 @@ class ArbitrageScanner:
         if dead:
             log.warning("Недоступные стороны (пропущены): %s", ", ".join(dead))
         await self.notifier.send_html(
-            format_startup_message(self.settings, self.bases, dead_labels=dead)
+            format_startup_message(self.settings, self.bases, dead_labels=dead),
+            reply_markup=MAIN_MENU_KEYBOARD,
         )
+        self._start_command_listener()
 
     async def _shutdown(self) -> None:
+        # Сначала останавливаем приём команд, затем потоки данных и транспорт.
+        if self._listener_task is not None:
+            self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self._listener_task = None
         for side in self.spot_sides + self.futures_sides:
             await side.aclose()
         await self.notifier.close()
@@ -491,7 +526,14 @@ class ArbitrageScanner:
         await asyncio.gather(*(init_side(side) for side in self.spot_sides + self.futures_sides))
 
     async def _resolve_bases(self) -> list[str]:
-        """Список базовых активов: SYMBOLS > авто-подбор > резервный список."""
+        """
+        Список базовых активов для сканирования.
+
+        Приоритет: SYMBOLS (явный список) > все поддерживаемые монеты
+        (TOP_SYMBOLS=0, по умолчанию) > топ-N по объёму торгов (TOP_SYMBOLS=N).
+        «Поддерживаемая» = есть USDT-спот хотя бы на одной бирже И
+        USDT-перпетуал хотя бы на одной (не обязательно той же).
+        """
         s = self.settings
         if s.symbols:
             bases = [b for b in s.symbols if self._base_supported(b)]
@@ -502,20 +544,39 @@ class ArbitrageScanner:
                 raise RuntimeError("SYMBOLS: ни один тикер не найден на доступных биржах")
             return bases
 
-        if s.auto_discover_symbols:
-            discovered = await self._discover_top_bases()
-            if discovered:
-                return discovered
-            log.warning("Авто-подбор пар не удался — использую резервный список")
+        supported = self._all_supported_bases()
 
-        bases = [b for b in FALLBACK_BASES if self._base_supported(b)][: s.top_symbols_limit]
-        if not bases:
-            raise RuntimeError("Не удалось сформировать список пар: нет пересечений спот/фьючерсы")
-        return bases
+        if s.top_symbols_limit > 0 and s.auto_discover_symbols:
+            ranked = await self._rank_bases_by_volume(supported)
+            if ranked:
+                return ranked
+            log.warning("Ранжирование по объёму не удалось — беру первые %d поддерживаемых",
+                        s.top_symbols_limit)
+            return supported[: s.top_symbols_limit]
 
-    async def _discover_top_bases(self) -> list[str]:
+        # TOP_SYMBOLS=0 → сканируем ВСЕ поддерживаемые монеты.
+        if supported:
+            return supported
+
+        # Совсем нет пересечений (не должно случаться при живых биржах) — резерв.
+        return [b for b in FALLBACK_BASES if self._base_supported(b)]
+
+    def _all_supported_bases(self) -> list[str]:
+        """Все базы: спот на ≥1 живой стороне И перп на ≥1 живой стороне."""
+        spot_bases: set[str] = set()
+        for side in self.spot_sides:
+            if side.alive:
+                spot_bases.update(side.symbol_by_base)
+        futures_bases: set[str] = set()
+        for side in self.futures_sides:
+            if side.alive:
+                futures_bases.update(side.symbol_by_base)
+        return sorted(spot_bases & futures_bases)
+
+    async def _rank_bases_by_volume(self, candidates: list[str]) -> list[str]:
         """Топ пар по объёму торгов (quote volume) с reference-биржи."""
         limit = self.settings.top_symbols_limit
+        candidate_set = set(candidates)
         for side in self.spot_sides:  # перебираем, пока какая-нибудь не ответит
             if not side.alive:
                 continue
@@ -525,7 +586,7 @@ class ArbitrageScanner:
                 raise
             except Exception as exc:  # noqa: BLE001
                 log.warning(
-                    "Авто-подбор: %s не отдал тикеры (%s) — пробую следующую",
+                    "Ранжирование: %s не отдал тикеры (%s) — пробую следующую",
                     side.label, exc,
                 )
                 continue
@@ -538,7 +599,7 @@ class ArbitrageScanner:
                 if market.get("quote") != "USDT":
                     continue
                 base = market.get("base") or ""
-                if not is_scannable_base(base):
+                if base not in candidate_set:
                     continue
                 try:
                     volume = float(ticker.get("quoteVolume") or 0.0)
@@ -547,15 +608,12 @@ class ArbitrageScanner:
                 scored.append((base, volume))
 
             scored.sort(key=lambda item: item[1], reverse=True)
-            wide = [base for base, _ in scored[: limit * 3]]
-            usable = [base for base in wide if self._base_supported(base)]
-            if len(usable) >= 5:
+            if scored:
                 log.info(
-                    "Авто-подбор: топ-%d пар по объёму торгов (%s): %s",
-                    len(usable[:limit]), side.label,
-                    ", ".join(usable[:limit]),
+                    "Ранжирование по объёму торгов (%s): топ-%d из %d пар",
+                    side.label, min(limit, len(scored)), len(scored),
                 )
-                return usable[:limit]
+                return [base for base, _ in scored[:limit]]
         return []
 
     def _base_supported(self, base: str) -> bool:
@@ -593,21 +651,21 @@ class ArbitrageScanner:
                 await self._refresh_markets()
 
     # ------------------------------------------------------------------ evaluation
-    def _evaluate(self) -> list[tuple[Opportunity, list[Opportunity]]]:
+    def _collect_opportunities(self, threshold: float) -> dict[str, list[Opportunity]]:
         """
         Считает чистые спреды для всех комбинаций (спот-биржа × фьючерс-биржа × пара).
 
-        Возвращает список (лучшая связка, альтернативы), отсортированный
-        по убыванию чистого спреда; по одной записи на валютную пару.
+        Возвращает {пара: [связки, отсортированные по чистому спреду]}.
+        Порог threshold задаёт минимальный чистый спред (-inf = все связки).
         """
         now = time.time()
-        cutoff = now - self.settings.book_max_age_seconds
         fee_percent = self.settings.total_fee_percent
         by_base: dict[str, list[Opportunity]] = {}
 
         for spot_side in self.spot_sides:
             if not spot_side.alive:
                 continue
+            spot_cutoff = now - spot_side.effective_book_max_age()
             for fut_side in self.futures_sides:
                 if not fut_side.alive:
                     continue
@@ -616,6 +674,7 @@ class ArbitrageScanner:
                     and not self.settings.allow_same_exchange
                 ):
                     continue
+                fut_cutoff = now - fut_side.effective_book_max_age()
                 for base in self.bases:
                     spot_symbol = spot_side.symbol_by_base.get(base)
                     fut_symbol = fut_side.symbol_by_base.get(base)
@@ -625,7 +684,7 @@ class ArbitrageScanner:
                     fut_quote = fut_side.quotes.get(fut_symbol)
                     if spot_quote is None or fut_quote is None:
                         continue
-                    if spot_quote.timestamp < cutoff or fut_quote.timestamp < cutoff:
+                    if spot_quote.timestamp < spot_cutoff or fut_quote.timestamp < fut_cutoff:
                         continue
                     if spot_quote.ask <= 0.0 or fut_quote.bid <= 0.0:
                         continue
@@ -635,7 +694,7 @@ class ArbitrageScanner:
                     self.stats["combinations_checked"] += 1
                     self._track_best(net, base, spot_side.display_name, fut_side.display_name)
 
-                    if net < self.settings.min_spread_percent:
+                    if net < threshold:
                         continue
                     notional = min(spot_quote.ask_notional_usd, fut_quote.bid_notional_usd)
                     if self.settings.min_notional_usd > 0 and notional < self.settings.min_notional_usd:
@@ -655,11 +714,21 @@ class ArbitrageScanner:
                         futures_notional_usd=fut_quote.bid_notional_usd,
                         same_exchange=spot_side.exchange_id == fut_side.exchange_id,
                         created_at=now,
+                        data_age_seconds=now - min(spot_quote.timestamp, fut_quote.timestamp),
                     ))
 
-        pairs: list[tuple[Opportunity, list[Opportunity]]] = []
         for opportunities in by_base.values():
             opportunities.sort(key=lambda o: o.net_spread_percent, reverse=True)
+        return by_base
+
+    def _evaluate(self) -> list[tuple[Opportunity, list[Opportunity]]]:
+        """
+        Связки, подходящие под сигнал: лучшая связка на пару + альтернативы,
+        отсортировано по убыванию чистого спреда.
+        """
+        by_base = self._collect_opportunities(threshold=self.settings.min_spread_percent)
+        pairs: list[tuple[Opportunity, list[Opportunity]]] = []
+        for opportunities in by_base.values():
             pairs.append((opportunities[0], opportunities[1:3]))
         pairs.sort(key=lambda pair: pair[0].net_spread_percent, reverse=True)
         return pairs
@@ -691,7 +760,9 @@ class ArbitrageScanner:
                 best, alternatives, self.settings,
                 cooldown_until=now + self.settings.cooldown_seconds,
             )
-            delivered = await self.notifier.send_html(html_message)
+            delivered = await self.notifier.send_html(
+                html_message, reply_markup=MAIN_MENU_KEYBOARD
+            )
             if delivered:
                 self._cooldown_until[best.base] = now + self.settings.cooldown_seconds
                 self.stats["signals_sent"] += 1
@@ -724,7 +795,9 @@ class ArbitrageScanner:
         log.info("Рынки обновлены: суммарно отслеживается %d символов", total)
 
     async def _send_heartbeat(self) -> None:
-        await self.notifier.send_html(format_heartbeat_message(self))
+        await self.notifier.send_html(
+            format_heartbeat_message(self), reply_markup=MAIN_MENU_KEYBOARD
+        )
 
     def _log_status(self) -> None:
         sides = self._live_sides()
@@ -742,6 +815,121 @@ class ArbitrageScanner:
             len(sides), fresh, total, self.stats["scans"],
             self.stats["signals_sent"], self.stats["signals_suppressed_cooldown"], best,
         )
+
+    # ------------------------------------------------------------------ команды Telegram
+    # Данные для ответов берутся напрямую из кэша реальных стаканов бирж.
+    def _start_command_listener(self) -> None:
+        """Запускает приём команд/кнопок Telegram (long polling)."""
+        if getattr(self.notifier, "dry_run", False):
+            log.info("Команды Telegram отключены: DRY-RUN (нет TELEGRAM_BOT_TOKEN/CHAT_ID)")
+            return
+        if not self.settings.chat_ids:
+            log.info("Команды Telegram отключены: не задан CHAT_ID")
+            return
+        listener = TelegramCommandListener(
+            self.notifier,
+            handlers=self.telegram_handlers(),
+            allowed_chat_ids=self.settings.chat_ids,
+        )
+        self._listener_task = asyncio.create_task(listener.run(), name="telegram-commands")
+
+    def telegram_handlers(self) -> dict[str, Any]:
+        """Реестр команд: имя команды -> async-обработчик (chat_id, args) -> HTML."""
+        return {
+            "start": self._cmd_help,
+            "help": self._cmd_help,
+            "status": self._cmd_status,
+            "top": self._cmd_top,
+            "spreads": self._cmd_top,   # алиас
+            "price": self._cmd_price,
+        }
+
+    async def _cmd_help(self, chat_id: str, args: str) -> str:
+        return format_help_message(self.settings)
+
+    async def _cmd_status(self, chat_id: str, args: str) -> str:
+        return format_status_message(self)
+
+    async def _cmd_top(self, chat_id: str, args: str) -> str:
+        try:
+            limit = max(1, min(20, int(args.split()[0]))) if args.strip() else 10
+        except (ValueError, IndexError):
+            limit = 10
+        return self._build_top_spreads_message(limit)
+
+    async def _cmd_price(self, chat_id: str, args: str) -> str:
+        base = (args.split()[0] if args.strip() else "BTC").upper()
+        return self._build_price_message(base)
+
+    # ------------------------------------------------------------------ ответы командам
+    def _build_top_spreads_message(self, limit: int = 10) -> str:
+        """Топ чистых спредов прямо сейчас — реальные данные кэша стаканов."""
+        by_base = self._collect_opportunities(threshold=float("-inf"))
+        best_list = [opps[0] for opps in by_base.values()]
+        best_list.sort(key=lambda o: o.net_spread_percent, reverse=True)
+
+        if not best_list:
+            return "📊 Топ спредов: нет свежих данных со стаканов — подождите пару секунд."
+
+        lines = ["📊 <b>Топ чистых спредов прямо сейчас</b>", ""]
+        for position, opp in enumerate(best_list[:limit], start=1):
+            hot = " 🔥" if opp.net_spread_percent >= self.settings.min_spread_percent else ""
+            lines.append(
+                f"{position}. {opp.base} <b>{opp.net_spread_percent:+.2f}%</b>{hot} — "
+                f"{_esc(opp.spot_exchange)} → {_esc(opp.futures_exchange)}"
+            )
+        above = sum(
+            1 for o in best_list if o.net_spread_percent >= self.settings.min_spread_percent
+        )
+        lines += [
+            "",
+            f"🚦 Порог сигнала: ≥ {self.settings.min_spread_percent:.2f}% "
+            f"(связек над порогом: {above})",
+            "<i>Автосигналы по парам в кулдауне не дублируются; /top показывает всё.</i>",
+        ]
+        return "\n".join(lines)
+
+    def _build_price_message(self, base: str) -> str:
+        """Реальные bid/ask пары по всем биржам из кэша стаканов."""
+        cutoff = time.time() - self.settings.book_max_age_seconds
+
+        def side_lines(sides: list[ExchangeSide], field: str) -> list[str]:
+            rows = []
+            for side in sides:
+                if not side.alive:
+                    continue
+                symbol = side.symbol_by_base.get(base)
+                quote = side.quotes.get(symbol) if symbol else None
+                if quote is None or quote.timestamp < cutoff:
+                    continue
+                if field == "ask":
+                    price, notional = quote.ask, quote.ask_notional_usd
+                else:
+                    price, notional = quote.bid, quote.bid_notional_usd
+                rows.append(
+                    f"   {_esc(side.display_name)}: <code>{_fmt_price(price)}</code> "
+                    f"(≥ {_fmt_usd(notional)})"
+                )
+            return rows
+
+        spot_rows = side_lines(self.spot_sides, "ask")
+        fut_rows = side_lines(self.futures_sides, "bid")
+
+        if not spot_rows and not fut_rows:
+            return (
+                f"💠 {base}/USDT: нет свежих данных. "
+                f"Возможно, пара не отслеживается — попробуйте /top или /price BTC."
+            )
+
+        lines = [f"💠 <b>{_esc(base)}/USDT — реальные цены стаканов</b>", ""]
+        if spot_rows:
+            lines.append("<b>Спот — цена покупки (ask):</b>")
+            lines += spot_rows
+        if fut_rows:
+            lines.append("")
+            lines.append("<b>Фьючерсы — цена продажи (bid):</b>")
+            lines += fut_rows
+        return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -812,6 +1000,7 @@ def format_signal_message(
         f"{settings.futures_taker_fee_percent:.2f}% фьючерс",
         f"💧 Глубина (лучшая цена): спот ≥ {_fmt_usd(o.spot_notional_usd)} · "
         f"фьючерс ≥ {_fmt_usd(o.futures_notional_usd)}",
+        f"📡 Возраст котировок: ≤ {o.data_age_seconds:.0f}с",
         f"🔁 Схема: long спот / short перп. (хедж)",
     ]
     if alternatives:
@@ -839,10 +1028,12 @@ def format_startup_message(
     dead_labels: Optional[list[str]] = None,
 ) -> str:
     mode = "WebSocket + REST-fallback" if settings.use_websocket else "REST-опрос"
-    source = (
-        ", ".join(settings.symbols) if settings.symbols
-        else f"авто-подбор: топ-{len(bases)} по объёму торгов"
-    )
+    if settings.symbols:
+        source = ", ".join(settings.symbols)
+    elif settings.top_symbols_limit > 0:
+        source = f"топ-{settings.top_symbols_limit} по объёму торгов"
+    else:
+        source = "все поддерживаемые монеты"
     lines = [
         "✅ <b>Сканер арбитражных связок запущен</b>",
         "",
@@ -880,4 +1071,39 @@ def format_heartbeat_message(scanner: ArbitrageScanner) -> str:
         f"📡 Свежих стаканов: {fresh}/{total}",
         f"🔥 Лучший чистый спред сейчас: {best}",
         f"⏳ Пар в кулдауне: {active_cooldowns}",
+    ])
+
+
+def format_status_message(scanner: ArbitrageScanner) -> str:
+    """Подробный статус по команде /status: heartbeat + состояние бирж."""
+    header = format_heartbeat_message(scanner)
+    side_lines = ["", "🏦 <b>Биржи:</b>"]
+    for side in scanner.spot_sides + scanner.futures_sides:
+        if side.alive:
+            fresh, total = side.fresh_quotes_count()
+            mode = "WS" if side.mode == "ws" else "REST"
+            side_lines.append(
+                f"   ✅ {_esc(side.label)}: {len(side.symbols)} пар, режим {mode}, "
+                f"свежих {fresh}/{total}"
+            )
+        else:
+            side_lines.append(f"   ❌ {_esc(side.label)}: недоступна")
+    return "\n".join([header] + side_lines)
+
+
+def format_help_message(settings: Settings) -> str:
+    return "\n".join([
+        "🤖 <b>Сканер арбитражных связок (Spot → Futures)</b>",
+        "",
+        "Слежу за стаканами бирж в реальном времени и сам присылаю сигнал, "
+        f"как только чистый спред ≥ {settings.min_spread_percent:.2f}% "
+        f"(после комиссий {settings.total_fee_percent:.2f}%).",
+        "",
+        "<b>Команды:</b>",
+        "/top — топ чистых спредов прямо сейчас",
+        "/status — статус бота и доступность бирж",
+        "/price BTC — реальные bid/ask пары на всех биржах",
+        "/help — эта справка",
+        "",
+        "Или просто нажмите кнопку ниже 👇",
     ])

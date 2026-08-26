@@ -135,7 +135,9 @@ class Settings:
     # --- Набор инструментов -------------------------------------------------
     symbols: tuple[str, ...] = ()            # SYMBOLS: BTC,ETH,... (пусто = авто)
     auto_discover_symbols: bool = True       # AUTO_DISCOVER_SYMBOLS
-    top_symbols_limit: int = 30              # TOP_SYMBOLS
+    # 0 = ВСЕ поддерживаемые монеты (спот на ≥1 бирже + перп на ≥1 бирже);
+    # N > 0 = только топ-N по объёму торгов с reference-биржи.
+    top_symbols_limit: int = 0               # TOP_SYMBOLS
 
     # --- Биржи и сбор данных ------------------------------------------------
     exchanges: tuple[str, ...] = SUPPORTED_EXCHANGES  # EXCHANGES: mexc,bybit,...
@@ -143,7 +145,7 @@ class Settings:
     ws_fails_before_fallback: int = 10       # WS_FAILS_BEFORE_REST_FALLBACK
     order_book_depth: int = 5                # ORDER_BOOK_DEPTH (уровней в REST-запросе)
     rest_poll_interval_seconds: float = 3.0  # REST_POLL_INTERVAL_SECONDS (между кругами)
-    rest_throttle_seconds: float = 0.1       # REST_THROTTLE_SECONDS (между запросами)
+    rest_throttle_seconds: float = 0.05      # REST_THROTTLE_SECONDS (между запросами)
     book_max_age_seconds: float = 45.0       # BOOK_MAX_AGE_SECONDS (свежесть стакана)
 
     # --- Служебное ----------------------------------------------------------
@@ -212,7 +214,7 @@ class Settings:
             allow_same_exchange=_env_bool("ALLOW_SAME_EXCHANGE", False),
             symbols=symbols,
             auto_discover_symbols=_env_bool("AUTO_DISCOVER_SYMBOLS", True),
-            top_symbols_limit=_env_int("TOP_SYMBOLS", 30, minimum=1),
+            top_symbols_limit=_env_int("TOP_SYMBOLS", 0, minimum=0),
             exchanges=exchanges,
             use_websocket=_env_bool("USE_WEBSOCKET", True),
             ws_fails_before_fallback=_env_int("WS_FAILS_BEFORE_REST_FALLBACK", 10, minimum=1),
@@ -240,11 +242,12 @@ class Settings:
             f"{self.futures_taker_fee_percent:.2f}% futures = {self.total_fee_percent:.2f}%"
         )
         mode = "WebSocket + REST-fallback" if self.use_websocket else "только REST (polling)"
-        sources = ", ".join(self.symbols) if self.symbols else (
-            f"авто-подбор топ-{self.top_symbols_limit} по объёму торгов"
-            if self.auto_discover_symbols
-            else f"резервный список ({len(FALLBACK_BASES)} монет)"
-        )
+        if self.symbols:
+            sources = ", ".join(self.symbols)
+        elif self.top_symbols_limit > 0:
+            sources = f"авто-подбор топ-{self.top_symbols_limit} по объёму торгов"
+        else:
+            sources = "ВСЕ поддерживаемые монеты (спот × фьючерсы по всем биржам)"
         return (
             "Конфигурация:\n"
             f"  Биржи:            {', '.join(e.upper() for e in self.exchanges)}\n"

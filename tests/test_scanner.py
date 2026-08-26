@@ -30,7 +30,11 @@ from scanner import (                                              # noqa: E402
     format_signal_message,
     format_startup_message,
 )
-from telegram_bot import TelegramNotifier                          # noqa: E402
+from telegram_bot import (                                         # noqa: E402
+    MAIN_MENU_KEYBOARD,
+    TelegramCommandListener,
+    TelegramNotifier,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +98,7 @@ class FakeNotifier:
     async def close(self):
         pass
 
-    async def send_html(self, html: str) -> bool:
+    async def send_html(self, html: str, reply_markup: dict | None = None) -> bool:
         if self.deliver:
             self.messages.append(html)
         return self.deliver
@@ -406,7 +410,7 @@ class StubWatchExchange:
         self.fetch_calls = 0
         self.raise_not_supported = raise_not_supported
 
-    async def watch_order_book(self, symbol):
+    async def watch_order_book(self, symbol, limit=None):
         self.watch_calls += 1
         if self.raise_not_supported:
             raise ccxt.NotSupported("watch_order_book not supported")
@@ -480,6 +484,268 @@ class TestFeedResilience(unittest.TestCase):
         """Без ccxt-инстанса (offline-тесты) сторона стартует в REST-режиме."""
         side = make_side("mexc", "spot", {})
         self.assertEqual(side.mode, "rest")
+
+
+# ---------------------------------------------------------------------------
+# Интерактивные команды Telegram: маршрутизация и обработчики
+# ---------------------------------------------------------------------------
+
+class FakeCommandTransport:
+    """Стаб Telegram-транспорта для тестирования приёма команд."""
+
+    def __init__(self):
+        self.sent: list[tuple[str, str]] = []
+        self.answered: list[tuple] = []
+
+    async def send_html_to_chat(self, chat_id, html, reply_markup=None):
+        self.sent.append((chat_id, html))
+        return True
+
+    async def answer_callback_query(self, callback_query_id, text=None):
+        self.answered.append((callback_query_id, text))
+
+
+class RecordingHandler:
+    def __init__(self, name="cmd"):
+        self.name = name
+        self.calls: list[tuple[str, str]] = []
+
+    async def __call__(self, chat_id: str, args: str):
+        self.calls.append((chat_id, args))
+        return f"ответ {self.name}({args})"
+
+
+def make_listener(transport, handlers, allowed=("111",)):
+    return TelegramCommandListener(transport, handlers, allowed)
+
+
+def message_update(update_id: int, chat_id: int, text: str) -> dict:
+    return {"update_id": update_id, "message": {"chat": {"id": chat_id}, "text": text}}
+
+
+def callback_update(update_id: int, chat_id: int, data: str) -> dict:
+    return {
+        "update_id": update_id,
+        "callback_query": {"id": "cbq1", "data": data, "message": {"chat": {"id": chat_id}}},
+    }
+
+
+class TestCommandRouting(unittest.TestCase):
+    def test_command_message_dispatch(self):
+        transport = FakeCommandTransport()
+        status_handler = RecordingHandler("status")
+        listener = make_listener(transport, {"status": status_handler})
+
+        asyncio.run(listener._dispatch(message_update(1, 111, "/status")))
+        self.assertEqual(status_handler.calls, [("111", "")])
+        self.assertEqual(len(transport.sent), 1)
+        self.assertEqual(transport.sent[0][0], "111")
+        self.assertIn("ответ status", transport.sent[0][1])
+
+    def test_command_with_args_and_bot_suffix(self):
+        """/price@MyBot BTC → обработчик price с аргументом BTC."""
+        transport = FakeCommandTransport()
+        price_handler = RecordingHandler("price")
+        listener = make_listener(transport, {"price": price_handler})
+
+        asyncio.run(listener._dispatch(message_update(1, 111, "/price@MyBot BTC")))
+        self.assertEqual(price_handler.calls, [("111", "BTC")])
+
+    def test_callback_button_dispatch(self):
+        transport = FakeCommandTransport()
+        top_handler = RecordingHandler("top")
+        listener = make_listener(transport, {"top": top_handler})
+
+        asyncio.run(listener._dispatch(callback_update(1, 111, "top")))
+        self.assertEqual(top_handler.calls, [("111", "")])
+        self.assertEqual(transport.answered, [("cbq1", None)])  # кнопка подтверждена
+        self.assertEqual(len(transport.sent), 1)
+
+    def test_callback_with_argument(self):
+        transport = FakeCommandTransport()
+        price_handler = RecordingHandler("price")
+        listener = make_listener(transport, {"price": price_handler})
+
+        asyncio.run(listener._dispatch(callback_update(1, 111, "price:ETH")))
+        self.assertEqual(price_handler.calls, [("111", "ETH")])
+
+    def test_unauthorized_chat_ignored(self):
+        transport = FakeCommandTransport()
+        status_handler = RecordingHandler("status")
+        listener = make_listener(transport, {"status": status_handler})
+
+        asyncio.run(listener._dispatch(message_update(1, 999, "/status")))
+        self.assertEqual(status_handler.calls, [])
+        self.assertEqual(transport.sent, [])
+
+    def test_unauthorized_callback_denied(self):
+        transport = FakeCommandTransport()
+        top_handler = RecordingHandler("top")
+        listener = make_listener(transport, {"top": top_handler})
+
+        asyncio.run(listener._dispatch(callback_update(1, 999, "top")))
+        self.assertEqual(top_handler.calls, [])
+        self.assertEqual(transport.sent, [])
+        self.assertIn("Нет доступа", str(transport.answered))
+
+    def test_plain_text_ignored(self):
+        transport = FakeCommandTransport()
+        help_handler = RecordingHandler("help")
+        listener = make_listener(transport, {"help": help_handler})
+
+        asyncio.run(listener._dispatch(message_update(1, 111, "привет, как дела?")))
+        self.assertEqual(help_handler.calls, [])
+        self.assertEqual(transport.sent, [])
+
+    def test_unknown_command_falls_back_to_help(self):
+        transport = FakeCommandTransport()
+        help_handler = RecordingHandler("help")
+        listener = make_listener(transport, {"help": help_handler})
+
+        asyncio.run(listener._dispatch(message_update(1, 111, "/абракадабра")))
+        self.assertEqual(help_handler.calls, [("111", "")])
+
+    def test_handler_exception_returns_friendly_error(self):
+        transport = FakeCommandTransport()
+
+        async def broken(chat_id, args):
+            raise RuntimeError("boom")
+
+        listener = make_listener(transport, {"status": broken})
+        asyncio.run(listener._dispatch(message_update(1, 111, "/status")))
+        self.assertEqual(len(transport.sent), 1)
+        self.assertIn("Не удалось выполнить команду", transport.sent[0][1])
+
+    def test_command_parsing(self):
+        parse = TelegramCommandListener._parse_command
+        self.assertEqual(parse("/top"), ("top", ""))
+        self.assertEqual(parse("/price BTC"), ("price", "BTC"))
+        self.assertEqual(parse("/PRICE btc eth"), ("price", "btc eth"))
+        self.assertEqual(parse("/status@arb_scanner_bot"), ("status", ""))
+
+
+class TestCommandHandlers(unittest.TestCase):
+    """Обработчики команд отдают реальные данные из кэша стаканов."""
+
+    def _scanner(self, **settings_overrides) -> ArbitrageScanner:
+        settings = make_settings(**settings_overrides)
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99.0, ask=100.0)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103.0, ask=104.0)})
+        return make_scanner(settings, [spot], [fut], FakeNotifier())
+
+    def test_top_command_shows_real_spreads(self):
+        scanner = self._scanner()
+        message = asyncio.run(scanner._cmd_top("111", ""))
+        self.assertIn("BTC", message)
+        self.assertIn("+2.85%", message)      # реальный расчёт по котировкам
+        self.assertIn("MEXC", message)
+        self.assertIn("Bybit", message)
+        self.assertIn("🔥", message)          # спред над порогом 2.0%
+
+    def test_top_command_below_threshold_still_listed(self):
+        scanner = self._scanner(min_spread_percent=10.0)
+        message = asyncio.run(scanner._cmd_top("111", ""))
+        self.assertIn("+2.85%", message)      # /top показывает всё
+        self.assertNotIn("🔥", message)       # но помечает, что порог не пройден
+
+    def test_price_command_shows_real_quotes(self):
+        scanner = self._scanner()
+        message = asyncio.run(scanner._cmd_price("111", "btc"))  # регистронезависимо
+        self.assertIn("BTC/USDT", message)
+        self.assertIn("MEXC", message)
+        self.assertIn("Bybit", message)
+        self.assertIn("100.0000", message)    # реальный ask со стакана
+        self.assertIn("103.0000", message)    # реальный bid со стакана
+
+    def test_price_command_unknown_base(self):
+        scanner = self._scanner()
+        message = asyncio.run(scanner._cmd_price("111", "NOSUCHCOIN"))
+        self.assertIn("нет свежих данных", message)
+
+    def test_status_command(self):
+        scanner = self._scanner()
+        message = asyncio.run(scanner._cmd_status("111", ""))
+        self.assertIn("Аптайм", message)
+        self.assertIn("MEXC spot", message)
+        self.assertIn("Bybit futures", message)
+        self.assertIn("✅", message)
+
+    def test_help_command(self):
+        scanner = self._scanner()
+        message = asyncio.run(scanner._cmd_help("111", ""))
+        for command in ("/top", "/status", "/price", "/help"):
+            self.assertIn(command, message)
+
+    def test_handlers_registry(self):
+        scanner = self._scanner()
+        handlers = scanner.telegram_handlers()
+        for name in ("start", "help", "status", "top", "spreads", "price"):
+            self.assertIn(name, handlers)
+
+
+# ---------------------------------------------------------------------------
+# Режим «все монеты» и свежесть данных
+# ---------------------------------------------------------------------------
+
+class TestAllCoinsMode(unittest.TestCase):
+    def test_resolve_bases_returns_all_supported(self):
+        """TOP_SYMBOLS=0 (дефолт): сканируются ВСЕ поддерживаемые монеты."""
+        settings = make_settings(top_symbols_limit=0)
+        spot = make_side("mexc", "spot", {
+            "BTC": make_quote(bid=99, ask=100),
+            "PEPE": make_quote(bid=0.0001, ask=0.00011),
+            "XYZ": make_quote(bid=1, ask=1),  # есть только на споте — не сканируется
+        })
+        fut = make_side("bybit", "futures", {
+            "BTC": make_quote(bid=103, ask=104),
+            "PEPE": make_quote(bid=0.000115, ask=0.000116),
+        })
+        scanner = make_scanner(settings, [spot], [fut], FakeNotifier())
+        bases = asyncio.run(scanner._resolve_bases())
+        self.assertEqual(set(bases), {"BTC", "PEPE"})
+
+    def test_resolve_bases_fallback_list_when_no_intersection(self):
+        """Нет пересечений вообще — используется резервный список (фильтруется)."""
+        settings = make_settings(top_symbols_limit=0)
+        spot = make_side("mexc", "spot", {"XYZONLYSPOT": make_quote(bid=1, ask=1)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=2, ask=3)})
+        scanner = make_scanner(settings, [spot], [fut], FakeNotifier())
+        bases = asyncio.run(scanner._resolve_bases())
+        # BTC из резервного списка поддержан фьючерсами Bybit? нет спота → пусто
+        # FALLBACK_BASES отфильтруется по факту: спот-сторон с этими базами нет.
+        self.assertEqual(bases, [])
+
+    def test_rest_mode_long_round_extends_quote_validity(self):
+        """REST-круг по тысячам монет длинный — котировки не «протухают» раньше времени."""
+        settings = make_settings(book_max_age_seconds=45.0)
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100, age_seconds=150)})
+        spot.mode = "rest"
+        spot.last_round_seconds = 120.0  # эффективный возраст = 2*120+10 = 250с
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=110, ask=111)})
+        scanner = make_scanner(settings, [spot], [fut], FakeNotifier())
+        self.assertGreaterEqual(spot.effective_book_max_age(), 250.0)
+        pairs = scanner._evaluate()
+        self.assertEqual(len(pairs), 1)  # котировка 150с всё ещё валидна
+
+    def test_ws_mode_uses_plain_book_max_age(self):
+        settings = make_settings(book_max_age_seconds=45.0)
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100, age_seconds=60)})
+        spot.mode = "ws"
+        spot.last_round_seconds = 0.0
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=110, ask=111)})
+        scanner = make_scanner(settings, [spot], [fut], FakeNotifier())
+        self.assertEqual(spot.effective_book_max_age(), 45.0)
+        self.assertEqual(scanner._evaluate(), [])  # 60с > 45с — котировка устарела
+
+    def test_opportunity_carries_data_age(self):
+        settings = make_settings()
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100, age_seconds=10)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=110, ask=111)})
+        scanner = make_scanner(settings, [spot], [fut], FakeNotifier())
+        best, _ = scanner._evaluate()[0]
+        self.assertGreaterEqual(best.data_age_seconds, 10.0)
+        message = format_signal_message(best, [], settings, cooldown_until=0.0)
+        self.assertIn("Возраст котировок", message)
 
 
 if __name__ == "__main__":
