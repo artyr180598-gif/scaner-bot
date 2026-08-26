@@ -40,26 +40,30 @@ DEFAULT_MAX_RETRIES = 3
 CommandHandler = Callable[[str, str], Awaitable[Optional[str]]]
 
 #: Главное inline-меню — крепится к сигналам и ответам на команды.
-#: Профессиональное меню: топ, цены, калькулятор, гайд, биржи.
+#: Сигналы только по запросу: топ, сигнал, монеты, funding, калькулятор.
 MAIN_MENU_KEYBOARD: dict[str, Any] = {
     "inline_keyboard": [
         [
             {"text": "📊 Топ спредов", "callback_data": "top"},
-            {"text": "🩺 Статус", "callback_data": "status"},
+            {"text": "🎯 Лучший сигнал", "callback_data": "signal"},
         ],
         [
-            {"text": "💠 Цена BTC", "callback_data": "price:BTC"},
-            {"text": "💠 Цена ETH", "callback_data": "price:ETH"},
-            {"text": "💠 SOL", "callback_data": "price:SOL"},
+            {"text": "🪙 Монеты", "callback_data": "coins"},
+            {"text": "💠 Разбор BTC", "callback_data": "price:BTC"},
+            {"text": "💠 Разбор ETH", "callback_data": "price:ETH"},
         ],
         [
+            {"text": "💰 Funding BTC", "callback_data": "funding:BTC"},
             {"text": "🧮 Кальк BTC $1000", "callback_data": "calc:BTC 1000"},
-            {"text": "🧮 Кальк ETH $1000", "callback_data": "calc:ETH 1000"},
+        ],
+        [
+            {"text": "📩 События", "callback_data": "signals"},
+            {"text": "🏦 Биржи", "callback_data": "exchanges"},
         ],
         [
             {"text": "📚 Гайд", "callback_data": "guide"},
             {"text": "🧠 Стратегия", "callback_data": "strategy"},
-            {"text": "🏦 Биржи", "callback_data": "exchanges"},
+            {"text": "🩺 Статус", "callback_data": "status"},
         ],
         [
             {"text": "❓ Помощь", "callback_data": "help"},
