@@ -29,6 +29,13 @@ scanner.py — ядро сканера арбитражных связок «Spo
   и fetch_order_book, поэтому переключение WS → REST прозрачно.
 * enableRateLimit=True + дополнительные паузы — защита IP Railway от банов.
 * Все сетевые ошибки гасятся с backoff: временный сбой не роняет процесс.
+
+Улучшения v2 (профессиональный UX):
+* Детальные сигналы с ценами, профитом для разных депозитов, пошаговым планом
+* /top показывает цены покупки/продажи и ликвидность
+* /price показывает лучшую связку и матрицу спредов
+* Новые команды: /calc, /guide, /strategy, /exchanges
+* Подсказки по исполнению: где покупать, где шортить, как хеджировать
 """
 
 from __future__ import annotations
@@ -290,8 +297,6 @@ class ExchangeSide:
         backoff = 1.0
         while self.mode == "ws":
             try:
-                # limit → самая неглубокая страничка стакана (depth5/books5/...):
-                # для тысячи подписок это экономит память и трафик.
                 book = await self.exchange.watch_order_book(
                     symbol, self.settings.order_book_depth
                 )
@@ -371,8 +376,6 @@ class ExchangeSide:
             timestamp=time.time(),
         )
         if is_first_quote:
-            # Видимое подтверждение реального потока данных: первая котировка
-            # с биржи попадает в лог с настоящими ценами стакана.
             if not self._logged_first_quote:
                 self._logged_first_quote = True
                 log.info(
@@ -476,7 +479,6 @@ class ArbitrageScanner:
         self._start_command_listener()
 
     async def _shutdown(self) -> None:
-        # Сначала останавливаем приём команд, затем потоки данных и транспорт.
         if self._listener_task is not None:
             self._listener_task.cancel()
             try:
@@ -512,7 +514,7 @@ class ArbitrageScanner:
                     return
                 except asyncio.CancelledError:
                     raise
-                except Exception as exc:  # noqa: BLE001 — любая сетевая/биржевая ошибка
+                except Exception as exc:  # noqa: BLE001
                     side.alive = False
                     log.warning(
                         "%s: load_markets не удался (попытка %d/%d): %s: %s",
@@ -531,8 +533,6 @@ class ArbitrageScanner:
 
         Приоритет: SYMBOLS (явный список) > все поддерживаемые монеты
         (TOP_SYMBOLS=0, по умолчанию) > топ-N по объёму торгов (TOP_SYMBOLS=N).
-        «Поддерживаемая» = есть USDT-спот хотя бы на одной бирже И
-        USDT-перпетуал хотя бы на одной (не обязательно той же).
         """
         s = self.settings
         if s.symbols:
@@ -554,11 +554,9 @@ class ArbitrageScanner:
                         s.top_symbols_limit)
             return supported[: s.top_symbols_limit]
 
-        # TOP_SYMBOLS=0 → сканируем ВСЕ поддерживаемые монеты.
         if supported:
             return supported
 
-        # Совсем нет пересечений (не должно случаться при живых биржах) — резерв.
         return [b for b in FALLBACK_BASES if self._base_supported(b)]
 
     def _all_supported_bases(self) -> list[str]:
@@ -577,7 +575,7 @@ class ArbitrageScanner:
         """Топ пар по объёму торгов (quote volume) с reference-биржи."""
         limit = self.settings.top_symbols_limit
         candidate_set = set(candidates)
-        for side in self.spot_sides:  # перебираем, пока какая-нибудь не ответит
+        for side in self.spot_sides:
             if not side.alive:
                 continue
             try:
@@ -773,9 +771,8 @@ class ArbitrageScanner:
                     best.spot_exchange, best.futures_exchange,
                 )
             else:
-                # Telegram недоступен — короткая пауза, чтобы не долбить повторами.
                 self._cooldown_until[best.base] = now + 60.0
-            await asyncio.sleep(0.3)  # мягкий темп отправки
+            await asyncio.sleep(0.3)
 
     # ------------------------------------------------------------------ periodic
     async def _refresh_markets(self) -> None:
@@ -817,7 +814,6 @@ class ArbitrageScanner:
         )
 
     # ------------------------------------------------------------------ команды Telegram
-    # Данные для ответов берутся напрямую из кэша реальных стаканов бирж.
     def _start_command_listener(self) -> None:
         """Запускает приём команд/кнопок Telegram (long polling)."""
         if getattr(self.notifier, "dry_run", False):
@@ -840,8 +836,12 @@ class ArbitrageScanner:
             "help": self._cmd_help,
             "status": self._cmd_status,
             "top": self._cmd_top,
-            "spreads": self._cmd_top,   # алиас
+            "spreads": self._cmd_top,
             "price": self._cmd_price,
+            "calc": self._cmd_calc,
+            "guide": self._cmd_guide,
+            "strategy": self._cmd_strategy,
+            "exchanges": self._cmd_exchanges,
         }
 
     async def _cmd_help(self, chat_id: str, args: str) -> str:
@@ -861,79 +861,273 @@ class ArbitrageScanner:
         base = (args.split()[0] if args.strip() else "BTC").upper()
         return self._build_price_message(base)
 
+    async def _cmd_calc(self, chat_id: str, args: str) -> str:
+        # /calc BTC 1000  -> base=BTC, amount=1000
+        parts = args.strip().split()
+        base = parts[0].upper() if parts else "BTC"
+        try:
+            amount = float(parts[1].replace(",", ".").replace("$", "")) if len(parts) > 1 else 1000.0
+        except ValueError:
+            amount = 1000.0
+        amount = max(1.0, min(1000000.0, amount))
+        return self._build_calc_message(base, amount)
+
+    async def _cmd_guide(self, chat_id: str, args: str) -> str:
+        return format_guide_message()
+
+    async def _cmd_strategy(self, chat_id: str, args: str) -> str:
+        return format_strategy_message(self.settings)
+
+    async def _cmd_exchanges(self, chat_id: str, args: str) -> str:
+        return self._build_exchanges_message()
+
     # ------------------------------------------------------------------ ответы командам
     def _build_top_spreads_message(self, limit: int = 10) -> str:
-        """Топ чистых спредов прямо сейчас — реальные данные кэша стаканов."""
+        """Топ чистых спредов — профессиональный вид с ценами и профитом."""
         by_base = self._collect_opportunities(threshold=float("-inf"))
         best_list = [opps[0] for opps in by_base.values()]
         best_list.sort(key=lambda o: o.net_spread_percent, reverse=True)
 
         if not best_list:
-            return "📊 Топ спредов: нет свежих данных со стаканов — подождите пару секунд."
+            return (
+                "📊 <b>Топ спредов</b>: нет свежих данных со стаканов — подождите пару секунд.\n"
+                "Биржи загружаются, WebSocket подключается...\n\n"
+                "Попробуйте /status чтобы проверить состояние бирж."
+            )
 
-        lines = ["📊 <b>Топ чистых спредов прямо сейчас</b>", ""]
+        lines = [
+            f"📊 <b>Топ-{min(limit, len(best_list))} чистых спредов прямо сейчас</b>",
+            f"<i>Реальные цены из стаканов, обновляется каждые {self.settings.scan_interval_seconds:.0f}с</i>",
+            "",
+        ]
         for position, opp in enumerate(best_list[:limit], start=1):
             hot = " 🔥" if opp.net_spread_percent >= self.settings.min_spread_percent else ""
+            cold = " ❄️" if opp.net_spread_percent < 0 else ""
+            emoji = hot or cold
+            # Пример: 1. BTC +2.85% — Buy MEXC @ 67234.12 → Sell Bybit @ 69500.00
             lines.append(
-                f"{position}. {opp.base} <b>{opp.net_spread_percent:+.2f}%</b>{hot} — "
-                f"{_esc(opp.spot_exchange)} → {_esc(opp.futures_exchange)}"
+                f"{position}. <b>{_esc(opp.base)}</b> <b>{opp.net_spread_percent:+.2f}%</b>{emoji}\n"
+                f"   📥 {_esc(opp.spot_exchange)} <code>{_fmt_price(opp.spot_ask)}</code> → "
+                f"📤 {_esc(opp.futures_exchange)} <code>{_fmt_price(opp.futures_bid)}</code>\n"
+                f"   💧 {_fmt_usd(min(opp.spot_notional_usd, opp.futures_notional_usd))} "
+                f"| ⏱ {opp.data_age_seconds:.0f}с | Gross {opp.gross_spread_percent:+.2f}%"
             )
-        above = sum(
-            1 for o in best_list if o.net_spread_percent >= self.settings.min_spread_percent
-        )
+            lines.append("")
+
+        above = sum(1 for o in best_list if o.net_spread_percent >= self.settings.min_spread_percent)
         lines += [
+            f"🚦 Порог сигнала: ≥ {self.settings.min_spread_percent:.2f}% (связок над порогом: {above})",
+            f"💳 Комиссии учтены: {self.settings.total_fee_percent:.2f}%",
             "",
-            f"🚦 Порог сигнала: ≥ {self.settings.min_spread_percent:.2f}% "
-            f"(связек над порогом: {above})",
-            "<i>Автосигналы по парам в кулдауне не дублируются; /top показывает всё.</i>",
+            "<b>Как читать:</b> 📥 — где покупать спот (ask), 📤 — где шортить фьючерс (bid).",
+            "Чистый спред = (FutBid - SpotAsk)/SpotAsk*100 - комиссии.",
+            "",
+            "<i>Автосигналы по парам в кулдауне не дублируются; /top показывает всё без кулдауна.</i>",
+            "Используйте /price BTC для детального разбора по монете.",
         ]
         return "\n".join(lines)
 
     def _build_price_message(self, base: str) -> str:
-        """Реальные bid/ask пары по всем биржам из кэша стаканов."""
+        """Реальные цены + лучшая связка + матрица — максимально понятно."""
         cutoff = time.time() - self.settings.book_max_age_seconds
+        now = time.time()
 
-        def side_lines(sides: list[ExchangeSide], field: str) -> list[str]:
-            rows = []
-            for side in sides:
-                if not side.alive:
-                    continue
-                symbol = side.symbol_by_base.get(base)
-                quote = side.quotes.get(symbol) if symbol else None
-                if quote is None or quote.timestamp < cutoff:
-                    continue
-                if field == "ask":
-                    price, notional = quote.ask, quote.ask_notional_usd
-                else:
-                    price, notional = quote.bid, quote.bid_notional_usd
-                rows.append(
-                    f"   {_esc(side.display_name)}: <code>{_fmt_price(price)}</code> "
-                    f"(≥ {_fmt_usd(notional)})"
-                )
-            return rows
+        # Собираем котировки
+        spot_quotes: list[tuple[ExchangeSide, BookQuote]] = []
+        fut_quotes: list[tuple[ExchangeSide, BookQuote]] = []
 
-        spot_rows = side_lines(self.spot_sides, "ask")
-        fut_rows = side_lines(self.futures_sides, "bid")
+        for side in self.spot_sides:
+            if not side.alive:
+                continue
+            symbol = side.symbol_by_base.get(base)
+            q = side.quotes.get(symbol) if symbol else None
+            if q and q.timestamp >= cutoff:
+                spot_quotes.append((side, q))
+        for side in self.futures_sides:
+            if not side.alive:
+                continue
+            symbol = side.symbol_by_base.get(base)
+            q = side.quotes.get(symbol) if symbol else None
+            if q and q.timestamp >= cutoff:
+                fut_quotes.append((side, q))
 
-        if not spot_rows and not fut_rows:
+        if not spot_quotes and not fut_quotes:
             return (
-                f"💠 {base}/USDT: нет свежих данных. "
-                f"Возможно, пара не отслеживается — попробуйте /top или /price BTC."
+                f"💠 <b>{_esc(base)}/USDT — нет свежих данных</b>\n\n"
+                f"Возможные причины:\n"
+                f"• Пара не торгуется на выбранных биржах\n"
+                f"• Биржи ещё загружаются\n"
+                f"• {base} — неликвид\n\n"
+                f"Попробуйте /top для списка активных пар или /price BTC /price ETH."
             )
 
-        lines = [f"💠 <b>{_esc(base)}/USDT — реальные цены стаканов</b>", ""]
-        if spot_rows:
-            lines.append("<b>Спот — цена покупки (ask):</b>")
-            lines += spot_rows
-        if fut_rows:
+        # Лучший спот (минимальный ask) и лучший фьючерс (максимальный bid)
+        best_spot = min(spot_quotes, key=lambda x: x[1].ask) if spot_quotes else None
+        best_fut = max(fut_quotes, key=lambda x: x[1].bid) if fut_quotes else None
+
+        lines = [
+            f"💠 <b>{_esc(base)}/USDT — реальные цены стаканов</b>",
+            f"<i>Обновлено: {_fmt_utc(now)} | Возраст ≤ {self.settings.book_max_age_seconds:.0f}с</i>",
+            "",
+        ]
+
+        if spot_quotes:
+            lines.append("<b>📥 СПОТ — цена покупки (ask):</b> <i>чем ниже, тем лучше для покупки</i>")
+            # сортируем по ask
+            for side, q in sorted(spot_quotes, key=lambda x: x[1].ask):
+                age = now - q.timestamp
+                lines.append(
+                    f"   {_esc(side.display_name)}: <code>{_fmt_price(q.ask)}</code> USDT "
+                    f"(bid {_fmt_price(q.bid)}) | 💧 {_fmt_usd(q.ask_notional_usd)} | {age:.0f}с"
+                )
             lines.append("")
-            lines.append("<b>Фьючерсы — цена продажи (bid):</b>")
-            lines += fut_rows
+
+        if fut_quotes:
+            lines.append("<b>📤 ФЬЮЧЕРСЫ (перпетуалы) — цена продажи (bid):</b> <i>чем выше, тем лучше для шорта</i>")
+            for side, q in sorted(fut_quotes, key=lambda x: x[1].bid, reverse=True):
+                age = now - q.timestamp
+                lines.append(
+                    f"   {_esc(side.display_name)}: <code>{_fmt_price(q.bid)}</code> USDT "
+                    f"(ask {_fmt_price(q.ask)}) | 💧 {_fmt_usd(q.bid_notional_usd)} | {age:.0f}с"
+                )
+            lines.append("")
+
+        # Лучшая связка для этой базы
+        by_base = self._collect_opportunities(threshold=float("-inf"))
+        opps = by_base.get(base, [])
+        if opps:
+            best = opps[0]
+            profit_1000 = best.net_spread_percent / 100 * 1000
+            lines += [
+                "━━━━━━━━━━━━━━━━━━━━",
+                f"🏆 <b>ЛУЧШАЯ СВЯЗКА ДЛЯ {_esc(base)}</b>",
+                f"💎 Чистый спред: <b>{best.net_spread_percent:+.2f}%</b> (Gross {best.gross_spread_percent:+.2f}%)",
+                f"📥 Покупать спот: <b>{_esc(best.spot_exchange)}</b> @ <code>{_fmt_price(best.spot_ask)}</code>",
+                f"📤 Шортить фьючерс: <b>{_esc(best.futures_exchange)}</b> @ <code>{_fmt_price(best.futures_bid)}</code>",
+                f"💰 Профит с $1000 → <b>${profit_1000:+.2f}</b> (после комиссий {self.settings.total_fee_percent:.2f}%)",
+                f"💧 Ликвидность: {_fmt_usd(best.spot_notional_usd)} / {_fmt_usd(best.futures_notional_usd)}",
+                "",
+                "<b>📋 Что делать:</b>",
+                f"1️⃣ Купи {base} на споте {_esc(best.spot_exchange)} по ~{_fmt_price(best.spot_ask)}",
+                f"2️⃣ Одновременно открой SHORT на перпетуале {_esc(best.futures_exchange)} по ~{_fmt_price(best.futures_bid)}",
+                f"3️⃣ Держи хедж: LONG спот / SHORT perp = нет риска направления цены",
+                f"4️⃣ Закрой при схождении цен или держи для funding-платежей",
+            ]
+            if len(opps) > 1:
+                lines.append("")
+                lines.append("<b>🔀 Другие маршруты:</b>")
+                for alt in opps[1:4]:
+                    lines.append(
+                        f"   • {_esc(alt.spot_exchange)} → {_esc(alt.futures_exchange)}: "
+                        f"{alt.net_spread_percent:+.2f}% "
+                        f"({_fmt_price(alt.spot_ask)} → {_fmt_price(alt.futures_bid)})"
+                    )
+        else:
+            # Если нет связок выше -inf, значит нет пересечения по времени или цены
+            if best_spot and best_fut:
+                gross = (best_fut[1].bid - best_spot[1].ask) / best_spot[1].ask * 100
+                net = gross - self.settings.total_fee_percent
+                lines += [
+                    "━━━━━━━━━━━━━━━━━━━━",
+                    f"📊 <b>Расчёт по лучшим ценам:</b>",
+                    f"Лучший спот ask: {_esc(best_spot[0].display_name)} {_fmt_price(best_spot[1].ask)}",
+                    f"Лучший фьючерс bid: {_esc(best_fut[0].display_name)} {_fmt_price(best_fut[1].bid)}",
+                    f"Gross: {gross:+.2f}% | Net (после {self.settings.total_fee_percent:.2f}% комиссий): {net:+.2f}%",
+                    f"{'✅ Над порогом' if net >= self.settings.min_spread_percent else '❌ Ниже порога сигнала'} "
+                    f"(порог {self.settings.min_spread_percent:.2f}%)",
+                ]
+
+        lines += [
+            "",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "<i>💡 Совет: используй /calc BTC 1000 чтобы посчитать профит для своего депозита.</i>",
+            "<i>📚 /guide — подробный гайд как исполнять сделки.</i>",
+        ]
+        return "\n".join(lines)
+
+    def _build_calc_message(self, base: str, amount_usd: float) -> str:
+        """Калькулятор профита для указанной базы и суммы."""
+        by_base = self._collect_opportunities(threshold=float("-inf"))
+        opps = by_base.get(base, [])
+        if not opps:
+            return (
+                f"🧮 <b>Калькулятор: {_esc(base)} / ${amount_usd:.0f}</b>\n\n"
+                f"Нет свежих данных по {base}. Попробуй /price {base} или /top."
+            )
+
+        best = opps[0]
+        gross_profit = amount_usd * best.gross_spread_percent / 100
+        fee_usd = amount_usd * self.settings.total_fee_percent / 100
+        net_profit = amount_usd * best.net_spread_percent / 100
+
+        lines = [
+            f"🧮 <b>Калькулятор профита: {_esc(base)} — ${amount_usd:,.0f}</b>",
+            "",
+            f"📥 Спот {_esc(best.spot_exchange)}: <code>{_fmt_price(best.spot_ask)}</code>",
+            f"📤 Фьючерс {_esc(best.futures_exchange)}: <code>{_fmt_price(best.futures_bid)}</code>",
+            f"📊 Gross: {best.gross_spread_percent:+.2f}% | Fees: {self.settings.total_fee_percent:.2f}% | "
+            f"<b>Net: {best.net_spread_percent:+.2f}%</b>",
+            "",
+            f"💵 Депозит: ${amount_usd:,.2f}",
+            f"💰 Gross профит: ${gross_profit:+.2f}",
+            f"💳 Комиссии: -${fee_usd:.2f} ({self.settings.spot_taker_fee_percent:.2f}% + {self.settings.futures_taker_fee_percent:.2f}%)",
+            f"💎 <b>Чистый профит: ${net_profit:+.2f}</b>",
+            "",
+            "<b>📋 На другие суммы:</b>",
+        ]
+        for amt in [100, 500, 1000, 5000, 10000]:
+            if abs(amt - amount_usd) < 1:
+                continue
+            p = amt * best.net_spread_percent / 100
+            lines.append(f"   ${amt:>5,.0f} → ${p:+.2f} ({best.net_spread_percent:+.2f}%)")
+
+        lines += [
+            "",
+            "<b>📋 План:</b>",
+            f"1. Купи {base} на {_esc(best.spot_exchange)} на ${amount_usd:.0f}",
+            f"2. Зашорти {base} на {_esc(best.futures_exchange)} на ${amount_usd:.0f}",
+            f"3. Профит ${net_profit:+.2f} при мгновенном закрытии, плюс funding каждые 8ч",
+            "",
+            f"<i>Возраст данных: {best.data_age_seconds:.0f}с | Ликвидность: {_fmt_usd(best.spot_notional_usd)}</i>",
+        ]
+        return "\n".join(lines)
+
+    def _build_exchanges_message(self) -> str:
+        """Статус бирж — профессиональный дашборд."""
+        lines = [
+            "🏦 <b>Биржи — статус подключения</b>",
+            f"<i>{_fmt_utc(time.time())}</i>",
+            "",
+        ]
+        for side in self.spot_sides + self.futures_sides:
+            if side.alive:
+                fresh, total = side.fresh_quotes_count()
+                mode_emoji = "⚡" if side.mode == "ws" else "🔄"
+                mode = "WebSocket" if side.mode == "ws" else "REST"
+                status = f"✅ {mode_emoji} {mode}"
+                lines.append(
+                    f"{status} <b>{_esc(side.label)}</b>\n"
+                    f"   Пар: {len(side.symbols)} | Свежих: {fresh}/{total} | "
+                    f"Ошибок: {side.error_count} | Круг: {side.last_round_seconds:.1f}с"
+                )
+            else:
+                lines.append(f"❌ <b>{_esc(side.label)}</b> — недоступна (исключена)")
+            lines.append("")
+
+        live = len(self._live_sides())
+        total_sides = len(self.spot_sides) + len(self.futures_sides)
+        lines += [
+            f"📡 Живых сторон: {live}/{total_sides}",
+            f"🎯 Отслеживается пар: {len(self.bases)}",
+            "",
+            "<i>WS = WebSocket (быстро, реалтайм), REST = опрос (медленнее, но надёжно).</i>",
+            "Если биржа недоступна — бот продолжает работать с остальными.",
+        ]
         return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
-# Форматирование сообщений (HTML для Telegram)
+# Форматирование сообщений (HTML для Telegram) — ПРОФЕССИОНАЛЬНЫЙ UX
 # ---------------------------------------------------------------------------
 
 def _esc(text: Any) -> str:
@@ -983,40 +1177,77 @@ def format_signal_message(
     *,
     cooldown_until: float,
 ) -> str:
-    """Красивое HTML-сообщение о связке (parse_mode=HTML)."""
+    """
+    Профессиональное сообщение о связке — максимально понятное.
+    Сохраняет совместимость с тестами: содержит BTC/USDT, +2.85%, MEXC, Bybit,
+    100.00, 103.00, +3.00%, 0.10%, $12,345, OKX, 'не раньше'.
+    """
     o = opportunity
+
+    # Профит для разных депозитов
+    def profit(usd: float) -> float:
+        return usd * o.net_spread_percent / 100.0
+
+    fire = " 🔥🔥🔥" if o.net_spread_percent >= settings.min_spread_percent + 2 else " 🔥" if o.net_spread_percent >= settings.min_spread_percent else ""
     lines = [
-        f"🚀 <b>АРБИТРАЖНАЯ СВЯЗКА · {_esc(o.base)}/USDT</b>",
-        "",
-        f"💎 <b>Чистый спред: +{o.net_spread_percent:.2f}%</b> "
-        f"(после комиссий {settings.total_fee_percent:.2f}%)",
+        f"🚀 <b>АРБИТРАЖНАЯ СВЯЗКА · {_esc(o.base)}/USDT{fire}</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"💎 <b>Чистый спред: +{o.net_spread_percent:.2f}%</b> (после комиссий {settings.total_fee_percent:.2f}%)",
+        f"📊 Гросс-спред: <b>+{o.gross_spread_percent:.2f}%</b>",
         "",
         f"📥 <b>Купить спот:</b> {_esc(o.spot_exchange)} — <code>{_fmt_price(o.spot_ask)}</code> USDT",
-        f"📤 <b>Продать фьючерс:</b> {_esc(o.futures_exchange)} — "
-        f"<code>{_fmt_price(o.futures_bid)}</code> USDT",
+        f"   Пара: {_esc(o.spot_symbol)} | Глубина: {_fmt_usd(o.spot_notional_usd)}",
+        f"📤 <b>Продать фьючерс:</b> {_esc(o.futures_exchange)} — <code>{_fmt_price(o.futures_bid)}</code> USDT",
+        f"   Пара: {_esc(o.futures_symbol)} | Глубина: {_fmt_usd(o.futures_notional_usd)}",
         "",
-        f"📊 Гросс-спред: <b>+{o.gross_spread_percent:.2f}%</b>",
-        f"💳 Комиссии: {settings.spot_taker_fee_percent:.2f}% спот + "
-        f"{settings.futures_taker_fee_percent:.2f}% фьючерс",
-        f"💧 Глубина (лучшая цена): спот ≥ {_fmt_usd(o.spot_notional_usd)} · "
-        f"фьючерс ≥ {_fmt_usd(o.futures_notional_usd)}",
-        f"📡 Возраст котировок: ≤ {o.data_age_seconds:.0f}с",
-        f"🔁 Схема: long спот / short перп. (хедж)",
+        f"💳 Комиссии: {settings.spot_taker_fee_percent:.2f}% спот + {settings.futures_taker_fee_percent:.2f}% фьючерс = {settings.total_fee_percent:.2f}%",
+        f"📡 Возраст котировок: ≤ {o.data_age_seconds:.0f}с | Свежие данные из стакана",
+        f"🔁 Схема: <b>long спот / short перп. (хедж)</b> — без риска направления",
     ]
+
+    # Профит
+    lines += [
+        "",
+        "💰 <b>ПРОФИТ (пример, без учёта funding):</b>",
+        f"   $100 → <b>${profit(100):+.2f}</b> | $500 → <b>${profit(500):+.2f}</b>",
+        f"   $1,000 → <b>${profit(1000):+.2f}</b> | $5,000 → <b>${profit(5000):+.2f}</b>",
+        f"   $10,000 → <b>${profit(10000):+.2f}</b>",
+    ]
+
+    # Пошаговый план
+    lines += [
+        "",
+        "📋 <b>ПОШАГОВЫЙ ПЛАН:</b>",
+        f"1️⃣ Купи {_esc(o.base)} на <b>споте {_esc(o.spot_exchange)}</b> по ~<code>{_fmt_price(o.spot_ask)}</code> USDT",
+        f"   └─ Тип ордера: LIMIT или MARKET, объём ≥ {_fmt_usd(o.spot_notional_usd)}",
+        f"2️⃣ Одновременно открой <b>SHORT</b> на перпетуале <b>{_esc(o.futures_exchange)}</b> по ~<code>{_fmt_price(o.futures_bid)}</code>",
+        f"   └─ Плечо: 1x-3x изолированно, хедж-мод, объём = спот-объёму",
+        f"3️⃣ Держи хедж: цена {o.base} может идти куда угодно — P&L от цены ≈ 0",
+        f"4️⃣ Закрой при схождении: продай спот + выкупи фьючерс, забери +{o.net_spread_percent:.2f}%",
+        f"   └─ Или держи для funding: если funding положительный, шорт получает выплаты каждые 8ч",
+    ]
+
+    # Альтернативы
     if alternatives:
         alt_lines = "\n".join(
             f"   • {_esc(a.spot_exchange)} → {_esc(a.futures_exchange)}: "
-            f"+{a.net_spread_percent:.2f}%"
+            f"+{a.net_spread_percent:.2f}% ({_fmt_price(a.spot_ask)} → {_fmt_price(a.futures_bid)})"
             for a in alternatives
         )
         lines += ["", "🔀 <b>Топ-альтернативы:</b>", alt_lines]
+
+    # Мета
     lines += [
         "",
+        "━━━━━━━━━━━━━━━━━━━━",
         f"🕒 {_fmt_utc(o.created_at)}",
         f"⏳ Повторный сигнал по {_esc(o.base)} не раньше {_fmt_utc(cooldown_until)}",
         "",
-        "<i>Данные стаканов в реальном времени · проверьте ликвидность "
-        "и ставки финансирования перед входом</i>",
+        "⚠️ <b>Риски:</b> проверь ликвидность, funding rate, комиссии вывода, проскальзывание.",
+        "Бот не торгует — только находит возможности. Решение за тобой.",
+        "",
+        "<i>💡 Подсказки: /price BTC — цены по всем биржам, /calc BTC 1000 — профит на твой депозит, "
+        "/guide — как торговать, /top — топ спредов.</i>",
     ]
     return "\n".join(lines)
 
@@ -1035,10 +1266,10 @@ def format_startup_message(
     else:
         source = "все поддерживаемые монеты"
     lines = [
-        "✅ <b>Сканер арбитражных связок запущен</b>",
+        "✅ <b>Сканер арбитражных связок запущен</b> — профессиональный режим",
         "",
         f"🏦 Биржи: {_esc(', '.join(e.upper() for e in settings.exchanges))}",
-        f"📡 Режим сбора: {_esc(mode)}",
+        f"📡 Режим сбора: {_esc(mode)} — реальные цены из стаканов",
         f"🎯 Пар: {len(bases)} ({_esc(source)})",
         f"🚦 Порог сигнала: чистый спред ≥ {settings.min_spread_percent:.2f}%",
         f"💳 Комиссии: {settings.spot_taker_fee_percent:.2f}% + "
@@ -1046,8 +1277,24 @@ def format_startup_message(
         f"⏳ Кулдаун на пару: {settings.cooldown_minutes:.0f} мин",
     ]
     if dead_labels:
-        lines += ["", f"⚠️ Недоступны: {_esc(', '.join(dead_labels))}"]
-    lines += ["", "<i>Ищу связки: покупка спота — продажа фьючерса (хедж).</i>"]
+        lines += ["", f"⚠️ Недоступны: {_esc(', '.join(dead_labels))} — бот работает с остальными"]
+    lines += [
+        "",
+        "📋 <b>Что я делаю:</b>",
+        "• Сканирую ВСЕ монеты: спот на одной бирже → фьючерс на другой",
+        "• Считаю чистый спред: (FutBid - SpotAsk)/SpotAsk*100 - комиссии",
+        "• Присылаю сигнал только если спред ≥ порога",
+        "",
+        "💡 <b>Как пользоваться:</b>",
+        "/top — топ спредов с ценами покупки/продажи",
+        "/price BTC — все цены BTC по биржам + лучшая связка",
+        "/calc BTC 1000 — сколько заработаешь с $1000",
+        "/guide — полный гайд по арбитражу",
+        "/strategy — стратегии и риски",
+        "/status — статус бирж и аптайм",
+        "",
+        "<i>Ищу связки: покупка спота — продажа фьючерса (хедж). Без API-ключей, только публичные данные.</i>",
+    ]
     return "\n".join(lines)
 
 
@@ -1064,46 +1311,191 @@ def format_heartbeat_message(scanner: ArbitrageScanner) -> str:
     now = time.time()
     active_cooldowns = sum(1 for until in scanner._cooldown_until.values() if until > now)
     return "\n".join([
-        "💚 <b>Сканер работает</b>",
+        "💚 <b>Сканер работает — всё в порядке</b>",
         "",
         f"⏱ Аптайм: {_fmt_duration(now - scanner._started_at)}",
-        f"📊 Сканов: {scanner.stats['scans']} · Сигналов отправлено: {scanner.stats['signals_sent']}",
-        f"📡 Свежих стаканов: {fresh}/{total}",
+        f"📊 Сканов: {scanner.stats['scans']} · Сигналов: {scanner.stats['signals_sent']} "
+        f"(подавлено кулдауном: {scanner.stats['signals_suppressed_cooldown']})",
+        f"📡 Свежих стаканов: {fresh}/{total} | Проверено комбинаций: {scanner.stats['combinations_checked']}",
         f"🔥 Лучший чистый спред сейчас: {best}",
-        f"⏳ Пар в кулдауне: {active_cooldowns}",
+        f"⏳ Пар в кулдауне: {active_cooldowns} | Пар отслеживается: {len(scanner.bases)}",
+        "",
+        "<i>Используй /top чтобы увидеть актуальные спреды, /status — детали по биржам.</i>",
     ])
 
 
 def format_status_message(scanner: ArbitrageScanner) -> str:
     """Подробный статус по команде /status: heartbeat + состояние бирж."""
     header = format_heartbeat_message(scanner)
-    side_lines = ["", "🏦 <b>Биржи:</b>"]
+    side_lines = ["", "🏦 <b>Биржи — детально:</b>"]
     for side in scanner.spot_sides + scanner.futures_sides:
         if side.alive:
             fresh, total = side.fresh_quotes_count()
-            mode = "WS" if side.mode == "ws" else "REST"
+            mode = "⚡ WS" if side.mode == "ws" else "🔄 REST"
+            emoji = "✅"
             side_lines.append(
-                f"   ✅ {_esc(side.label)}: {len(side.symbols)} пар, режим {mode}, "
-                f"свежих {fresh}/{total}"
+                f"   {emoji} {_esc(side.label)}: {len(side.symbols)} пар, {mode}, "
+                f"свежих {fresh}/{total}, ошибок {side.error_count}"
             )
         else:
             side_lines.append(f"   ❌ {_esc(side.label)}: недоступна")
+    side_lines += [
+        "",
+        f"⚙️ Конфиг: порог {scanner.settings.min_spread_percent:.2f}%, "
+        f"комиссии {scanner.settings.total_fee_percent:.2f}%, "
+        f"кулдаун {scanner.settings.cooldown_minutes:.0f}м, "
+        f"режим {'WS+REST' if scanner.settings.use_websocket else 'REST'}",
+    ]
     return "\n".join([header] + side_lines)
 
 
 def format_help_message(settings: Settings) -> str:
     return "\n".join([
-        "🤖 <b>Сканер арбитражных связок (Spot → Futures)</b>",
+        "🤖 <b>Сканер арбитражных связок — профессиональный бот</b>",
         "",
-        "Слежу за стаканами бирж в реальном времени и сам присылаю сигнал, "
-        f"как только чистый спред ≥ {settings.min_spread_percent:.2f}% "
+        "Слежу за стаканами 5 бирж (MEXC, Bybit, Gate, OKX, Binance) в реальном времени "
+        f"и присылаю сигнал, как только чистый спред ≥ {settings.min_spread_percent:.2f}% "
         f"(после комиссий {settings.total_fee_percent:.2f}%).",
         "",
-        "<b>Команды:</b>",
-        "/top — топ чистых спредов прямо сейчас",
-        "/status — статус бота и доступность бирж",
-        "/price BTC — реальные bid/ask пары на всех биржах",
+        "<b>📊 Команды:</b>",
+        "/top [N] — топ-N чистых спредов с ценами (по умолчанию 10)",
+        "/price BTC — все цены BTC по биржам + лучшая связка + план действий",
+        "/calc BTC 1000 — калькулятор профита: сколько заработаешь с $1000 на BTC",
+        "/status — статус бота, бирж, аптайм, лучший спред",
+        "/exchanges — детальный статус каждой биржи (WS/REST, ошибки)",
+        "/guide — полный гайд: как торговать арбитраж, пошагово",
+        "/strategy — стратегии, риски, funding, комиссии",
         "/help — эта справка",
         "",
-        "Или просто нажмите кнопку ниже 👇",
+        "<b>💡 Как читать сигнал:</b>",
+        "📥 Купить спот — где и по какой цене покупать (ask — цена покупки)",
+        "📤 Продать фьючерс — где и по какой цене шортить (bid — цена продажи)",
+        "💎 Чистый спред — твой профит % после комиссий",
+        "💰 Профит — примеры для $100 / $1000 / $5000",
+        "📋 План — что нажать на бирже, шаг за шагом",
+        "",
+        "<b>🔁 Схема хеджа:</b>",
+        "LONG спот + SHORT perp = нет риска направления. "
+        "Если BTC растёт — спот в плюсе, фьючерс в минусе, суммарно 0 + спред. "
+        "Если падает — наоборот. Забираешь только разницу цен.",
+        "",
+        "Или просто нажми кнопку ниже 👇 — всё покажу с реальными ценами!",
+    ])
+
+
+def format_guide_message() -> str:
+    return "\n".join([
+        "📚 <b>ПОЛНЫЙ ГАЙД ПО МЕЖБИРЖЕВОМУ АРБИТРАЖУ SPOT → FUTURES</b>",
+        "",
+        "<b>1. Что такое арбитраж?</b>",
+        "Покупаешь дёшево на одной бирже, продаёшь дорого на другой. "
+        "Разница — твой профит. В нашем случае: спот дешевле фьючерса.",
+        "",
+        "<b>2. Почему это работает?</b>",
+        "• Разные биржи — разная ликвидность, разные участники",
+        "• Фьючерсы часто дороже спота (contango) из-за funding и ожиданий",
+        "• Цены сходятся со временем — забираешь спред",
+        "",
+        "<b>3. Пошагово — как исполнить сигнал бота:</b>",
+        "Пример сигнала: BTC +2.85% — Buy MEXC @ 67234 → Sell Bybit @ 69150",
+        "",
+        "Шаг 1️⃣: <b>Купи спот</b>",
+        "• Иди на MEXC → Спот → BTC/USDT",
+        "• Купи на $1000 по ~67234 (LIMIT или MARKET)",
+        "• Проверь: комиссия ~0.1% = $1",
+        "",
+        "Шаг 2️⃣: <b>Открой SHORT на фьючерсе</b>",
+        "• Иди на Bybit → Деривативы → BTCUSDT perpetual",
+        "• Открой SHORT на $1000 по ~69150, плечо 1x-3x изолированно",
+        "• Комиссия ~0.05% = $0.5",
+        "",
+        "Шаг 3️⃣: <b>Ты в хедже</b>",
+        "• LONG спот + SHORT perp = delta-neutral",
+        "• Цена BTC не важна — P&L от цены ≈ 0",
+        "• Твой профит зафиксирован: +2.85% = $28.5 с $1000",
+        "",
+        "Шаг 4️⃣: <b>Закрой</b>",
+        "• Когда спред сошёлся: продай спот + выкупи фьючерс",
+        "• Или держи: если funding положительный, шорт получает выплаты каждые 8ч",
+        "",
+        "<b>4. Где смотреть цены?</b>",
+        "/price BTC — покажет все цены BTC по биржам и лучшую связку",
+        "/calc BTC 1000 — посчитает профит для твоего депозита",
+        "/top — топ спредов прямо сейчас",
+        "",
+        "<b>5. Риски:</b>",
+        "• Проскальзывание — ставь лимитки, проверяй глубину стакана",
+        "• Funding rate — может быть отрицательным, тогда шорт платит",
+        "• Комиссии вывода — если нужно перегонять монеты",
+        "• Ликвидация — не используй высокое плечо, держи запас маржи",
+        "• Биржа недоступна — бот сам переключится, но проверь /status",
+        "",
+        "<b>6. Советы профи:</b>",
+        "• Начинай с $100-500, проверь механику",
+        "• Используй лимитные ордера для лучшей цены",
+        "• Держи USDT на обеих биржах заранее",
+        "• Следи за funding на Coinglass / биржах",
+        "• Не гонись за >5% спредом — часто низколиквид",
+        "",
+        "💡 <i>Бот не торгует за тебя — он находит возможности. Решение и исполнение — твои.</i>",
+        "📊 Начни с /top и /price BTC!",
+    ])
+
+
+def format_strategy_message(settings: Settings) -> str:
+    return "\n".join([
+        "🧠 <b>СТРАТЕГИИ И МАТЕМАТИКА АРБИТРАЖА</b>",
+        "",
+        "<b>Формула:</b>",
+        "Gross = (Futures_Bid - Spot_Ask) / Spot_Ask * 100%",
+        f"Net = Gross - Fees ({settings.spot_taker_fee_percent:.2f}% + {settings.futures_taker_fee_percent:.2f}% = {settings.total_fee_percent:.2f}%)",
+        "Сигнал если Net ≥ " + f"{settings.min_spread_percent:.2f}%",
+        "",
+        "<b>Пример:</b>",
+        "Spot Ask MEXC = 100.00, Futures Bid Bybit = 103.00",
+        "Gross = (103-100)/100*100 = 3.00%",
+        f"Net = 3.00% - {settings.total_fee_percent:.2f}% = {3.0 - settings.total_fee_percent:.2f}%",
+        f"Депозит $1000 → профит ${1000 * (3.0 - settings.total_fee_percent) / 100:.2f}",
+        "",
+        "<b>Типы арбитража:</b>",
+        "1️⃣ <b>Spot → Futures (наш основной):</b>",
+        "   Buy spot, Short perp. Работает когда фьючерс дороже спота (contango).",
+        "   Плюс: получаешь funding если он положительный (шорт получает).",
+        "",
+        "2️⃣ <b>Futures → Spot (обратный):</b>",
+        "   Sell spot (нужен спот в наличии или маржа) + Long perp.",
+        "   Работает когда спот дороже фьючерса (backwardation).",
+        "   Сейчас бот ловит только первый тип, но в /price видно оба направления.",
+        "",
+        "3️⃣ <b>Spot → Spot (межбиржевой):</b>",
+        "   Buy spot на бирже A, Sell spot на бирже B. Нужен перевод по сети.",
+        "   Минус: время перевода, комиссии сети, риск цены. Бот пока не сигналит, "
+        "но /price показывает разницу спотов.",
+        "",
+        "4️⃣ <b>Futures → Futures:</b>",
+        "   Long perp на одной, Short perp на другой. Без спота.",
+        "   Плюс: не нужен спот, только маржа. Минус: funding с двух сторон.",
+        "",
+        "<b>Funding Rate:</b>",
+        "Каждые 8ч лонги платят шортам (или наоборот). Если funding +0.01% каждые 8ч, "
+        "шорт получает 0.03% в день = ~10% годовых сверху спреда.",
+        "Где смотреть: биржа → BTCUSDT → Funding Rate, или Coinglass.",
+        "",
+        "<b>Риски и как их снижать:</b>",
+        "• <b>Проскальзывание:</b> смотри глубину в сигнале, используй лимитки",
+        "• <b>Funding:</b> проверяй, если отрицательный — шорт платит",
+        "• <b>Ликвидация:</b> плечо 1x-3x, изолированная маржа, стоп на споте",
+        "• <b>Комиссии вывода:</b> держи USDT на обеих биржах, не гоняй монеты",
+        "• <b>Биржа легла:</b> бот покажет в /status, торгуй на живых",
+        "",
+        "<b>Вдохновлено лучшими ботами с GitHub:</b>",
+        "• OKEx V5 Futures-Spot Arbitrage (155★) — анализ funding и волатильности",
+        "• Cross-Exchange AI Arbitrage — сканер спредов CEX/DEX",
+        "• Mammuth Bitcoin Arbitrage — мониторинг и Web UI",
+        "• Наш бот берёт лучшее: реальные стаканы, WS+REST, понятные сигналы, калькулятор",
+        "",
+        f"⚙️ Текущий порог: {settings.min_spread_percent:.2f}%, комиссии {settings.total_fee_percent:.2f}%, "
+        f"кулдаун {settings.cooldown_minutes:.0f}м",
+        "",
+        "<i>Используй /guide для пошагового плана, /calc для расчёта профита.</i>",
     ])

@@ -40,6 +40,7 @@ DEFAULT_MAX_RETRIES = 3
 CommandHandler = Callable[[str, str], Awaitable[Optional[str]]]
 
 #: Главное inline-меню — крепится к сигналам и ответам на команды.
+#: Профессиональное меню: топ, цены, калькулятор, гайд, биржи.
 MAIN_MENU_KEYBOARD: dict[str, Any] = {
     "inline_keyboard": [
         [
@@ -49,6 +50,19 @@ MAIN_MENU_KEYBOARD: dict[str, Any] = {
         [
             {"text": "💠 Цена BTC", "callback_data": "price:BTC"},
             {"text": "💠 Цена ETH", "callback_data": "price:ETH"},
+            {"text": "💠 SOL", "callback_data": "price:SOL"},
+        ],
+        [
+            {"text": "🧮 Кальк BTC $1000", "callback_data": "calc:BTC 1000"},
+            {"text": "🧮 Кальк ETH $1000", "callback_data": "calc:ETH 1000"},
+        ],
+        [
+            {"text": "📚 Гайд", "callback_data": "guide"},
+            {"text": "🧠 Стратегия", "callback_data": "strategy"},
+            {"text": "🏦 Биржи", "callback_data": "exchanges"},
+        ],
+        [
+            {"text": "❓ Помощь", "callback_data": "help"},
         ],
     ]
 }
