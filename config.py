@@ -5,9 +5,10 @@ config.py — центральная точка конфигурации ска�
 с безопасными значениями по умолчанию. Локально можно использовать .env
 (подхватывается через python-dotenv в main.py).
 
-Основные переменные (см. .env.example для полного списка):
+Ключевые переменные (полный список — в .env.example):
     TELEGRAM_BOT_TOKEN   — токен бота из @BotFather
     CHAT_ID              — ID чата (можно несколько через запятую)
+    SIGNAL_MODE          — on_demand (по умолчанию) | auto
     MIN_SPREAD_PERCENT   — минимальный чистый спред, % (default: 2.0)
     COOLDOWN_MINUTES     — антиспам-пауза на пару, мин (default: 15)
 """
@@ -24,6 +25,9 @@ from typing import Optional
 
 #: Биржи, которые сканер умеет обслуживать (id как в ccxt).
 SUPPORTED_EXCHANGES: tuple[str, ...] = ("mexc", "bybit", "gate", "okx", "binance")
+
+#: Режимы выдачи сигналов.
+SIGNAL_MODES: tuple[str, ...] = ("on_demand", "auto")
 
 #: Дефолтный список ликвидных базовых активов — резерв на случай,
 #: когда авто-подбор топа по объёму торгов недоступен (все reference-биржи молчат).
@@ -109,6 +113,18 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on", "y", "да")
 
 
+def _env_choice(name: str, choices: tuple[str, ...], default: str) -> str:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value not in choices:
+        raise ValueError(
+            f"Переменная {name} должна быть одной из {list(choices)}, получено: {raw!r}"
+        )
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Настройки
 # ---------------------------------------------------------------------------
@@ -121,25 +137,35 @@ class Settings:
     telegram_bot_token: Optional[str] = None
     chat_ids: tuple[str, ...] = ()
 
+    # --- Режим выдачи сигналов ----------------------------------------------
+    # on_demand (по умолчанию) — бот НИЧЕГО не присылает сам, только отвечает
+    # на команды /top, /signal, /coin и т.д. (никакого спама).
+    # auto — бот сам присылает сигнал, когда чистый спред >= порога
+    # (с кулдауном на пару и лимитом сообщений за цикл).
+    signal_mode: str = "on_demand"          # SIGNAL_MODE: on_demand | auto
+    # Прислать одно приветственное сообщение при старте процесса
+    # (Railway перезапускает контейнер при каждом деплое).
+    startup_message: bool = True            # STARTUP_MESSAGE
+
     # --- Фильтр сигналов ----------------------------------------------------
     min_spread_percent: float = 2.0          # MIN_SPREAD_PERCENT (алиас MIN_SPREAD)
     cooldown_minutes: float = 15.0           # COOLDOWN_MINUTES — антиспам на пару
     spot_taker_fee_percent: float = 0.1      # SPOT_TAKER_FEE_PERCENT
     futures_taker_fee_percent: float = 0.05  # FUTURES_TAKER_FEE_PERCENT
     min_notional_usd: float = 0.0            # MIN_NOTIONAL_USD (0 = фильтр выключен)
-    max_signals_per_scan: int = 5            # MAX_SIGNALS_PER_SCAN
+    max_signals_per_scan: int = 5            # MAX_SIGNALS_PER_SCAN (только для auto)
     # По ТЗ спот и фьючерс должны быть на РАЗНЫХ биржах; True включает
     # дополнительно базисные связки «спот+перп на одной бирже».
-    allow_same_exchange: bool = False         # ALLOW_SAME_EXCHANGE
+    allow_same_exchange: bool = False        # ALLOW_SAME_EXCHANGE
 
-    # --- Набор инструментов -------------------------------------------------
+    # --- Инструменты ---------------------------------------------------------
     symbols: tuple[str, ...] = ()            # SYMBOLS: BTC,ETH,... (пусто = авто)
     auto_discover_symbols: bool = True       # AUTO_DISCOVER_SYMBOLS
-    # 0 = ВСЕ поддерживаемые монеты (спот на ≥1 бирже + перп на ≥1 бирже);
+    # 0 = ВСЕ поддерживаемые монеты (спот на >=1 бирже + перп на >=1 бирже);
     # N > 0 = только топ-N по объёму торгов с reference-биржи.
     top_symbols_limit: int = 0               # TOP_SYMBOLS
 
-    # --- Биржи и сбор данных ------------------------------------------------
+    # --- Биржи и сбор данных -------------------------------------------------
     exchanges: tuple[str, ...] = SUPPORTED_EXCHANGES  # EXCHANGES: mexc,bybit,...
     use_websocket: bool = True               # USE_WEBSOCKET (ccxt.pro watch_order_book)
     ws_fails_before_fallback: int = 10       # WS_FAILS_BEFORE_REST_FALLBACK
@@ -147,6 +173,13 @@ class Settings:
     rest_poll_interval_seconds: float = 3.0  # REST_POLL_INTERVAL_SECONDS (между кругами)
     rest_throttle_seconds: float = 0.05      # REST_THROTTLE_SECONDS (между запросами)
     book_max_age_seconds: float = 45.0       # BOOK_MAX_AGE_SECONDS (свежесть стакана)
+
+    # --- Funding-рейты (показ в /funding, /coin, /signal) --------------------
+    funding_enabled: bool = True             # FUNDING_ENABLED
+    funding_cache_minutes: float = 10.0      # FUNDING_CACHE_MINUTES
+
+    # --- Кэши аналитики -------------------------------------------------------
+    volume_cache_minutes: float = 30.0       # VOLUME_CACHE_MINUTES (объёмы для /coins)
 
     # --- Служебное ----------------------------------------------------------
     scan_interval_seconds: float = 5.0       # SCAN_INTERVAL_SECONDS
@@ -205,6 +238,8 @@ class Settings:
         return cls(
             telegram_bot_token=_env_str("TELEGRAM_BOT_TOKEN"),
             chat_ids=tuple(_env_list_str("CHAT_ID")),
+            signal_mode=_env_choice("SIGNAL_MODE", SIGNAL_MODES, "on_demand"),
+            startup_message=_env_bool("STARTUP_MESSAGE", True),
             min_spread_percent=min_spread,
             cooldown_minutes=_env_float("COOLDOWN_MINUTES", 15.0, minimum=0.0),
             spot_taker_fee_percent=_env_float("SPOT_TAKER_FEE_PERCENT", 0.1, minimum=0.0),
@@ -222,6 +257,9 @@ class Settings:
             rest_poll_interval_seconds=_env_float("REST_POLL_INTERVAL_SECONDS", 3.0, minimum=0.0),
             rest_throttle_seconds=_env_float("REST_THROTTLE_SECONDS", 0.1, minimum=0.0),
             book_max_age_seconds=_env_float("BOOK_MAX_AGE_SECONDS", 45.0, minimum=1.0),
+            funding_enabled=_env_bool("FUNDING_ENABLED", True),
+            funding_cache_minutes=_env_float("FUNDING_CACHE_MINUTES", 10.0, minimum=1.0),
+            volume_cache_minutes=_env_float("VOLUME_CACHE_MINUTES", 30.0, minimum=1.0),
             scan_interval_seconds=_env_float("SCAN_INTERVAL_SECONDS", 5.0, minimum=1.0),
             heartbeat_minutes=_env_float("HEARTBEAT_MINUTES", 0.0, minimum=0.0),
             market_refresh_minutes=_env_float("MARKET_REFRESH_MINUTES", 720.0, minimum=10.0),
@@ -235,7 +273,7 @@ class Settings:
         """Человекочитаемое резюме конфигурации для стартового лога."""
         token_state = (
             "OK" if (self.telegram_bot_token and self.chat_ids)
-            else "НЕТ → режим DRY-RUN (сигналы только в логи)"
+            else "НЕТ → режим DRY-RUN (сообщения только в логи)"
         )
         fee_line = (
             f"{self.spot_taker_fee_percent:.2f}% spot + "
@@ -248,14 +286,24 @@ class Settings:
             sources = f"авто-подбор топ-{self.top_symbols_limit} по объёму торгов"
         else:
             sources = "ВСЕ поддерживаемые монеты (спот × фьючерсы по всем биржам)"
+        if self.signal_mode == "on_demand":
+            signal_line = "on_demand — бот НИЧЕГО не присылает сам, только по командам"
+        else:
+            signal_line = (
+                f"auto — сам присылает при спредe >= порога "
+                f"(кулдаун {self.cooldown_minutes:.0f} мин/пара, "
+                f"лимит {self.max_signals_per_scan}/цикл)"
+            )
         return (
             "Конфигурация:\n"
+            f"  Режим сигналов:   {signal_line}\n"
             f"  Биржи:            {', '.join(e.upper() for e in self.exchanges)}\n"
             f"  Источник данных:  {mode}\n"
             f"  Инструменты:      {sources}\n"
             f"  Порог спреда:     {self.min_spread_percent:.2f}% (чистыми)\n"
             f"  Комиссии:         {fee_line}\n"
             f"  Кулдаун сигнала:  {self.cooldown_minutes:.0f} мин на пару\n"
+            f"  Funding-рейты:    {'включены' if self.funding_enabled else 'выключены'}\n"
             f"  Фильтр ликвидности: "
             f"{'выключен' if self.min_notional_usd <= 0 else f'>= ${self.min_notional_usd:,.0f}'}\n"
             f"  Одинаковая биржа (базис): {'разрешена' if self.allow_same_exchange else 'запрещена'}\n"

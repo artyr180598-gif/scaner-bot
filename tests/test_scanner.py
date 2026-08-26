@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import Settings, is_scannable_base                     # noqa: E402
 from scanner import (                                              # noqa: E402
+    DIR_FUT_TO_SPOT,
+    DIR_SPOT_TO_FUT,
     EXCHANGE_REGISTRY,
     ArbitrageScanner,
     BookQuote,
@@ -210,8 +212,10 @@ class TestSpreadEvaluation(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestCooldown(unittest.TestCase):
+    """Кулдауны push-сигналов работают в режиме SIGNAL_MODE=auto."""
+
     def _scanner_with_signal(self, notifier, **settings_overrides):
-        settings = make_settings(**settings_overrides)
+        settings = make_settings(signal_mode="auto", **settings_overrides)
         spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
         fut = make_side("bybit", "futures", {"BTC": make_quote(bid=110, ask=111)})
         return make_scanner(settings, [spot], [fut], notifier)
@@ -258,7 +262,7 @@ class TestCooldown(unittest.TestCase):
 
     def test_max_signals_per_scan(self):
         notifier = FakeNotifier()
-        settings = make_settings(max_signals_per_scan=1)
+        settings = make_settings(signal_mode="auto", max_signals_per_scan=1)
         quotes = {b: make_quote(bid=99, ask=100) for b in ("BTC", "ETH", "SOL")}
         fut_quotes = {b: make_quote(bid=110, ask=111) for b in ("BTC", "ETH", "SOL")}
         scanner = make_scanner(settings, [make_side("mexc", "spot", quotes)],
@@ -746,6 +750,372 @@ class TestAllCoinsMode(unittest.TestCase):
         self.assertGreaterEqual(best.data_age_seconds, 10.0)
         message = format_signal_message(best, [], settings, cooldown_until=0.0)
         self.assertIn("Возраст котировок", message)
+
+
+# ---------------------------------------------------------------------------
+# v2: режим on_demand — никакого спама, сигналы только по запросу
+# ---------------------------------------------------------------------------
+
+class TestOnDemandMode(unittest.TestCase):
+    def _scanner_with_signal(self, notifier, **settings_overrides) -> ArbitrageScanner:
+        # signal_mode по умолчанию = "on_demand"
+        settings = make_settings(**settings_overrides)
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
+        # 103/104 → gross 3.00%, net 2.85% (выше порога 2.0%)
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104)})
+        return make_scanner(settings, [spot], [fut], notifier)
+
+    def test_default_mode_is_on_demand(self):
+        self.assertEqual(make_settings().signal_mode, "on_demand")
+
+    def test_on_demand_process_signals_never_pushes(self):
+        notifier = FakeNotifier()
+        scanner = self._scanner_with_signal(notifier)
+        pairs = scanner._evaluate()
+        self.assertEqual(len(pairs), 1)  # спред 2.85% выше порога 2.0%
+        asyncio.run(scanner._process_signals(pairs))
+        self.assertEqual(len(notifier.messages), 0)  # НИЧЕГО не отправлено
+        self.assertEqual(scanner.stats["signals_sent"], 0)
+
+    def test_on_demand_records_events_without_pushing(self):
+        notifier = FakeNotifier()
+        scanner = self._scanner_with_signal(notifier)
+
+        scanner._record_events(scanner._evaluate())
+        self.assertEqual(len(notifier.messages), 0)
+        self.assertEqual(scanner.stats["events_recorded"], 1)
+
+        # Дубль по той же паре в пределах кулдауна не логируется повторно
+        scanner._record_events(scanner._evaluate())
+        self.assertEqual(scanner.stats["events_recorded"], 1)
+
+        # После истечения кулдауна событие фиксируется снова
+        scanner._event_cooldown_until["BTC"] = time.time() - 1.0
+        scanner._record_events(scanner._evaluate())
+        self.assertEqual(scanner.stats["events_recorded"], 2)
+
+    def test_signals_command_shows_event_log(self):
+        notifier = FakeNotifier()
+        scanner = self._scanner_with_signal(notifier)
+        message = asyncio.run(scanner._cmd_signals("111", ""))
+        self.assertIn("Пока пусто", message)
+
+        scanner._record_events(scanner._evaluate())
+        message = asyncio.run(scanner._cmd_signals("111", ""))
+        for needle in ("BTC", "+2.85%", "MEXC", "Bybit"):
+            self.assertIn(needle, message)
+
+    def test_signal_command_returns_full_breakdown_on_request(self):
+        notifier = FakeNotifier()
+        scanner = self._scanner_with_signal(notifier)
+        message = asyncio.run(scanner._cmd_signal("111", ""))
+        for needle in ("BTC/USDT", "+2.85%", "+3.00%", "MEXC", "Bybit",
+                       "100.00", "103.00", "ПОШАГОВЫЙ ПЛАН"):
+            self.assertIn(needle, message)
+        self.assertEqual(notifier.messages, [])  # и снова — никакого push
+
+    def test_signal_command_unknown_base(self):
+        notifier = FakeNotifier()
+        scanner = self._scanner_with_signal(notifier)
+        message = asyncio.run(scanner._cmd_signal("111", "NOSUCHCOIN"))
+        self.assertIn("нет свежих данных", message)
+
+    def test_top_table_columns(self):
+        notifier = FakeNotifier()
+        scanner = self._scanner_with_signal(notifier)
+        message = asyncio.run(scanner._cmd_top("111", ""))
+        for needle in ("МОНТА", "КУПИТЬ (СПОТ)", "ШОРТ (ПЕРП)", "NET", "ЛИКВ",
+                       "MEXC 100.0000", "Bybit 103.0000"):
+            self.assertIn(needle, message)
+
+    def test_top_fs_reverse_direction(self):
+        notifier = FakeNotifier()
+        scanner = self._scanner_with_signal(notifier)
+        message = asyncio.run(scanner._cmd_top("111", "fs"))
+        self.assertIn("ЛОНГ (ПЕРП)", message)
+        self.assertIn("ПРОДАТЬ (СПОТ)", message)
+        # F>S: (99 − 104)/104 = −4.81% − 0.15% комиссий = −4.96%
+        self.assertIn("-4.96%", message)
+
+    def test_startup_message_mentions_on_demand_mode(self):
+        settings = make_settings()
+        message = format_startup_message(settings, ["BTC"])
+        self.assertIn("ТОЛЬКО ПО ЗАПРОСУ", message)
+
+    def test_startup_message_auto_mode(self):
+        settings = make_settings(signal_mode="auto")
+        message = format_startup_message(settings, ["BTC"])
+        self.assertIn("авто-push", message)
+
+
+# ---------------------------------------------------------------------------
+# Funding-рейты (по запросу, с кэшем)
+# ---------------------------------------------------------------------------
+
+class FundingStubExchange:
+    """Заглушка фьючерсной биржи с funding-рейтом (offline-тест)."""
+
+    def __init__(self, rate: float = 0.0001):
+        self.rate = rate
+        self.markets = {"BTC/USDT:USDT": {"type": "swap", "active": True}}
+        self.calls = 0
+
+    async def fetch_funding_rate(self, symbol, params=None):
+        self.calls += 1
+        return {"fundingRate": self.rate, "symbol": symbol}
+
+    async def close(self):
+        pass
+
+
+class TestFundingRates(unittest.TestCase):
+    def _scanner_with_funding(self, rate: float = 0.0001) -> ArbitrageScanner:
+        settings = make_settings()
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104)})
+        fut.exchange = FundingStubExchange(rate)
+        return make_scanner(settings, [spot], [fut], FakeNotifier())
+
+    def test_funding_command_table(self):
+        scanner = self._scanner_with_funding()
+        message = asyncio.run(scanner._cmd_funding("111", "BTC"))
+        self.assertIn("Bybit", message)
+        self.assertIn("+0.0100%", message)
+        self.assertIn("лонги → шортам", message)
+
+    def test_funding_apr_math(self):
+        # 0.01% за 8ч = 0.03%/день ≈ +10.95% APR
+        scanner = self._scanner_with_funding()
+        message = asyncio.run(scanner._cmd_funding("111", "BTC"))
+        self.assertIn("+10.95%", message)
+
+    def test_funding_cache_prevents_refetch(self):
+        scanner = self._scanner_with_funding()
+        asyncio.run(scanner._get_funding_map("BTC"))
+        calls_first = scanner.futures_sides[0].exchange.calls
+        self.assertEqual(calls_first, 1)
+        asyncio.run(scanner._get_funding_map("BTC"))
+        self.assertEqual(scanner.futures_sides[0].exchange.calls, calls_first)  # из кэша
+
+    def test_price_message_contains_funding(self):
+        scanner = self._scanner_with_funding()
+        message = asyncio.run(scanner._cmd_price("111", "BTC"))
+        self.assertIn("+0.0100%", message)
+
+    def test_signal_message_contains_funding(self):
+        scanner = self._scanner_with_funding()
+        message = asyncio.run(scanner._cmd_signal("111", "BTC"))
+        self.assertIn("Funding Bybit", message)
+        self.assertIn("+0.0100%", message)
+
+    def test_funding_disabled(self):
+        settings = make_settings(funding_enabled=False)
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104)})
+        scanner = make_scanner(settings, [spot], [fut], FakeNotifier())
+        message = asyncio.run(scanner._cmd_funding("111", "BTC"))
+        self.assertIn("отключён", message)
+
+
+# ---------------------------------------------------------------------------
+# Список монет /coins и разбор /coin (столбики, обе стороны)
+# ---------------------------------------------------------------------------
+
+class TestCoinsAndBreakdown(unittest.TestCase):
+    def _scanner_two_coins(self) -> ArbitrageScanner:
+        settings = make_settings()
+        spot = make_side("mexc", "spot", {
+            "BTC": make_quote(bid=99, ask=100),
+            "ETH": make_quote(bid=2000, ask=2005),
+        })
+        fut = make_side("bybit", "futures", {
+            "BTC": make_quote(bid=103, ask=104),
+            "ETH": make_quote(bid=2010, ask=2015),
+        })
+        return make_scanner(settings, [spot], [fut], FakeNotifier())
+
+    def test_coins_command_lists_bases(self):
+        scanner = self._scanner_two_coins()
+        message = asyncio.run(scanner._cmd_coins("111", ""))
+        self.assertIn("МОНЕТЫ", message)
+        self.assertIn("Сканируется 2 пар", message)
+        self.assertIn("BTC", message)
+        self.assertIn("ETH", message)
+        self.assertIn("ОБЪЁМ 24Ч", message)
+
+    def test_coins_spread_column(self):
+        scanner = self._scanner_two_coins()
+        message = asyncio.run(scanner._cmd_coins("111", ""))
+        # BTC: (103−100)/100 − 0.15 = +2.85%; ETH: (2010−2005)/2005 − 0.15 ≈ +0.10%
+        self.assertIn("+2.85%", message)
+        self.assertIn("+0.10%", message)
+
+    def test_price_breakdown_has_all_sections(self):
+        scanner = self._scanner_two_coins()
+        message = asyncio.run(scanner._cmd_price("111", "eth"))
+        for needle in ("СПОТ USDT", "ПЕРПЕТУАЛЫ USDT", "ЛУЧШАЯ СВЯЗКА",
+                       "ПЛАН ДЕЙСТВИЙ", "Обратное направление"):
+            self.assertIn(needle, message)
+        self.assertIn("2,005.00", message)  # реальный ask ETH на MEXC
+
+    def test_opportunity_direction_properties(self):
+        scanner = self._scanner_two_coins()
+        by_base = scanner._collect_opportunities(threshold=float("-inf"))
+        opp = by_base["BTC"][0]
+        self.assertEqual(opp.direction, DIR_SPOT_TO_FUT)
+        self.assertEqual(opp.buy_exchange, "MEXC")
+        self.assertEqual(opp.buy_price, 100.0)
+        self.assertEqual(opp.sell_exchange, "Bybit")
+        self.assertEqual(opp.sell_price, 103.0)
+        by_base_f = scanner._collect_opportunities(
+            threshold=float("-inf"), direction=DIR_FUT_TO_SPOT
+        )
+        opp_f = by_base_f["BTC"][0]
+        self.assertEqual(opp_f.direction, DIR_FUT_TO_SPOT)
+        self.assertEqual(opp_f.buy_exchange, "Bybit")
+        self.assertEqual(opp_f.buy_price, 104.0)
+        self.assertEqual(opp_f.sell_exchange, "MEXC")
+        self.assertEqual(opp_f.sell_price, 99.0)
+
+
+# ---------------------------------------------------------------------------
+# Полный жизненный цикл (startup → фоновый цикл → shutdown) со стабами бирж
+# ---------------------------------------------------------------------------
+
+class StubRestExchange:
+    """Стаб REST-биржи: load_markets + fetch_order_book, без сети."""
+
+    def __init__(self, spot_book=(99.0, 100.0), fut_book=(103.0, 104.0)):
+        self.has = {"watchOrderBook": False}
+        self.markets = {}
+        self._spot_book = spot_book
+        self._fut_book = fut_book
+        self.closed = False
+
+    async def load_markets(self, *args, **kwargs):
+        self.markets = {
+            "BTC/USDT": {"active": True, "quote": "USDT", "base": "BTC", "type": "spot"},
+            "BTC/USDT:USDT": {
+                "active": True, "quote": "USDT", "base": "BTC",
+                "type": "swap", "swap": True, "linear": True, "settle": "USDT",
+            },
+        }
+        return self.markets
+
+    async def fetch_order_book(self, symbol, limit=None):
+        book = self._spot_book if symbol.endswith("/USDT") else self._fut_book
+        bid, ask = book
+        return {"bids": [[bid, 10.0]], "asks": [[ask, 10.0]], "timestamp": 0}
+
+    async def close(self):
+        self.closed = True
+
+
+class ScenarioScanner(ArbitrageScanner):
+    """Сканер с заранее созданными сторонами-стабами (без реального ccxt)."""
+
+    def __init__(self, settings: Settings, notifier, sides):
+        super().__init__(settings, notifier)
+        self._sides = sides
+
+    def _build_sides(self) -> None:
+        for side in self._sides:
+            target = self.spot_sides if side.market_type == "spot" else self.futures_sides
+            target.append(side)
+
+
+class TestFullLifecycle(unittest.TestCase):
+    def _make(self, **overrides):
+        settings = make_settings(
+            scan_interval_seconds=0.2,
+            rest_poll_interval_seconds=0.05,
+            rest_throttle_seconds=0.0,
+            **overrides,
+        )
+        spot = ExchangeSide(settings, EXCHANGE_REGISTRY["mexc"], "spot",
+                            exchange=StubRestExchange())
+        fut = ExchangeSide(settings, EXCHANGE_REGISTRY["bybit"], "futures",
+                           exchange=StubRestExchange())
+        notifier = FakeNotifier()
+        scanner = ScenarioScanner(settings, notifier, [spot, fut])
+        return notifier, scanner
+
+    def test_on_demand_lifecycle_no_spam(self):
+        """on_demand: ровно одно стартовое сообщение, push-сигналов НЕТ."""
+        notifier, scanner = self._make()
+
+        async def scenario():
+            task = asyncio.create_task(scanner.run())
+            await asyncio.sleep(1.2)  # старт + несколько циклов сканирования
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(scenario())
+        self.assertEqual(len(notifier.messages), 1)
+        self.assertIn("ТОЛЬКО ПО ЗАПРОСУ", notifier.messages[0])
+        self.assertEqual(scanner.stats["signals_sent"], 0)
+        # но события ≥ порога в журнале есть
+        self.assertGreaterEqual(scanner.stats["events_recorded"], 1)
+        message = asyncio.run(scanner._cmd_signals("111", ""))
+        self.assertIn("BTC", message)
+
+    def test_auto_lifecycle_pushes_once_then_cooldown(self):
+        """auto: startup + один сигнал, дальше кулдаун глушит дубли."""
+        notifier, scanner = self._make(signal_mode="auto", cooldown_minutes=10.0)
+
+        async def scenario():
+            task = asyncio.create_task(scanner.run())
+            await asyncio.sleep(1.5)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(scenario())
+        self.assertEqual(len(notifier.messages), 2)  # startup + 1 сигнал
+        self.assertIn("АРБИТРАЖНАЯ СВЯЗКА", notifier.messages[1])
+        self.assertIn("не раньше", notifier.messages[1])
+        self.assertEqual(scanner.stats["signals_sent"], 1)
+        self.assertGreater(scanner.stats["signals_suppressed_cooldown"], 0)
+
+    def test_startup_message_disabled(self):
+        notifier, scanner = self._make(startup_message=False)
+
+        async def scenario():
+            task = asyncio.create_task(scanner.run())
+            await asyncio.sleep(0.7)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(scenario())
+        self.assertEqual(notifier.messages, [])  # вообще ничего не прислал
+
+
+# ---------------------------------------------------------------------------
+# Конфиг: новый режим сигналов
+# ---------------------------------------------------------------------------
+
+class TestSignalModeConfig(unittest.TestCase):
+    def test_defaults(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual(settings.signal_mode, "on_demand")
+        self.assertTrue(settings.startup_message)
+        self.assertTrue(settings.funding_enabled)
+
+    def test_signal_mode_env(self):
+        with mock.patch.dict(os.environ, {"SIGNAL_MODE": "auto"}, clear=True):
+            self.assertEqual(Settings.from_env().signal_mode, "auto")
+        with mock.patch.dict(os.environ, {"SIGNAL_MODE": "banana"}, clear=True):
+            with self.assertRaises(ValueError):
+                Settings.from_env()
 
 
 if __name__ == "__main__":

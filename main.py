@@ -29,7 +29,7 @@ from scanner import ArbitrageScanner
 from telegram_bot import TelegramNotifier
 
 APP_NAME = "Arbitrage Scanner (Spot/Futures Hedge)"
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.0.0"
 
 log = logging.getLogger("main")
 
