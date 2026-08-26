@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.local
+.env.example
+.venv
+venv
+__pycache__
+*.py[cod]
+*.log
+.idea
+.vscode
+tests
+README.md
+Procfile
+railway.json
