@@ -46,6 +46,7 @@ import asyncio
 import html
 import logging
 import random
+import statistics
 import time
 from collections import deque
 from dataclasses import dataclass, replace
@@ -100,6 +101,20 @@ EXCHANGE_REGISTRY: dict[str, ExchangeSpec] = {
     "okx":     ExchangeSpec("okx", "OKX", "okx", "okx", "spot", "swap"),
     "binance": ExchangeSpec("binance", "Binance", "binance", "binanceusdm", "spot", "swap"),
 }
+
+#: Короткие теги бирж для узких таблиц Telegram (легенда — под таблицей).
+SHORT_EXCHANGE_TAGS: dict[str, str] = {
+    "Binance": "BIN",
+    "Bybit": "BYB",
+    "Gate.io": "GAT",
+    "MEXC": "MEX",
+    "OKX": "OKX",
+}
+
+
+def _exchange_tag(display_name: str) -> str:
+    """Короткий тег биржи: Binance → BIN, Gate.io → GAT (неизвестные — как есть)."""
+    return SHORT_EXCHANGE_TAGS.get(display_name, display_name[:8].replace(" ", ""))
 
 
 # ---------------------------------------------------------------------------
@@ -485,6 +500,8 @@ class ArbitrageScanner:
             "signals_suppressed_cooldown": 0,
             "combinations_checked": 0,
             "events_recorded": 0,
+            "suspicious_quotes_skipped": 0,
+            "spread_capped_skipped": 0,
         }
         self._started_at = time.time()
 
@@ -675,6 +692,59 @@ class ArbitrageScanner:
                 await self._refresh_markets()
 
     # ------------------------------------------------------------------ evaluation
+    @staticmethod
+    def _fresh_quote(side: ExchangeSide, base: str, now: float) -> Optional[BookQuote]:
+        """Свежая котировка стороны для базы (или None)."""
+        symbol = side.symbol_by_base.get(base)
+        if symbol is None:
+            return None
+        quote = side.quotes.get(symbol)
+        if quote is None or quote.timestamp < now - side.effective_book_max_age():
+            return None
+        return quote
+
+    def _compute_price_outliers(self, now: Optional[float] = None) -> dict[tuple[str, str, str], float]:
+        """
+        Анти-мусорный фильтр «одинаковый тикер ≠ одна монета».
+
+        Для каждой базы считает медианную цену (mid = (bid+ask)/2) по ВСЕМ
+        живым биржам (спот + перпы). Если цена конкретной биржи отклоняется
+        от медианы сильнее PRICE_DEVIATION_MAX_PERCENT — это почти наверняка
+        ДРУГАЯ монета с тем же тикером (CAT за $0.000002 на одной бирже и
+        «CAT» за $800 на другой) или битый стакан. Такая котировка в связки
+        не идёт.
+
+        Возвращает {(exchange_id, market_type, base): отклонение в %}.
+        """
+        limit = self.settings.price_deviation_max_percent
+        outliers: dict[tuple[str, str, str], float] = {}
+        if limit <= 0:
+            return outliers  # фильтр выключен настройкой
+
+        now = time.time() if now is None else now
+        for base in self.bases:
+            samples: list[tuple[tuple[str, str, str], float]] = []
+            for side in self.spot_sides + self.futures_sides:
+                if not side.alive:
+                    continue
+                quote = self._fresh_quote(side, base, now)
+                if quote is None or quote.bid <= 0 or quote.ask <= 0:
+                    continue
+                mid = (quote.bid + quote.ask) / 2.0
+                if mid <= 0:
+                    continue
+                samples.append(((side.exchange_id, side.market_type, base), mid))
+            if len(samples) < 2:
+                continue  # одну котировку не с чем сравнивать
+            reference = statistics.median(mid for _, mid in samples)
+            if reference <= 0:
+                continue
+            for key, mid in samples:
+                deviation = abs(mid - reference) / reference * 100.0
+                if deviation > limit:
+                    outliers[key] = deviation
+        return outliers
+
     def _collect_opportunities(
         self,
         threshold: float,
@@ -689,6 +759,8 @@ class ArbitrageScanner:
         """
         now = time.time()
         fee_percent = self.settings.total_fee_percent
+        spread_cap = self.settings.max_spread_percent
+        outliers = self._compute_price_outliers(now)
         by_base: dict[str, list[Opportunity]] = {}
 
         for spot_side in self.spot_sides:
@@ -714,6 +786,16 @@ class ArbitrageScanner:
                     if spot_quote.timestamp < spot_cutoff or fut_quote.timestamp < fut_cutoff:
                         continue
 
+                    # Анти-мусор: биржа с ценой, дикой относительно медианы по
+                    # всем биржам, — это другая монета с тем же тикером или
+                    # битый стакан; связки с ней не строим.
+                    if outliers:
+                        spot_key = (spot_side.exchange_id, spot_side.market_type, base)
+                        fut_key = (fut_side.exchange_id, fut_side.market_type, base)
+                        if spot_key in outliers or fut_key in outliers:
+                            self.stats["suspicious_quotes_skipped"] += 1
+                            continue
+
                     if direction == DIR_SPOT_TO_FUT:
                         if spot_quote.ask <= 0.0 or fut_quote.bid <= 0.0:
                             continue
@@ -724,6 +806,12 @@ class ArbitrageScanner:
                             continue
                         gross = (spot_quote.bid - fut_quote.ask) / fut_quote.ask * 100.0
                         notional = min(spot_quote.bid_notional_usd, fut_quote.ask_notional_usd)
+
+                    # Потолок спреда: гросс-спред в десятки/тысячи процентов —
+                    # неисполнимый разрыв или мусорные данные, не показываем.
+                    if spread_cap > 0 and abs(gross) > spread_cap:
+                        self.stats["spread_capped_skipped"] += 1
+                        continue
 
                     net = gross - fee_percent
                     self.stats["combinations_checked"] += 1
@@ -878,10 +966,13 @@ class ArbitrageScanner:
         )
         log.info(
             "Статус: сторон %d, свежих стаканов %d/%d, сканов %d, "
-            "сигналов %d (подавлено кулдауном %d), событий %d, лучший чистый спред: %s",
+            "сигналов %d (подавлено кулдауном %d), событий %d, "
+            "подделок отфильтровано %d, сверх потолка спреда %d, лучший чистый спред: %s",
             len(sides), fresh, total, self.stats["scans"],
             self.stats["signals_sent"], self.stats["signals_suppressed_cooldown"],
-            self.stats["events_recorded"], best,
+            self.stats["events_recorded"],
+            self.stats["suspicious_quotes_skipped"], self.stats["spread_capped_skipped"],
+            best,
         )
 
     # ------------------------------------------------------------------ аналитика по запросу
@@ -1091,8 +1182,9 @@ class ArbitrageScanner:
 
     # ------------------------------------------------------------------ ответы командам
     async def _build_top_message(self, limit: int, direction: str) -> str:
-        """Топ чистых спредов — таблица в столбиках (monospace)."""
+        """Топ спредов: цены на ОБЕИХ биржах + точный разрыв (гросс) + NET."""
         now = time.time()
+        outliers = self._compute_price_outliers(now)
         by_base = self._collect_opportunities(threshold=float("-inf"), direction=direction)
         best_list = [opps[0] for opps in by_base.values()]
         best_list.sort(key=lambda o: o.net_spread_percent, reverse=True)
@@ -1105,24 +1197,36 @@ class ArbitrageScanner:
             )
 
         if direction == DIR_SPOT_TO_FUT:
-            header_note = "S→F: купить спот (самый низкий ask) + шорт перп (самый высокий bid)"
-            buy_col, sell_col = "КУПИТЬ (СПОТ)", "ШОРТ (ПЕРП)"
+            header_note = "S→F: купить спот (цена ask) + шорт перп (цена bid)"
+            buy_col, sell_col = "КУПИТЬ СПОТ", "ШОРТ ПЕРП"
         else:
-            header_note = "F>S: лонг перп (самый низкий ask) + продать спот (самый высокий bid)"
-            buy_col, sell_col = "ЛОНГ (ПЕРП)", "ПРОДАТЬ (СПОТ)"
+            header_note = "F→S: лонг перп (цена ask) + продать спот (цена bid)"
+            buy_col, sell_col = "ЛОНГ ПЕРП", "ПРОДАТЬ СПОТ"
 
         rows = []
+        low_liq_rows = 0
         for position, opp in enumerate(best_list[:limit], start=1):
+            mark = "🔥" if opp.net_spread_percent >= self.settings.min_spread_percent else " "
+            # Приблизительный чистый профит со $100 (колонка NET × сумма).
+            profit_100 = 100.0 * opp.net_spread_percent / 100.0
+            profit_str = f"+${profit_100:.2f}" if profit_100 >= 0 else f"-${abs(profit_100):.2f}"
+            # «!» — на лучшей цене меньше $100: вход на $100 уйдёт в проскальзывание.
+            liq = _fmt_usd_human(opp.min_notional_usd)
+            if opp.min_notional_usd < 100.0:
+                liq += "!"
+                low_liq_rows += 1
             rows.append([
                 str(position),
                 opp.base[:8],
-                f"{opp.buy_exchange[:8]} {_fmt_price(opp.buy_price)}",
-                f"{opp.sell_exchange[:8]} {_fmt_price(opp.sell_price)}",
-                f"{opp.net_spread_percent:+.2f}%",
-                _fmt_usd_human(opp.min_notional_usd),
+                f"{_exchange_tag(opp.buy_exchange)} {_fmt_price(opp.buy_price)}",
+                f"{_exchange_tag(opp.sell_exchange)} {_fmt_price(opp.sell_price)}",
+                f"{opp.gross_spread_percent:+.2f}%",
+                f"{opp.net_spread_percent:+.2f}%{mark}",
+                profit_str,
+                liq,
             ])
         table = _mono_table(
-            ["#", "МОНТА", buy_col, sell_col, "NET", "ЛИКВ"], rows
+            ["#", "МОНЕТА", buy_col, sell_col, "РАЗРЫВ", "NET", "С $100", "ЛИКВ"], rows
         )
 
         above = sum(1 for o in best_list if o.net_spread_percent >= self.settings.min_spread_percent)
@@ -1132,15 +1236,35 @@ class ArbitrageScanner:
             "",
             f"<pre>{table}</pre>",
             "",
-            f"💳 NET — после комиссий {self.settings.total_fee_percent:.2f}% | 💧 ЛИКВ — глубина на лучшей цене (min по сторонам)",
-            f"🚦 Порог: {self.settings.min_spread_percent:.2f}% | над порогом: {above} из {len(best_list)} пар",
+            "🏷 Биржи: BIN=Binance · BYB=Bybit · GAT=Gate.io · MEX=MEXC · OKX=OKX",
+            f"📐 РАЗРЫВ — точный % между ценами двух бирж (гросс) · "
+            f"NET — то же после комиссий {self.settings.total_fee_percent:.2f}%",
+            f"💵 С $100 — чистый профит примерно со ста долларов "
+            f"(своя сумма: /calc МОНЕТА 500) · ЛИКВ — глубина лучшей цены",
         ]
+        if low_liq_rows:
+            lines.append(
+                "❗ «!» у ЛИКВ — на лучшей цене меньше $100: на $100 целиком не войти "
+                "без проскальзывания (входи меньше или жди объём)"
+            )
+        lines += [
+            f"🚦 Порог сигнала: {self.settings.min_spread_percent:.2f}% · "
+            f"над порогом: {above} из {len(best_list)} монет",
+        ]
+        if outliers:
+            lines.append(
+                f"🛡 Отфильтровано подозрительных котировок: {len(outliers)} "
+                "(другая монета с тем же тикером / битая цена — в связки не идёт)"
+            )
         if above > 0:
-            lines.append(f"🔥 = спред ≥ порога (сигнал в /signal / /coin)")
+            lines.append("🔥 = спред ≥ порога (полный разбор: /signal или /coin)")
         lines += [
             "",
-            "💡 <b>Как читать:</b> левая колонка — где ДЁШЕВО купить, правая — где ДОРОГО продать/шортить.",
-            "   /coin BTC — полный разбор монеты (все цены + план). /top fs — обратное направление.",
+            "💡 <b>Как читать:</b> КУПИТЬ — биржа и цена, где монета ДЁШЕВО (ask), "
+            "ШОРТ/ПРОДАТЬ — где ДОРОГО (bid). РАЗРЫВ = (продажа − покупка) / покупка × 100.",
+            "   Метка NET — запертый профит при одновременном открытии обеих ног, "
+            "«С $100» — этот же профит в долларах со ста долларов входа.",
+            "   /coin BTC — все цены по всем биржам · /top fs — обратное направление · /guide — обучение.",
         ]
         return "\n".join(lines)
 
@@ -1157,16 +1281,14 @@ class ArbitrageScanner:
         for side in self.spot_sides:
             if not side.alive:
                 continue
-            symbol = side.symbol_by_base.get(base)
-            quote = side.quotes.get(symbol) if symbol else None
-            if quote is not None and quote.timestamp >= now - side.effective_book_max_age():
+            quote = self._fresh_quote(side, base, now)
+            if quote is not None:
                 spot_quotes.append((side, quote))
         for side in self.futures_sides:
             if not side.alive:
                 continue
-            symbol = side.symbol_by_base.get(base)
-            quote = side.quotes.get(symbol) if symbol else None
-            if quote is not None and quote.timestamp >= now - side.effective_book_max_age():
+            quote = self._fresh_quote(side, base, now)
+            if quote is not None:
                 fut_quotes.append((side, quote))
 
         if not spot_quotes and not fut_quotes:
@@ -1178,6 +1300,21 @@ class ArbitrageScanner:
                 f"• Монета вне списка (проверьте /coins)\n\n"
                 f"Попробуйте /top — активные пары прямо сейчас."
             )
+
+        # Анти-мусор: котировки с дикой ценой = «другая монета с тем же
+        # тикером» или битый стакан. Показываем с предупреждением ⚠,
+        # в связки не используем (фильтр сидит в _collect_opportunities).
+        outliers = self._compute_price_outliers(now)
+
+        def is_outlier(side: ExchangeSide) -> bool:
+            return (side.exchange_id, side.market_type, base) in outliers
+
+        trustworthy_mids = [
+            (q.bid + q.ask) / 2.0
+            for side, q in spot_quotes + fut_quotes
+            if not is_outlier(side)
+        ]
+        median_price = statistics.median(trustworthy_mids) if trustworthy_mids else None
 
         funding = await self._get_funding_map(base) if self.settings.funding_enabled else {}
         by_base_s = self._collect_opportunities(threshold=float("-inf"), direction=DIR_SPOT_TO_FUT)
@@ -1193,13 +1330,16 @@ class ArbitrageScanner:
 
         # --- таблица спотов ------------------------------------------------
         if spot_quotes:
-            best_ask = min(q.ask for _, q in spot_quotes)
+            best_ask = min(
+                (q.ask for side, q in spot_quotes if not is_outlier(side)), default=None
+            )
             lines.append("<b>📥 СПОТ USDT</b> — <i>ask = цена покупки (ниже лучше), bid = цена продажи</i>")
             rows = []
             for side, q in sorted(spot_quotes, key=lambda x: x[1].ask):
-                mark = " ←" if q.ask == best_ask else ""
+                mark = " ←" if best_ask is not None and q.ask == best_ask and not is_outlier(side) else ""
+                warn = " ⚠" if is_outlier(side) else ""
                 rows.append([
-                    side.display_name[:8],
+                    side.display_name[:8] + warn,
                     _fmt_price(q.ask) + mark,
                     _fmt_price(q.bid),
                     _fmt_usd_human(q.ask_notional_usd),
@@ -1217,14 +1357,17 @@ class ArbitrageScanner:
 
         # --- таблица фьючерсов ---------------------------------------------
         if fut_quotes:
-            best_bid = max(q.bid for _, q in fut_quotes)
+            best_bid = max(
+                (q.bid for side, q in fut_quotes if not is_outlier(side)), default=None
+            )
             lines.append("<b>📤 ПЕРПЕТУАЛЫ USDT</b> — <i>bid = цена шорта (выше лучше), ask = цена лонга</i>")
             rows = []
             for side, q in sorted(fut_quotes, key=lambda x: x[1].bid, reverse=True):
-                mark = " ←" if q.bid == best_bid else ""
+                mark = " ←" if best_bid is not None and q.bid == best_bid and not is_outlier(side) else ""
+                warn = " ⚠" if is_outlier(side) else ""
                 rate = funding.get(side.display_name)
                 rows.append([
-                    side.display_name[:8],
+                    side.display_name[:8] + warn,
                     _fmt_price(q.bid) + mark,
                     _fmt_price(q.ask),
                     f"{rate:+.4f}%" if rate is not None else "—",
@@ -1239,6 +1382,16 @@ class ArbitrageScanner:
                 + "</pre>"
             )
             lines.append("")
+
+        if median_price is not None:
+            lines.append(f"📏 <b>Медианная цена по биржам:</b> <code>{_fmt_price(median_price)}</code> USDT")
+        if outliers and any(is_outlier(s) for s, _ in spot_quotes + fut_quotes):
+            lines.append(
+                "⚠ <b>Подозрительная цена (⚠):</b> отличается от медианы в разы/сотни раз — "
+                "почти наверняка это <b>другая монета с тем же тикером</b> или битый стакан. "
+                "Связки с ней НЕ строятся (не покупай её и не шорть против неё!)"
+            )
+        lines.append("")
 
         # --- лучшая связка --------------------------------------------------
         candidates: list[Opportunity] = []
@@ -1264,10 +1417,13 @@ class ArbitrageScanner:
                     f"<b>{other.net_spread_percent:+.2f}%</b> {verdict}{note}",
                 ]
         else:
-            # Связок нет (например, только одна сторона) — считаем «в лоб».
-            if spot_quotes and fut_quotes:
-                best_spot = min(spot_quotes, key=lambda x: x[1].ask)
-                best_fut = max(fut_quotes, key=lambda x: x[1].bid)
+            # Связок нет — считаем «в лоб» по лучшим ценам, но ТОЛЬКО по
+            # проверенным (не-выбросам): тикер-двойники сюда не попадают.
+            clean_spots = [(s, q) for s, q in spot_quotes if not is_outlier(s)]
+            clean_futs = [(s, q) for s, q in fut_quotes if not is_outlier(s)]
+            if clean_spots and clean_futs:
+                best_spot = min(clean_spots, key=lambda x: x[1].ask)
+                best_fut = max(clean_futs, key=lambda x: x[1].bid)
                 gross = (best_fut[1].bid - best_spot[1].ask) / best_spot[1].ask * 100.0
                 net = gross - self.settings.total_fee_percent
                 verdict = "✅ над порогом" if net >= self.settings.min_spread_percent else "❌ ниже порога"
@@ -1278,6 +1434,18 @@ class ArbitrageScanner:
                     f"   перп bid: {_esc(best_fut[0].display_name)} <code>{_fmt_price(best_fut[1].bid)}</code>",
                     f"   Gross {gross:+.2f}% − fees {self.settings.total_fee_percent:.2f}% = "
                     f"<b>{net:+.2f}%</b> ({verdict}, порог {self.settings.min_spread_percent:.2f}%)",
+                ]
+            elif spot_quotes and fut_quotes:
+                lines += [
+                    "━━━━━━━━━━━━━━━━━━━━",
+                    "🚫 <b>Связка не рассчитывается:</b> цены бирж несопоставимы "
+                    "(тикер-двойник, см. ⚠ выше). Это НЕ арбитраж.",
+                ]
+            else:
+                missing = "перп-биржи" if spot_quotes else "спот-биржи"
+                lines += [
+                    "━━━━━━━━━━━━━━━━━━━━",
+                    f"ℹ️ Нет второй ноги: {missing} с этой монетой — связка S→F здесь невозможна.",
                 ]
 
         lines += [
@@ -1298,12 +1466,13 @@ class ArbitrageScanner:
             rate = funding.get(opp.futures_exchange)
 
         fire = " ✅ над порогом" if opp.net_spread_percent >= s.min_spread_percent else " ❌ ниже порога"
+        delta = opp.sell_price - opp.buy_price
         combo_rows = [
-            ["купить", f"{opp.buy_exchange}  {_fmt_price(opp.buy_price)}"],
-            ["продать", f"{opp.sell_exchange}  {_fmt_price(opp.sell_price)}"],
-            ["gross", f"{opp.gross_spread_percent:+.2f}%"],
-            ["fees", f"-{s.total_fee_percent:.2f}% (спот {s.spot_taker_fee_percent:.2f}% + перп {s.futures_taker_fee_percent:.2f}%)"],
-            ["NET", f"{opp.net_spread_percent:+.2f}%{fire}"],
+            ["ПОКУПКА (дёшево)", f"{opp.buy_exchange}  {_fmt_price(opp.buy_price)}"],
+            ["ПРОДАЖА (дорого)", f"{opp.sell_exchange}  {_fmt_price(opp.sell_price)}"],
+            ["разрыв Δ (гросс)", f"{_fmt_price(delta)} = {opp.gross_spread_percent:+.2f}%"],
+            ["комиссии", f"−{s.total_fee_percent:.2f}% (спот {s.spot_taker_fee_percent:.2f}% + перп {s.futures_taker_fee_percent:.2f}%)"],
+            ["NET профит", f"{opp.net_spread_percent:+.2f}%{fire}"],
         ]
         if rate is not None:
             holder = "шорт" if opp.is_spot_first else "лонг"
@@ -1686,6 +1855,8 @@ def format_signal_message(
         "━━━━━━━━━━━━━━━━━━━━",
         f"💎 <b>Чистый спред: {o.net_spread_percent:+.2f}%</b> (после комиссий {s.total_fee_percent:.2f}%)",
         f"📊 Гросс-спред: <b>{o.gross_spread_percent:+.2f}%</b>",
+        f"📐 Разрыв цен: <code>{_fmt_price(o.buy_price)}</code> → "
+        f"<code>{_fmt_price(o.sell_price)}</code> (Δ = {_fmt_price(o.sell_price - o.buy_price)})",
         "",
     ]
 
@@ -1825,7 +1996,7 @@ def format_startup_message(
         "• По запросу показываю таблицы: где дёшево, где дорого, сколько заберёшь",
         "",
         "💡 <b>Основные команды:</b>",
-        "/top — таблица топ-спредов (где купить/продать, цены, NET, ликвидность)",
+        "/top — таблица топ-спредов (цены обеих бирж, NET, профит со $100)",
         "/signal — лучшая связка прямо сейчас (детально, с планом)",
         "/coin BTC — все цены BTC по биржам + лучшая связка + план действий",
         "/coins — список монет, которые сканируются (по объёму 24ч)",
@@ -1862,6 +2033,8 @@ def format_heartbeat_message(scanner: ArbitrageScanner) -> str:
         f"(подавлено кулдауном: {scanner.stats['signals_suppressed_cooldown']})",
         f"📩 Событий ≥ порога (on_demand): {scanner.stats['events_recorded']}",
         f"📡 Свежих стаканов: {fresh}/{total} | Проверено комбинаций: {scanner.stats['combinations_checked']}",
+        f"🛡 Подделок отфильтровано: {scanner.stats['suspicious_quotes_skipped']} "
+        f"(другие монеты с тем же тикером) | сверх потолка спреда: {scanner.stats['spread_capped_skipped']}",
         f"🔥 Лучший чистый спред сейчас: {best}",
         f"⏳ Пар в кулдауне: {active_cooldowns} | Пар отслеживается: {len(scanner.bases)}",
         "",
@@ -1905,12 +2078,17 @@ def format_help_message(settings: Settings) -> str:
         "• F→S: лонг перп по min-ask + продать спот по max-bid",
         f"• NET = (продажа − покупка) / покупка × 100 − комиссии ({settings.total_fee_percent:.2f}%)",
         "",
+        "🛡 <b>Защита от фейковых спредов:</b> разные биржи листают РАЗНЫЕ монеты под "
+        "одним тикером (например «CAT» за $0.000002 на одной и «CAT» за $800 на другой). "
+        "Бот сверяет цены всех бирж с медианой и выкидывает такие котировки — "
+        "ты видишь только настоящие, исполнимые разрывы.",
+        "",
         "🔕 <b>По умолчанию бот НИЧЕГО не присылает сам — только по запросу</b> "
         f"(порог «сигнала»: {settings.min_spread_percent:.2f}%).",
         "Авто-push: SIGNAL_MODE=auto в переменных окружения.",
         "",
         "<b>📊 Команды:</b>",
-        "/top [N] — таблица топ-N спредов: где купить, где шортить, NET, ликвидность",
+        "/top [N] — таблица топ-N спредов: цены обеих бирж, разрыв, NET, профит со $100, ликвидность",
         "/top fs [N] — то же для обратного направления (F→S)",
         "/signal [COIN] — лучшая связка прямо сейчас (детально + план + funding)",
         "/coin BTC (алиас /price BTC) — РАЗБОР: все цены BTC по биржам, лучшая связка, план действий",
@@ -1977,12 +2155,13 @@ def format_guide_message() -> str:
         "на спот-бирже. Бот считает его — /top fs и /coin BTC показывают оба направления.",
         "",
         "<b>5. Где всё смотреть в боте:</b>",
-        "/top — таблица: где купить, где шортить, NET, ликвидность",
+        "/top — таблица: цены обеих бирж, разрыв, NET, профит со $100, ликвидность",
         "/coin BTC — все цены BTC по биржам + лучшая связка + план",
         "/signal — лучшая связка прямо сейчас (по запросу, без спама)",
         "/coins — список монет, /funding BTC — funding, /calc BTC 1000 — профит",
         "",
         "<b>6. Риски и как их гасить:</b>",
+        "• Тикер-двойник — на разных биржах под одним тикером могут торговаться РАЗНЫЕ монеты; бот сверяет цены с медианой и помечает подделки ⚠, не торгуй их",
         "• Проскальзывание — ставь лимитки, не входи больше ЛИКВ из сигнала",
         "• Funding — при отрицательном шорт платит; смотри /funding до входа",
         "• Ликвидация — плечо 1x–3x, изолированная маржа, не доводи до мели",

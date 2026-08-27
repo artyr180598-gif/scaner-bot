@@ -158,6 +158,19 @@ class Settings:
     # дополнительно базисные связки «спот+перп на одной бирже».
     allow_same_exchange: bool = False        # ALLOW_SAME_EXCHANGE
 
+    # --- Анти-мусор: одинаковый тикер ≠ одна монета ---------------------------
+    # Разные биржи листают РАЗНЫЕ монеты под одним тикером (CAT на OKX-споте —
+    # Simon's Cat за $0.000002, а «CAT» на другом перпе — вообще другой проект
+    # за $800). Из-за этого рождаются «спреды» в миллиарды процентов, которые
+    # физически невозможны. Фильтр: если цена на бирже отклоняется от МЕДИАНЫ
+    # по всем биржам сильнее порога — котировка считается «другой монетой /
+    # битым стаканом» и в связки не идёт. 0 = выключить проверку.
+    price_deviation_max_percent: float = 50.0  # PRICE_DEVIATION_MAX_PERCENT
+    # Жёсткий потолок гросс-спреда: всё, что выше, — мусорные данные или
+    # неисполнимый разрыв (в реальности межбиржевой спред почти никогда не
+    # превышает единиц процентов). 0 = выключить потолок.
+    max_spread_percent: float = 30.0           # MAX_SPREAD_PERCENT
+
     # --- Инструменты ---------------------------------------------------------
     symbols: tuple[str, ...] = ()            # SYMBOLS: BTC,ETH,... (пусто = авто)
     auto_discover_symbols: bool = True       # AUTO_DISCOVER_SYMBOLS
@@ -247,6 +260,10 @@ class Settings:
             min_notional_usd=_env_float("MIN_NOTIONAL_USD", 0.0, minimum=0.0),
             max_signals_per_scan=_env_int("MAX_SIGNALS_PER_SCAN", 5, minimum=1),
             allow_same_exchange=_env_bool("ALLOW_SAME_EXCHANGE", False),
+            price_deviation_max_percent=_env_float(
+                "PRICE_DEVIATION_MAX_PERCENT", 50.0, minimum=0.0
+            ),
+            max_spread_percent=_env_float("MAX_SPREAD_PERCENT", 30.0, minimum=0.0),
             symbols=symbols,
             auto_discover_symbols=_env_bool("AUTO_DISCOVER_SYMBOLS", True),
             top_symbols_limit=_env_int("TOP_SYMBOLS", 0, minimum=0),
@@ -301,6 +318,10 @@ class Settings:
             f"  Источник данных:  {mode}\n"
             f"  Инструменты:      {sources}\n"
             f"  Порог спреда:     {self.min_spread_percent:.2f}% (чистыми)\n"
+            f"  Анти-мусор:       медиана бирж ±{self.price_deviation_max_percent:.0f}%"
+            f"{' (выкл.)' if self.price_deviation_max_percent <= 0 else ''} · "
+            f"потолок спреда {self.max_spread_percent:.0f}%"
+            f"{' (выкл.)' if self.max_spread_percent <= 0 else ''}\n"
             f"  Комиссии:         {fee_line}\n"
             f"  Кулдаун сигнала:  {self.cooldown_minutes:.0f} мин на пару\n"
             f"  Funding-рейты:    {'включены' if self.funding_enabled else 'выключены'}\n"
