@@ -345,6 +345,8 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(settings.spot_taker_fee_percent, 0.1)
         self.assertEqual(settings.futures_taker_fee_percent, 0.05)
         self.assertAlmostEqual(settings.total_fee_percent, 0.15)
+        self.assertEqual(settings.price_deviation_max_percent, 50.0)
+        self.assertEqual(settings.max_spread_percent, 30.0)
         self.assertEqual(settings.exchanges, ("mexc", "bybit", "gate", "okx", "binance"))
         self.assertTrue(settings.use_websocket)
         self.assertFalse(settings.allow_same_exchange)
@@ -824,18 +826,143 @@ class TestOnDemandMode(unittest.TestCase):
         notifier = FakeNotifier()
         scanner = self._scanner_with_signal(notifier)
         message = asyncio.run(scanner._cmd_top("111", ""))
-        for needle in ("МОНТА", "КУПИТЬ (СПОТ)", "ШОРТ (ПЕРП)", "NET", "ЛИКВ",
-                       "MEXC 100.0000", "Bybit 103.0000"):
+        for needle in ("МОНЕТА", "КУПИТЬ СПОТ", "ШОРТ ПЕРП", "РАЗРЫВ", "NET", "ЛИКВ",
+                       "MEX 100.0000", "BYB 103.0000", "+3.00%", "+2.85%",
+                       "BIN=Binance", "BYB=Bybit", "GAT=Gate.io"):
             self.assertIn(needle, message)
 
     def test_top_fs_reverse_direction(self):
         notifier = FakeNotifier()
         scanner = self._scanner_with_signal(notifier)
         message = asyncio.run(scanner._cmd_top("111", "fs"))
-        self.assertIn("ЛОНГ (ПЕРП)", message)
-        self.assertIn("ПРОДАТЬ (СПОТ)", message)
+        self.assertIn("ЛОНГ ПЕРП", message)
+        self.assertIn("ПРОДАТЬ СПОТ", message)
         # F>S: (99 − 104)/104 = −4.81% − 0.15% комиссий = −4.96%
         self.assertIn("-4.96%", message)
+
+
+# ---------------------------------------------------------------------------
+# Анти-мусор: «одинаковый тикер ≠ одна монета» + потолок спреда
+# ---------------------------------------------------------------------------
+
+class TestPriceSanity(unittest.TestCase):
+    """
+    Разные биржи листают РАЗНЫЕ монеты под одним тикером (CAT на OKX-споте —
+    Simon's Cat за $0.000002, а «CAT»-перп на другой бирже — иной проект за
+    $817). Раньше это рождало «спреды» в миллиарды процентов. Теперь:
+      1) котировка, дикая относительно МЕДИАНЫ по биржам, в связки не идёт;
+      2) гросс-спред выше MAX_SPREAD_PERCENT скрывается как неисполнимый.
+    """
+
+    def _cat_collision_sides(self):
+        """Реальный кейс пользователя: CAT ~$0.000002 на спотах vs $817 на перпе."""
+        spot_okx = make_side("okx", "spot", {"CAT": make_quote(bid=0.00000196, ask=0.00000197)})
+        spot_mexc = make_side("mexc", "spot", {"CAT": make_quote(bid=0.00000195, ask=0.00000196)})
+        fut_binance = make_side("binance", "futures", {"CAT": make_quote(bid=817.51, ask=817.52)})
+        return [spot_okx, spot_mexc], [fut_binance]
+
+    def test_same_ticker_different_token_completely_filtered(self):
+        spot_sides, fut_sides = self._cat_collision_sides()
+        scanner = make_scanner(make_settings(), spot_sides, fut_sides, FakeNotifier())
+        self.assertEqual(scanner._evaluate(), [])  # миллиардных «спредов» больше нет
+        by_base = scanner._collect_opportunities(threshold=float("-inf"))
+        self.assertNotIn("CAT", by_base)
+        self.assertGreater(scanner.stats["suspicious_quotes_skipped"], 0)
+
+    def test_outlier_detection_marks_only_deviant_side(self):
+        spot_sides, fut_sides = self._cat_collision_sides()
+        scanner = make_scanner(make_settings(), spot_sides, fut_sides, FakeNotifier())
+        outliers = scanner._compute_price_outliers()
+        # Помечен только фьючерсный Binance (цена в ~415 млрд раз от медианы),
+        # споты OKX/MEXC с нормальной ценой — чисты.
+        self.assertIn(("binance", "futures", "CAT"), outliers)
+        self.assertNotIn(("okx", "spot", "CAT"), outliers)
+        self.assertNotIn(("mexc", "spot", "CAT"), outliers)
+
+    def test_two_hugely_disagreeing_sources_drop_base(self):
+        """1 спот + 1 перп с ценами в 100 раз apart — оба выбросы, связки нет."""
+        spot = make_side("mexc", "spot", {"MA": make_quote(bid=0.99, ask=1.00)})
+        fut = make_side("bybit", "futures", {"MA": make_quote(bid=100.0, ask=101.0)})
+        scanner = make_scanner(make_settings(), [spot], [fut], FakeNotifier())
+        self.assertEqual(scanner._evaluate(), [])
+
+    def test_legit_small_spread_survives_filters(self):
+        """Обычный рабочий спред 3% фильтрами не трогается."""
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99.0, ask=100.0)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103.0, ask=104.0)})
+        scanner = make_scanner(make_settings(), [spot], [fut], FakeNotifier())
+        pairs = scanner._evaluate()
+        self.assertEqual(len(pairs), 1)
+        self.assertAlmostEqual(pairs[0][0].net_spread_percent, 2.85, places=6)
+        self.assertEqual(scanner._compute_price_outliers(), {})
+
+    def test_spread_cap_hides_unexecutable_gaps(self):
+        """Согласованные цены, но гросс ~40% — выше потолка 30%, связка скрыта."""
+        spot_mexc = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
+        spot_okx = make_side("okx", "spot", {"BTC": make_quote(bid=100, ask=101)})
+        fut_bybit = make_side("bybit", "futures", {"BTC": make_quote(bid=140, ask=141)})
+        scanner = make_scanner(
+            make_settings(), [spot_mexc, spot_okx], [fut_bybit], FakeNotifier()
+        )
+        self.assertEqual(scanner._collect_opportunities(threshold=float("-inf")), {})
+        self.assertGreater(scanner.stats["spread_capped_skipped"], 0)
+        # Потолок выключен (0) — связка возвращается (админ осознанно снял фильтр).
+        scanner_off = make_scanner(
+            make_settings(max_spread_percent=0.0),
+            [spot_mexc, spot_okx], [fut_bybit], FakeNotifier(),
+        )
+        by_base = scanner_off._collect_opportunities(threshold=float("-inf"))
+        self.assertEqual(len(by_base["BTC"]), 2)
+
+    def test_filters_can_be_disabled_for_debugging(self):
+        spot_sides, fut_sides = self._cat_collision_sides()
+        scanner = make_scanner(
+            make_settings(price_deviation_max_percent=0.0, max_spread_percent=0.0),
+            spot_sides, fut_sides, FakeNotifier(),
+        )
+        by_base = scanner._collect_opportunities(threshold=float("-inf"))
+        self.assertIn("CAT", by_base)  # без фильтра мусор возвращается
+
+    def test_top_message_hides_fakes_but_shows_counter(self):
+        """В /top видны только настоящие связки + счётчик отфильтрованных подделок."""
+        spot_real = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
+        fut_real = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104)})
+        spot_fake = make_side("okx", "spot", {"WEN": make_quote(bid=0.00001274, ask=0.00001275)})
+        fut_fake = make_side("binance", "futures", {"WEN": make_quote(bid=7.91, ask=7.92)})
+        scanner = make_scanner(
+            make_settings(), [spot_real, spot_fake], [fut_real, fut_fake], FakeNotifier()
+        )
+        message = asyncio.run(scanner._cmd_top("111", ""))
+        self.assertIn("BTC", message)
+        self.assertIn("MEX 100.0000", message)
+        self.assertIn("BYB 103.0000", message)
+        self.assertNotIn("WEN", message)          # подделка не показана
+        self.assertNotIn("817", message)
+        self.assertNotIn("7.91", message)
+        self.assertIn("Отфильтровано", message)   # но счётчик — виден
+
+    def test_coin_message_marks_suspicious_exchange(self):
+        """/coin помечает ⚠ биржу с дикой ценой и показывает медиану."""
+        spot_sides, fut_sides = self._cat_collision_sides()
+        scanner = make_scanner(make_settings(), spot_sides, fut_sides, FakeNotifier())
+        message = asyncio.run(scanner._cmd_price("111", "CAT"))
+        self.assertIn("CAT/USDT", message)
+        self.assertIn("0.00000197", message)      # настоящая цена OKX
+        self.assertIn("817.5100", message)        # цена подделки видна, но…
+        self.assertIn("⚠", message)               # …помечена предупреждением
+        self.assertIn("Медианная цена", message)  # ориентир для новичка
+        self.assertIn("другая монета с тем же тикером", message)
+
+    def test_signal_message_shows_exact_price_gap(self):
+        """/signal всегда содержит обе цены и точный разрыв Δ."""
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104)})
+        scanner = make_scanner(make_settings(), [spot], [fut], FakeNotifier())
+        message = asyncio.run(scanner._cmd_signal("111", ""))
+        self.assertIn("Разрыв цен", message)
+        self.assertIn("100.00", message)
+        self.assertIn("103.00", message)
+        self.assertIn("Δ = 3.00", message)
 
     def test_startup_message_mentions_on_demand_mode(self):
         settings = make_settings()
