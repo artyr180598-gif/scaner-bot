@@ -49,7 +49,7 @@ import random
 import statistics
 import time
 from collections import deque
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -72,6 +72,9 @@ log = logging.getLogger("scanner")
 
 DIR_SPOT_TO_FUT = "S>F"   # купить спот (ask) + шорт перпетуала (bid) — контанго
 DIR_FUT_TO_SPOT = "F>S"   # лонг перпетуала (ask) + продать спот (bid) — бэквардация
+
+#: Сколько уровней стакана сохраняем на символ (для расчёта исполнимости).
+MAX_STORED_BOOK_LEVELS = 50
 
 DIRECTION_LABELS: dict[str, str] = {
     DIR_SPOT_TO_FUT: "спот → фьючерс (купить спот / шорт перп)",
@@ -102,20 +105,6 @@ EXCHANGE_REGISTRY: dict[str, ExchangeSpec] = {
     "binance": ExchangeSpec("binance", "Binance", "binance", "binanceusdm", "spot", "swap"),
 }
 
-#: Короткие теги бирж для узких таблиц Telegram (легенда — под таблицей).
-SHORT_EXCHANGE_TAGS: dict[str, str] = {
-    "Binance": "BIN",
-    "Bybit": "BYB",
-    "Gate.io": "GAT",
-    "MEXC": "MEX",
-    "OKX": "OKX",
-}
-
-
-def _exchange_tag(display_name: str) -> str:
-    """Короткий тег биржи: Binance → BIN, Gate.io → GAT (неизвестные — как есть)."""
-    return SHORT_EXCHANGE_TAGS.get(display_name, display_name[:8].replace(" ", ""))
-
 
 # ---------------------------------------------------------------------------
 # Структуры данных
@@ -123,7 +112,14 @@ def _exchange_tag(display_name: str) -> str:
 
 @dataclass(slots=True)
 class BookQuote:
-    """Лучшие цены стакана (top of book) на момент получения."""
+    """
+    Лучшие цены стакана (top of book) + видимая глубина уровней.
+
+    ask_levels/bid_levels — все уровни, что прислала биржа (цена, количество):
+    asks по возрастанию цены, bids по убыванию. Глубина нужна для расчёта
+    ИСПОЛНИМОСТИ спреда: сколько долларов реально влезает в стакан и по какой
+    средней цене (VWAP), а не только по лучшей.
+    """
 
     bid: float
     bid_qty: float
@@ -132,6 +128,80 @@ class BookQuote:
     bid_notional_usd: float
     ask_notional_usd: float
     timestamp: float  # epoch seconds — время прибытия котировки
+    ask_levels: tuple[tuple[float, float], ...] = ()
+    bid_levels: tuple[tuple[float, float], ...] = ()
+    ask_depth_usd: float = 0.0  # вся видимая глубина ask-стороны, $
+    bid_depth_usd: float = 0.0  # вся видимая глубина bid-стороны, $
+
+    def __post_init__(self) -> None:
+        # Совместимость со «старыми» котировками (только top of book):
+        # глубина вырождается в единственный уровень.
+        if not self.ask_levels and self.ask > 0 and self.ask_qty > 0:
+            self.ask_levels = ((self.ask, self.ask_qty),)
+        if not self.bid_levels and self.bid > 0 and self.bid_qty > 0:
+            self.bid_levels = ((self.bid, self.bid_qty),)
+        if self.ask_depth_usd <= 0:
+            self.ask_depth_usd = sum(p * q for p, q in self.ask_levels)
+        if self.bid_depth_usd <= 0:
+            self.bid_depth_usd = sum(p * q for p, q in self.bid_levels)
+
+    # --- исполнимость: VWAP при наборе заданной суммы -----------------------
+    def vwap_ask(self, target_usd: float) -> tuple[float, float]:
+        """Купить target_usd по ask-уровням → (средняя цена VWAP, исполнено $)."""
+        cached = self._vwap_ask_cache
+        if cached is not None and cached[0] == target_usd:
+            return cached[1], cached[2]
+        result = _walk_book_vwap(self.ask_levels, target_usd)
+        self._vwap_ask_cache = (target_usd, result[0], result[1])
+        return result
+
+    def vwap_bid(self, target_usd: float) -> tuple[float, float]:
+        """Продать target_usd по bid-уровням → (средняя цена VWAP, исполнено $)."""
+        cached = self._vwap_bid_cache
+        if cached is not None and cached[0] == target_usd:
+            return cached[1], cached[2]
+        result = _walk_book_vwap(self.bid_levels, target_usd)
+        self._vwap_bid_cache = (target_usd, result[0], result[1])
+        return result
+
+    # кэш (target_usd, vwap, filled) — котировка живёт до следующего апдейта
+    _vwap_ask_cache: Optional[tuple[float, float, float]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _vwap_bid_cache: Optional[tuple[float, float, float]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+
+def _walk_book_vwap(
+    levels: tuple[tuple[float, float], ...], target_usd: float
+) -> tuple[float, float]:
+    """
+    Идёт по уровням стакана, набирая target_usd долларов.
+
+    Возвращает (VWAP-цена набранного объёма, сколько долларов набрано).
+    Если видимой глубины не хватило — возвращается VWAP всего, что есть,
+    а «исполнено» окажется меньше target_usd (признак нехватки глубины).
+    """
+    if target_usd <= 0 or not levels:
+        return 0.0, 0.0
+    remaining = target_usd
+    base_filled = 0.0
+    for price, qty in levels:
+        if price <= 0 or qty <= 0:
+            continue
+        level_usd = price * qty
+        if level_usd >= remaining:
+            base_filled += remaining / price
+            remaining = 0.0
+            break
+        base_filled += qty
+        remaining -= level_usd
+    filled_usd = target_usd - remaining
+    if base_filled <= 0:
+        return 0.0, 0.0
+    return filled_usd / base_filled, filled_usd
+
 
 
 @dataclass(slots=True, frozen=True)
@@ -162,6 +232,19 @@ class Opportunity:
     created_at: float = 0.0
     data_age_seconds: float = 0.0
     funding_rate_percent: Optional[float] = None  # % за 8ч на фьючерсной бирже
+
+    # --- исполнимость спреда на размер входа (VWAP по уровням стакана) -----
+    # Гросс/NET выше — это топ стакана (лучшая цена, «идеальный» случай).
+    # Поля ниже отвечают на вопрос «что будет на реальном входе $N»:
+    exec_size_usd: float = 0.0        # размер, на который хватило глубины (≤ входа)
+    exec_fully_filled: bool = False   # обе ноги вместили размер входа целиком
+    exec_gross_spread_percent: float = 0.0  # гросс по VWAP-ценам на exec_size_usd
+    exec_net_spread_percent: float = 0.0    # то же после комиссий
+    exec_buy_price: float = 0.0       # VWAP покупки на exec_size_usd
+    exec_sell_price: float = 0.0      # VWAP продажи на exec_size_usd
+    fillable_usd: float = 0.0         # видимая глубина обеих ног (минимум), $
+    buy_levels: tuple[tuple[float, float], ...] = ()   # ask-уровни ноги покупки
+    sell_levels: tuple[tuple[float, float], ...] = ()  # bid-уровни ноги продажи
 
     # --- удобные свойства ----------------------------------------------------
     @property
@@ -434,11 +517,33 @@ class ExchangeSide:
             return
         if bid <= 0 or ask <= 0 or bid_qty <= 0 or ask_qty <= 0:
             return
+
+        # Все видимые уровни стакана — для расчёта исполнимости (VWAP):
+        # сколько $ влезает в книгу и по какой средней цене.
+        def parse_levels(
+            raw: list[Any], *, descending: bool
+        ) -> tuple[tuple[float, float], ...]:
+            levels: list[tuple[float, float]] = []
+            for item in raw[:MAX_STORED_BOOK_LEVELS]:
+                try:
+                    price, qty = float(item[0]), float(item[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if price > 0 and qty > 0:
+                    levels.append((price, qty))
+            levels.sort(key=lambda lv: lv[0], reverse=descending)
+            return tuple(levels)
+
+        ask_levels = parse_levels(asks, descending=False)   # от дешёвых к дорогим
+        bid_levels = parse_levels(bids, descending=True)    # от дорогих к дешёвым
+
         is_first_quote = symbol not in self.quotes
         self.quotes[symbol] = BookQuote(
             bid=bid, bid_qty=bid_qty, ask=ask, ask_qty=ask_qty,
             bid_notional_usd=bid * bid_qty, ask_notional_usd=ask * ask_qty,
             timestamp=time.time(),
+            ask_levels=ask_levels,
+            bid_levels=bid_levels,
         )
         if is_first_quote:
             if not self._logged_first_quote:
@@ -760,6 +865,7 @@ class ArbitrageScanner:
         now = time.time()
         fee_percent = self.settings.total_fee_percent
         spread_cap = self.settings.max_spread_percent
+        eval_usd = self.settings.eval_notional_usd
         outliers = self._compute_price_outliers(now)
         by_base: dict[str, list[Opportunity]] = {}
 
@@ -796,16 +902,15 @@ class ArbitrageScanner:
                             self.stats["suspicious_quotes_skipped"] += 1
                             continue
 
+                    # Ноги сделки: где покупаем (ask), где продаём (bid).
                     if direction == DIR_SPOT_TO_FUT:
-                        if spot_quote.ask <= 0.0 or fut_quote.bid <= 0.0:
-                            continue
-                        gross = (fut_quote.bid - spot_quote.ask) / spot_quote.ask * 100.0
-                        notional = min(spot_quote.ask_notional_usd, fut_quote.bid_notional_usd)
+                        buy_quote, sell_quote = spot_quote, fut_quote
                     else:
-                        if spot_quote.bid <= 0.0 or fut_quote.ask <= 0.0:
-                            continue
-                        gross = (spot_quote.bid - fut_quote.ask) / fut_quote.ask * 100.0
-                        notional = min(spot_quote.bid_notional_usd, fut_quote.ask_notional_usd)
+                        buy_quote, sell_quote = fut_quote, spot_quote
+                    if buy_quote.ask <= 0.0 or sell_quote.bid <= 0.0:
+                        continue
+                    gross = (sell_quote.bid - buy_quote.ask) / buy_quote.ask * 100.0
+                    notional = min(buy_quote.ask_notional_usd, sell_quote.bid_notional_usd)
 
                     # Потолок спреда: гросс-спред в десятки/тысячи процентов —
                     # неисполнимый разрыв или мусорные данные, не показываем.
@@ -822,6 +927,26 @@ class ArbitrageScanner:
                         continue
                     if self.settings.min_notional_usd > 0 and notional < self.settings.min_notional_usd:
                         continue
+
+                    # --- исполнимость на размер входа (VWAP по уровням) -----
+                    # Гросс/NET — это топ стакана («идеальный» вход по лучшей
+                    # цене). Здесь считаем, что будет на реальном входе
+                    # $EVAL_NOTIONAL_USD: набираем сумму по уровням обеих ног
+                    # и получаем VWAP-цены + реальную величину входа.
+                    fillable = min(buy_quote.ask_depth_usd, sell_quote.bid_depth_usd)
+                    _, buy_filled = buy_quote.vwap_ask(eval_usd)
+                    _, sell_filled = sell_quote.vwap_bid(eval_usd)
+                    exec_size = min(buy_filled, sell_filled)
+                    fully = exec_size >= eval_usd - 1e-6
+                    exec_gross = exec_net = exec_buy = exec_sell = 0.0
+                    if exec_size > 0:
+                        if fully:
+                            exec_size = eval_usd
+                        exec_buy, _ = buy_quote.vwap_ask(exec_size)
+                        exec_sell, _ = sell_quote.vwap_bid(exec_size)
+                        if exec_buy > 0:
+                            exec_gross = (exec_sell - exec_buy) / exec_buy * 100.0
+                            exec_net = exec_gross - fee_percent
 
                     by_base.setdefault(base, []).append(Opportunity(
                         base=base,
@@ -847,6 +972,15 @@ class ArbitrageScanner:
                         same_exchange=same_exchange,
                         created_at=now,
                         data_age_seconds=now - min(spot_quote.timestamp, fut_quote.timestamp),
+                        exec_size_usd=exec_size,
+                        exec_fully_filled=fully,
+                        exec_gross_spread_percent=exec_gross,
+                        exec_net_spread_percent=exec_net,
+                        exec_buy_price=exec_buy,
+                        exec_sell_price=exec_sell,
+                        fillable_usd=fillable,
+                        buy_levels=buy_quote.ask_levels,
+                        sell_levels=sell_quote.bid_levels,
                     ))
 
         for opportunities in by_base.values():
@@ -1182,7 +1316,11 @@ class ArbitrageScanner:
 
     # ------------------------------------------------------------------ ответы командам
     async def _build_top_message(self, limit: int, direction: str) -> str:
-        """Топ спредов: цены на ОБЕИХ биржах + точный разрыв (гросс) + NET."""
+        """
+        Топ спредов: полные названия бирж, цены обеих ног (ask/bid),
+        полный расклад спреда (гросс → комиссии → NET), исполнимый профит
+        на размер входа и максимальная величина входа по глубине стакана.
+        """
         now = time.time()
         outliers = self._compute_price_outliers(now)
         by_base = self._collect_opportunities(threshold=float("-inf"), direction=direction)
@@ -1196,77 +1334,156 @@ class ArbitrageScanner:
                 "Проверьте /status — состояние бирж."
             )
 
+        s = self.settings
+        eval_usd = s.eval_notional_usd
+        shown = best_list[:limit]
+
         if direction == DIR_SPOT_TO_FUT:
-            header_note = "S→F: купить спот (цена ask) + шорт перп (цена bid)"
+            header_note = "S→F: купить спот (ask) + шорт перп (bid)"
             buy_col, sell_col = "КУПИТЬ СПОТ", "ШОРТ ПЕРП"
         else:
-            header_note = "F→S: лонг перп (цена ask) + продать спот (цена bid)"
+            header_note = "F→S: лонг перп (ask) + продать спот (bid)"
             buy_col, sell_col = "ЛОНГ ПЕРП", "ПРОДАТЬ СПОТ"
 
         rows = []
-        low_liq_rows = 0
-        for position, opp in enumerate(best_list[:limit], start=1):
-            mark = "🔥" if opp.net_spread_percent >= self.settings.min_spread_percent else " "
-            # Приблизительный чистый профит со $100 (колонка NET × сумма).
-            profit_100 = 100.0 * opp.net_spread_percent / 100.0
-            profit_str = f"+${profit_100:.2f}" if profit_100 >= 0 else f"-${abs(profit_100):.2f}"
-            # «!» — на лучшей цене меньше $100: вход на $100 уйдёт в проскальзывание.
-            liq = _fmt_usd_human(opp.min_notional_usd)
-            if opp.min_notional_usd < 100.0:
-                liq += "!"
-                low_liq_rows += 1
+        low_depth_rows = 0
+        for position, opp in enumerate(shown, start=1):
+            mark = "🔥" if opp.net_spread_percent >= s.min_spread_percent else ""
+            # «С $N» — профит на размер входа С УЧЁТОМ стакана (VWAP), либо
+            # максимум, на который хватает глубины: «≤$X!».
+            if opp.exec_fully_filled and opp.exec_size_usd > 0:
+                profit = opp.exec_size_usd * opp.exec_net_spread_percent / 100.0
+                exec_cell = f"+${profit:.2f}" if profit >= 0 else f"-${abs(profit):.2f}"
+            elif opp.exec_size_usd > 0:
+                exec_cell = f"≤{_fmt_usd_human(opp.exec_size_usd)}!"
+                low_depth_rows += 1
+            else:
+                exec_cell = "—"
+                low_depth_rows += 1
+            # «ВХОД МАКС» — сколько $ влезает по видимым уровням обеих ног.
+            entry_cell = _fmt_usd_human(opp.fillable_usd) if opp.fillable_usd > 0 else "—"
+            if 0 < opp.fillable_usd < eval_usd:
+                entry_cell += "!"
             rows.append([
                 str(position),
                 opp.base[:8],
-                f"{_exchange_tag(opp.buy_exchange)} {_fmt_price(opp.buy_price)}",
-                f"{_exchange_tag(opp.sell_exchange)} {_fmt_price(opp.sell_price)}",
+                f"{opp.buy_exchange:<8}{_fmt_price(opp.buy_price)}",
+                f"{opp.sell_exchange:<8}{_fmt_price(opp.sell_price)}",
                 f"{opp.gross_spread_percent:+.2f}%",
                 f"{opp.net_spread_percent:+.2f}%{mark}",
-                profit_str,
-                liq,
+                exec_cell,
+                entry_cell,
             ])
         table = _mono_table(
-            ["#", "МОНЕТА", buy_col, sell_col, "РАЗРЫВ", "NET", "С $100", "ЛИКВ"], rows
+            ["#", "МОНЕТА", buy_col, sell_col, "ГРОСС", "NET",
+             f"С ${eval_usd:.0f}", "ВХОД МАКС"],
+            rows,
         )
 
-        above = sum(1 for o in best_list if o.net_spread_percent >= self.settings.min_spread_percent)
+        above = sum(1 for o in best_list if o.net_spread_percent >= s.min_spread_percent)
         lines = [
-            f"📊 <b>ТОП-{min(limit, len(best_list))} СПРЕДОВ ПРЯМО СЕЙЧАС</b>",
+            f"📊 <b>ТОП-{len(shown)} СПРЕДОВ ПРЯМО СЕЙЧАС</b>",
             f"<i>{_fmt_utc_short(now)} · {header_note}</i>",
             "",
             f"<pre>{table}</pre>",
             "",
-            "🏷 Биржи: BIN=Binance · BYB=Bybit · GAT=Gate.io · MEX=MEXC · OKX=OKX",
-            f"📐 РАЗРЫВ — точный % между ценами двух бирж (гросс) · "
-            f"NET — то же после комиссий {self.settings.total_fee_percent:.2f}%",
-            f"💵 С $100 — чистый профит примерно со ста долларов "
-            f"(своя сумма: /calc МОНЕТА 500) · ЛИКВ — глубина лучшей цены",
         ]
-        if low_liq_rows:
-            lines.append(
-                "❗ «!» у ЛИКВ — на лучшей цене меньше $100: на $100 целиком не войти "
-                "без проскальзывания (входи меньше или жди объём)"
+
+        # Честный вердикт по исполнимости топа: где спред реален, а где мираж.
+        fillable_rows = [o for o in shown if o.exec_fully_filled]
+        if len(fillable_rows) < len(shown):
+            note = (
+                f"⚠️ <b>Глубины меньше ${eval_usd:.0f} у {len(shown) - len(fillable_rows)} "
+                f"из {len(shown)} связок</b> — их спред берётся только малой суммой, "
+                f"на ${eval_usd:.0f} он съедается проскальзыванием"
             )
+            if fillable_rows:
+                names = ", ".join(o.base for o in fillable_rows[:5])
+                note += f". На ${eval_usd:.0f} целиком заходят: <b>{_esc(names)}</b>"
+            lines.append(note)
+            lines.append("")
+
         lines += [
-            f"🚦 Порог сигнала: {self.settings.min_spread_percent:.2f}% · "
-            f"над порогом: {above} из {len(best_list)} монет",
+            "🏷 <b>Как читать таблицу:</b>",
+            f"   <b>{buy_col}</b> — биржа и цена покупки (ask, где ДЁШЕВО) · "
+            f"<b>{sell_col}</b> — биржа и цена продажи (bid, где ДОРОГО)",
+            f"   <b>ГРОСС</b> = (продажа − покупка) / покупка · "
+            f"<b>NET</b> = ГРОСС − комиссии {s.total_fee_percent:.2f}% "
+            f"(спот {s.spot_taker_fee_percent:.2f}% + перп {s.futures_taker_fee_percent:.2f}%)",
+            f"   <b>С ${eval_usd:.0f}</b> — исполнимый профит с учётом проскальзывания по стакану · "
+            f"«≤$X!» — ${eval_usd:.0f} в стакан не влезает, максимум $X",
+            f"   <b>ВХОД МАКС</b> — сколько $ влезает по видимым уровням обеих ног "
+            f"(«!» — меньше ${eval_usd:.0f})",
+            f"🚦 Порог сигнала: {s.min_spread_percent:.2f}% · "
+            f"над порогом: {above} из {len(best_list)} монет"
+            + (" · 🔥 = спред ≥ порога" if above else ""),
         ]
         if outliers:
             lines.append(
                 f"🛡 Отфильтровано подозрительных котировок: {len(outliers)} "
                 "(другая монета с тем же тикером / битая цена — в связки не идёт)"
             )
-        if above > 0:
-            lines.append("🔥 = спред ≥ порога (полный разбор: /signal или /coin)")
-        lines += [
-            "",
-            "💡 <b>Как читать:</b> КУПИТЬ — биржа и цена, где монета ДЁШЕВО (ask), "
-            "ШОРТ/ПРОДАТЬ — где ДОРОГО (bid). РАЗРЫВ = (продажа − покупка) / покупка × 100.",
-            "   Метка NET — запертый профит при одновременном открытии обеих ног, "
-            "«С $100» — этот же профит в долларах со ста долларов входа.",
-            "   /coin BTC — все цены по всем биржам · /top fs — обратное направление · /guide — обучение.",
+        lines.append("")
+
+        # Детальный разбор топ-3: полный маршрут «где, что, по чём».
+        medals = ("🥇", "🥈", "🥉")
+        details: list[str] = []
+        for position, opp in enumerate(shown[:3], start=1):
+            details.extend(self._format_top_detail(opp, medals[position - 1]))
+            details.append("")
+
+        head = lines + [f"🔍 <b>ДЕТАЛЬНЫЙ РАЗБОР ТОП-{min(3, len(shown))}</b>", ""]
+        footer = [
+            "💡 /coin МОНЕТА — все цены по всем биржам · /signal — лучший разбор · "
+            "/calc МОНЕТА 500 — профит на свою сумму · /top fs — обратное направление",
+            "   /guide — обучение · /funding МОНЕТА — кто кому платит",
         ]
-        return "\n".join(lines)
+        message = "\n".join(head + details + footer)
+        # Страховка от лимита Telegram (4000): жертвуем разбором, таблицу не трогаем.
+        if len(message) > 3900:
+            message = "\n".join(head + footer)
+        return message
+
+    def _format_top_detail(self, opp: Opportunity, medal: str) -> list[str]:
+        """Компактный детальный разбор связки для топа: маршрут и исполнимость."""
+        s = self.settings
+        eval_usd = s.eval_notional_usd
+        buy_action = "купить спот" if opp.is_spot_first else "лонг перп"
+        sell_action = "шорт перп" if opp.is_spot_first else "продать спот"
+        coins = eval_usd / opp.buy_price if opp.buy_price > 0 else 0.0
+        lines = [
+            f"{medal} <b>{_esc(opp.base)}/USDT</b> · "
+            f"{_esc(opp.buy_exchange)} → {_esc(opp.sell_exchange)} · "
+            f"NET {opp.net_spread_percent:+.2f}%",
+            f"   1️⃣ {buy_action.upper()}: <b>{_esc(opp.buy_exchange)}</b> по "
+            f"<code>{_fmt_price(opp.buy_price)}</code> "
+            f"(${eval_usd:.0f} ≈ {_fmt_qty(coins)} {_esc(opp.base)})",
+            f"   2️⃣ {sell_action.upper()}: <b>{_esc(opp.sell_exchange)}</b> по "
+            f"<code>{_fmt_price(opp.sell_price)}</code>",
+            f"   📐 Гросс {opp.gross_spread_percent:+.2f}% − комиссии "
+            f"{s.total_fee_percent:.2f}% = NET {opp.net_spread_percent:+.2f}% "
+            f"≈ {_fmt_profit_usd(eval_usd * opp.net_spread_percent / 100.0)} со ${eval_usd:.0f} "
+            f"(по лучшим ценам)",
+        ]
+        if opp.exec_fully_filled and opp.exec_size_usd > 0:
+            profit = opp.exec_size_usd * opp.exec_net_spread_percent / 100.0
+            lines.append(
+                f"   ✅ Исполнимость: ${eval_usd:.0f} вмещаются в стакан — по средней "
+                f"покупка {_fmt_price(opp.exec_buy_price)} / продажа "
+                f"{_fmt_price(opp.exec_sell_price)} → "
+                f"NET {opp.exec_net_spread_percent:+.2f}% ≈ {_fmt_profit_usd(profit)}"
+            )
+        elif opp.exec_size_usd > 0:
+            lines.append(
+                f"   ⚠️ Исполнимость: на ${eval_usd:.0f} НЕ войти — видимой глубины "
+                f"обеих ног хватает лишь на ≤{_fmt_usd_human(opp.exec_size_usd)}. "
+                f"Спред живёт только на нано-объёмах, больше — проскальзывание"
+            )
+        else:
+            lines.append(
+                f"   ⚠️ Исполнимость: в стакане нет видимого объёма — вход невозможен"
+            )
+        return lines
 
     async def _build_price_message(self, base: str) -> str:
         """
@@ -1479,7 +1696,19 @@ class ArbitrageScanner:
             combo_rows.append(
                 ["funding", f"{rate:+.4f}%/8ч на {opp.futures_exchange} ({holder} {'получает' if rate >= 0 else 'платит'})"]
             )
-        combo_rows.append(["ликвидн.", f"{_fmt_usd(opp.min_notional_usd)} · данные ≤ {opp.data_age_seconds:.0f}с"])
+        # Исполнимость на размер входа (VWAP по уровням стакана).
+        if opp.exec_fully_filled and opp.exec_size_usd > 0:
+            exec_profit = opp.exec_size_usd * opp.exec_net_spread_percent / 100.0
+            combo_rows.append([
+                f"на ${s.eval_notional_usd:.0f}",
+                f"вход вмещается · по стакану NET {opp.exec_net_spread_percent:+.2f}% ≈ {_fmt_profit_usd(exec_profit)}",
+            ])
+        elif opp.exec_size_usd > 0:
+            combo_rows.append([
+                f"на ${s.eval_notional_usd:.0f}",
+                f"НЕ войти: глубины лишь на ≤{_fmt_usd_human(opp.exec_size_usd)}",
+            ])
+        combo_rows.append(["глубина", f"лучшая цена {_fmt_usd(opp.min_notional_usd)} · видимые уровни {_fmt_usd(opp.fillable_usd)} · данные ≤ {opp.data_age_seconds:.0f}с"])
 
         block = [
             "",
@@ -1487,9 +1716,9 @@ class ArbitrageScanner:
             f"🏆 <b>ЛУЧШАЯ СВЯЗКА {opp.direction.replace('>', '→')} · {_esc(base)}</b> — {_esc(DIRECTION_LABELS[opp.direction])}",
             "<pre>" + _mono_table(["Параметр", "Значение"], combo_rows) + "</pre>",
             "",
-            f"💰 <b>Профит:</b> $100 → <b>${100 * opp.net_spread_percent / 100:+.2f}</b> · "
-            f"$1,000 → <b>${1000 * opp.net_spread_percent / 100:+.2f}</b> · "
-            f"$5,000 → <b>${5000 * opp.net_spread_percent / 100:+.2f}</b>",
+            f"💰 <b>Профит:</b> $100 → <b>{_fmt_profit_usd(100 * opp.net_spread_percent / 100)}</b> · "
+            f"$1,000 → <b>{_fmt_profit_usd(1000 * opp.net_spread_percent / 100)}</b> · "
+            f"$5,000 → <b>{_fmt_profit_usd(5000 * opp.net_spread_percent / 100)}</b>",
             "",
             "<b>📋 ПЛАН ДЕЙСТВИЙ:</b>",
         ]
@@ -1658,7 +1887,7 @@ class ArbitrageScanner:
             f"<i>порог {self.settings.min_spread_percent:.2f}% · всего {self.stats['events_recorded']} · дубликаты на пару: кулдаун {self.settings.cooldown_minutes:.0f} мин</i>",
             "",
             "<pre>" + _mono_table(
-                ["Время", "МОНТА", "DIR", "NET", "МАРШРУТ", "ЛИКВ"], rows
+                ["Время", "МОНТА", "DIR", "NET", "МАРШРУТ", "ГЛУБ"], rows
             ) + "</pre>",
             "",
             f"🕒 Сейчас: {datetime.fromtimestamp(now, tz=timezone.utc).strftime('%d.%m %H:%M')} UTC — актуальные спреды: /top",
@@ -1688,9 +1917,34 @@ class ArbitrageScanner:
             f"<b>Net: {best.net_spread_percent:+.2f}%</b>",
             "",
             f"💵 Депозит: ${amount_usd:,.2f}",
-            f"💰 Gross профит: ${gross_profit:+.2f}",
+            f"💰 Gross профит: {_fmt_profit_usd(gross_profit)}",
             f"💳 Комиссии: -${fee_usd:.2f} ({self.settings.spot_taker_fee_percent:.2f}% + {self.settings.futures_taker_fee_percent:.2f}%)",
-            f"💎 <b>Чистый профит: ${net_profit:+.2f}</b>",
+            f"💎 <b>Чистый профит: {_fmt_profit_usd(net_profit)}</b>",
+            "",
+        ]
+
+        # Исполнимость на запрошенную сумму: тот же расчёт, но по СРЕДНИМ
+        # ценам набора суммы по уровням стакана (VWAP), а не по лучшим ценам.
+        if amount_usd > 0 and best.buy_levels and best.sell_levels:
+            buy_vwap, buy_filled = _walk_book_vwap(best.buy_levels, amount_usd)
+            sell_vwap, sell_filled = _walk_book_vwap(best.sell_levels, amount_usd)
+            if buy_filled >= amount_usd - 1e-6 and sell_filled >= amount_usd - 1e-6 and buy_vwap > 0:
+                exec_gross = (sell_vwap - buy_vwap) / buy_vwap * 100.0
+                exec_net = exec_gross - self.settings.total_fee_percent
+                exec_profit = amount_usd * exec_net / 100.0
+                lines += [
+                    f"🎯 <b>С учётом стакана (VWAP):</b> покупка ~<code>{_fmt_price(buy_vwap)}</code> · "
+                    f"продажа ~<code>{_fmt_price(sell_vwap)}</code> → "
+                    f"NET {exec_net:+.2f}% = <b>{_fmt_profit_usd(exec_profit)}</b>",
+                ]
+            else:
+                max_in = min(buy_filled, sell_filled)
+                lines += [
+                    f"⚠️ <b>${amount_usd:,.0f} больше видимой глубины стакана</b> "
+                    f"(влезает ≈ {_fmt_usd_human(max_in)}): лишнее съест проскальзывание, "
+                    f"реальный профит будет ниже. Входи меньшей суммой.",
+                ]
+        lines += [
             "",
             "<b>📋 На другие суммы:</b>",
         ]
@@ -1698,7 +1952,7 @@ class ArbitrageScanner:
             if abs(amt - amount_usd) < 1:
                 continue
             p = amt * best.net_spread_percent / 100
-            lines.append(f"   ${amt:>5,.0f} → ${p:+.2f} ({best.net_spread_percent:+.2f}%)")
+            lines.append(f"   ${amt:>5,.0f} → {_fmt_profit_usd(p)} ({best.net_spread_percent:+.2f}%)")
 
         lines += [
             "",
@@ -1772,14 +2026,30 @@ def _fmt_usd(value: float) -> str:
 
 
 def _fmt_usd_human(value: float) -> str:
-    """Компактный USDT для таблиц: $12.3k, $1.2M."""
+    """Компактный USDT для таблиц: $12.3k, $1.2M, $0.96, $<0.01."""
     if value >= 1_000_000:
         return f"${value / 1_000_000:.2f}M"
     if value >= 1_000:
         return f"${value / 1000:.1f}k"
     if value >= 1:
         return f"${value:.0f}"
-    return f"${value:.2f}"
+    if value >= 0.01:
+        return f"${value:.2f}"
+    return "$<0.01"
+
+
+def _fmt_qty(value: float) -> str:
+    """Количество монет для таблиц: 228.31, 1,394,701, 0.0071."""
+    if value >= 1000:
+        return f"{value:,.0f}"
+    if value >= 1:
+        return f"{value:,.2f}"
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def _fmt_profit_usd(value: float) -> str:
+    """Профит в долларах со знаком: +$9.87 / -$1.20."""
+    return f"+${value:.2f}" if value >= 0 else f"-${abs(value):.2f}"
 
 
 def _fmt_utc(timestamp: float) -> str:
@@ -1880,6 +2150,25 @@ def format_signal_message(
         "",
         f"💳 Комиссии: {s.spot_taker_fee_percent:.2f}% спот + {s.futures_taker_fee_percent:.2f}% фьючерс = {s.total_fee_percent:.2f}%",
     ]
+
+    # Исполнимость на размер входа: гросс/NET выше — это топ стакана
+    # («идеальный» вход по лучшей цене). Здесь — что будет на реальном входе.
+    if o.exec_fully_filled and o.exec_size_usd > 0:
+        exec_profit = o.exec_size_usd * o.exec_net_spread_percent / 100.0
+        lines += [
+            f"🎯 <b>Исполнимость на ${o.exec_size_usd:.0f}:</b> сумма вмещается в стакан — "
+            f"по средним ценам покупка {_fmt_price(o.exec_buy_price)} / продажа "
+            f"{_fmt_price(o.exec_sell_price)} → "
+            f"NET {o.exec_net_spread_percent:+.2f}% ≈ {_fmt_profit_usd(exec_profit)} "
+            f"(с учётом проскальзывания)",
+        ]
+    elif o.exec_size_usd > 0:
+        lines += [
+            f"⚠️ <b>Исполнимость:</b> на ${s.eval_notional_usd:.0f} НЕ войти — видимой "
+            f"глубины обеих ног хватает лишь на ≤{_fmt_usd_human(o.exec_size_usd)} "
+            f"(по уровням стакана). Спред реален только малым объёмом: "
+            f"больше — уйдёт в проскальзывание.",
+        ]
     if o.funding_rate_percent is not None:
         holder = "шорт" if o.is_spot_first else "лонг"
         gets = "получает" if o.funding_rate_percent >= 0 else "платит"
@@ -1897,9 +2186,9 @@ def format_signal_message(
     lines += [
         "",
         "💰 <b>ПРОФИТ (пример, без учёта funding):</b>",
-        f"   $100 → <b>${profit(100):+.2f}</b> | $500 → <b>${profit(500):+.2f}</b>",
-        f"   $1,000 → <b>${profit(1000):+.2f}</b> | $5,000 → <b>${profit(5000):+.2f}</b>",
-        f"   $10,000 → <b>${profit(10000):+.2f}</b>",
+        f"   $100 → <b>{_fmt_profit_usd(profit(100))}</b> | $500 → <b>{_fmt_profit_usd(profit(500))}</b>",
+        f"   $1,000 → <b>{_fmt_profit_usd(profit(1000))}</b> | $5,000 → <b>{_fmt_profit_usd(profit(5000))}</b>",
+        f"   $10,000 → <b>{_fmt_profit_usd(profit(10000))}</b>",
     ]
 
     # Пошаговый план
@@ -1996,7 +2285,7 @@ def format_startup_message(
         "• По запросу показываю таблицы: где дёшево, где дорого, сколько заберёшь",
         "",
         "💡 <b>Основные команды:</b>",
-        "/top — таблица топ-спредов (цены обеих бирж, NET, профит со $100)",
+        "/top — таблица топ-спредов (полные названия бирж, цены обеих ног, гросс/NET, исполнимость на $100)",
         "/signal — лучшая связка прямо сейчас (детально, с планом)",
         "/coin BTC — все цены BTC по биржам + лучшая связка + план действий",
         "/coins — список монет, которые сканируются (по объёму 24ч)",
@@ -2088,7 +2377,7 @@ def format_help_message(settings: Settings) -> str:
         "Авто-push: SIGNAL_MODE=auto в переменных окружения.",
         "",
         "<b>📊 Команды:</b>",
-        "/top [N] — таблица топ-N спредов: цены обеих бирж, разрыв, NET, профит со $100, ликвидность",
+        "/top [N] — таблица топ-N спредов: где купить/продать, по каким ценам, гросс → NET, исполнимый профит со $100 и макс. вход",
         "/top fs [N] — то же для обратного направления (F→S)",
         "/signal [COIN] — лучшая связка прямо сейчас (детально + план + funding)",
         "/coin BTC (алиас /price BTC) — РАЗБОР: все цены BTC по биржам, лучшая связка, план действий",
@@ -2105,8 +2394,9 @@ def format_help_message(settings: Settings) -> str:
         "<b>Как читать сигнал:</b>",
         "📥 КУПИТЬ — биржа, где дешевле всего (цена ask)",
         "📤 ШОРТ/ПРОДАТЬ — биржа, где дороже всего (цена bid)",
-        "💎 NET — твой % после комиссий (теоретический профит)",
-        "💧 ЛИКВ — глубина на лучшей цене: не входи больше неё",
+        "💎 NET — твой % после комиссий (по лучшим ценам)",
+        "🎯 Исполнимость — что реально будет на входе $100 (VWAP по стакану)",
+        "💧 ВХОД МАКС — сколько $ влезает в стакан: не входи больше неё",
         "",
         "<b>🔁 Хедж:</b> LONG спот + SHORT перп (или наоборот) = риска направления нет. "
         "Цена может лететь куда угодно — ты забираешь только разницу.",
@@ -2155,14 +2445,14 @@ def format_guide_message() -> str:
         "на спот-бирже. Бот считает его — /top fs и /coin BTC показывают оба направления.",
         "",
         "<b>5. Где всё смотреть в боте:</b>",
-        "/top — таблица: цены обеих бирж, разрыв, NET, профит со $100, ликвидность",
+        "/top — таблица: полные названия бирж, цены обеих ног, гросс/NET, исполнимый профит со $100, макс. вход",
         "/coin BTC — все цены BTC по биржам + лучшая связка + план",
         "/signal — лучшая связка прямо сейчас (по запросу, без спама)",
         "/coins — список монет, /funding BTC — funding, /calc BTC 1000 — профит",
         "",
         "<b>6. Риски и как их гасить:</b>",
         "• Тикер-двойник — на разных биржах под одним тикером могут торговаться РАЗНЫЕ монеты; бот сверяет цены с медианой и помечает подделки ⚠, не торгуй их",
-        "• Проскальзывание — ставь лимитки, не входи больше ЛИКВ из сигнала",
+        "• Проскальзывание — ставь лимитки, не входи больше ВХОД МАКС из /top и /signal",
         "• Funding — при отрицательном шорт платит; смотри /funding до входа",
         "• Ликвидация — плечо 1x–3x, изолированная маржа, не доводи до мели",
         "• Комиссии вывода — держи USDT на обеих биржах заранее, не гоняй монеты",
@@ -2171,7 +2461,7 @@ def format_guide_message() -> str:
         "<b>7. Советы профи:</b>",
         "• Начинай с $100–500 — прогони механику целиком",
         "• Лимитные ордера дают лучшую цену, маркет — скорость",
-        "• Спред > 5% почти всегда низколиквидная монета — проверяй ЛИКВ",
+        "• Спред > 5% почти всегда низколиквидная монета — смотри «С $100» и «ВХОД МАКС» в /top",
         "• Следи за funding: +0.01%/8ч ≈ +10% APR сверху спреда",
         "",
         "💡 <i>Бот находит возможности — исполняет сделки ты. Решение и риск — твои.</i>",
@@ -2219,7 +2509,7 @@ def format_strategy_message(settings: Settings) -> str:
         "кто кому платит.",
         "",
         "<b>Риски и снижение:</b>",
-        "• Проскальзывание → лимитки + чтение ЛИКВ в сигнале",
+        "• Проскальзывание → лимитки + проверка исполнимости в /top и /signal",
         "• Funding → проверяй /funding до входа",
         "• Ликвидация → 1x–3x, изолированная маржа",
         "• Комиссии вывода → держи USDT на обеих биржах",
