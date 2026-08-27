@@ -154,6 +154,11 @@ class Settings:
     futures_taker_fee_percent: float = 0.05  # FUTURES_TAKER_FEE_PERCENT
     min_notional_usd: float = 0.0            # MIN_NOTIONAL_USD (0 = фильтр выключен)
     max_signals_per_scan: int = 5            # MAX_SIGNALS_PER_SCAN (только для auto)
+    # Размер входа ($), на который проверяется ИСПОЛНИМОСТЬ спреда: бот
+    # набирает эту сумму по уровням стакана (VWAP) на обеих ногах и
+    # показывает реальный профит с учётом проскальзывания — либо максимум,
+    # на который хватает видимой глубины.
+    eval_notional_usd: float = 100.0          # EVAL_NOTIONAL_USD
     # По ТЗ спот и фьючерс должны быть на РАЗНЫХ биржах; True включает
     # дополнительно базисные связки «спот+перп на одной бирже».
     allow_same_exchange: bool = False        # ALLOW_SAME_EXCHANGE
@@ -258,6 +263,7 @@ class Settings:
             spot_taker_fee_percent=_env_float("SPOT_TAKER_FEE_PERCENT", 0.1, minimum=0.0),
             futures_taker_fee_percent=_env_float("FUTURES_TAKER_FEE_PERCENT", 0.05, minimum=0.0),
             min_notional_usd=_env_float("MIN_NOTIONAL_USD", 0.0, minimum=0.0),
+            eval_notional_usd=_env_float("EVAL_NOTIONAL_USD", 100.0, minimum=1.0),
             max_signals_per_scan=_env_int("MAX_SIGNALS_PER_SCAN", 5, minimum=1),
             allow_same_exchange=_env_bool("ALLOW_SAME_EXCHANGE", False),
             price_deviation_max_percent=_env_float(
@@ -323,6 +329,7 @@ class Settings:
             f"потолок спреда {self.max_spread_percent:.0f}%"
             f"{' (выкл.)' if self.max_spread_percent <= 0 else ''}\n"
             f"  Комиссии:         {fee_line}\n"
+            f"  Проверка входа:   ${self.eval_notional_usd:,.0f} — исполнимость спреда по уровням стакана (VWAP)\n"
             f"  Кулдаун сигнала:  {self.cooldown_minutes:.0f} мин на пару\n"
             f"  Funding-рейты:    {'включены' if self.funding_enabled else 'выключены'}\n"
             f"  Фильтр ликвидности: "

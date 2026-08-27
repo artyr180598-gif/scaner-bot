@@ -29,6 +29,7 @@ from scanner import (                                              # noqa: E402
     BookQuote,
     ExchangeSide,
     Opportunity,
+    _walk_book_vwap,
     format_signal_message,
     format_startup_message,
 )
@@ -826,25 +827,31 @@ class TestOnDemandMode(unittest.TestCase):
         notifier = FakeNotifier()
         scanner = self._scanner_with_signal(notifier)
         message = asyncio.run(scanner._cmd_top("111", ""))
-        for needle in ("МОНЕТА", "КУПИТЬ СПОТ", "ШОРТ ПЕРП", "РАЗРЫВ", "NET", "С $100", "ЛИКВ",
-                       "MEX 100.0000", "BYB 103.0000", "+3.00%", "+2.85%",
-                       "+$2.85",  # профит со $100 при NET +2.85%
-                       "BIN=Binance", "BYB=Bybit", "GAT=Gate.io"):
+        for needle in ("МОНЕТА", "КУПИТЬ СПОТ", "ШОРТ ПЕРП", "ГРОСС", "NET", "С $100", "ВХОД МАКС",
+                       "MEXC", "100.0000", "Bybit", "103.0000", "+3.00%", "+2.85%",
+                       "+$2.85",  # исполнимый профит со $100 при NET +2.85%
+                       "ДЕТАЛЬНЫЙ РАЗБОР", "Исполнимость"):
             self.assertIn(needle, message)
-        # ликвидности $1.0k хватает на вход $100 — предупреждения «!» нет
-        self.assertNotIn("«!»", message)
+        # полные названия бирж — без коротких тегов
+        self.assertIn("MEXC", message)
+        # глубины $1.0k хватает на вход $100 — в таблице нет строк «≤$X!»
+        table_block = message.split("<pre>")[1].split("</pre>")[0]
+        self.assertNotIn("≤$", table_block)
+        self.assertNotIn("!", table_block)
 
     def test_top_low_liquidity_warning_marker(self):
-        """На лучшей цене меньше $100 — ЛИКВ помечается «!» и есть пояснение."""
+        """Глубины меньше $100: «С $100» показывает максимум входа «≤$X!»."""
         notifier = FakeNotifier()
         settings = make_settings()
         spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100, ask_qty=0.5)})      # $50
         fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104, bid_qty=0.6)})  # $61.8
         scanner = make_scanner(settings, [spot], [fut], notifier)
         message = asyncio.run(scanner._cmd_top("111", ""))
-        self.assertIn("$50!", message)          # лучшая цена spot-ноги всего $50
-        self.assertIn("«!»", message)           # легенда с объяснением маркера
-        self.assertIn("+$2.85", message)        # профит со $100 при NET +2.85%
+        self.assertIn("≤$50!", message)         # $100 в стакан не влезает, максимум $50
+        self.assertIn("$50!", message)          # ВХОД МАКС = $50 с маркером
+        self.assertIn("«≤$X!»", message)        # легенда с объяснением маркера
+        self.assertIn("Глубины меньше $100", message)  # честный вердикт по топу
+        self.assertIn("на нано-объёмах", message)      # предупреждение в разборе
 
     def test_top_fs_reverse_direction(self):
         notifier = FakeNotifier()
@@ -949,8 +956,10 @@ class TestPriceSanity(unittest.TestCase):
         )
         message = asyncio.run(scanner._cmd_top("111", ""))
         self.assertIn("BTC", message)
-        self.assertIn("MEX 100.0000", message)
-        self.assertIn("BYB 103.0000", message)
+        self.assertIn("MEXC", message)
+        self.assertIn("100.0000", message)
+        self.assertIn("Bybit", message)
+        self.assertIn("103.0000", message)
         self.assertNotIn("WEN", message)          # подделка не показана
         self.assertNotIn("817", message)
         self.assertNotIn("7.91", message)
@@ -988,6 +997,171 @@ class TestPriceSanity(unittest.TestCase):
         settings = make_settings(signal_mode="auto")
         message = format_startup_message(settings, ["BTC"])
         self.assertIn("авто-push", message)
+
+
+# ---------------------------------------------------------------------------
+# Исполнимость спреда: глубина стакана + VWAP на размер входа
+# ---------------------------------------------------------------------------
+
+def make_depth_quote(
+    ask_levels: list[tuple[float, float]],
+    bid_levels: list[tuple[float, float]],
+    *,
+    age_seconds: float = 0.0,
+) -> BookQuote:
+    """Котировка с реальной глубиной (несколько уровней в стакане)."""
+    bid, bid_qty = bid_levels[0]
+    ask, ask_qty = ask_levels[0]
+    return BookQuote(
+        bid=bid, bid_qty=bid_qty, ask=ask, ask_qty=ask_qty,
+        bid_notional_usd=bid * bid_qty, ask_notional_usd=ask * ask_qty,
+        timestamp=time.time() - age_seconds,
+        ask_levels=tuple(ask_levels),
+        bid_levels=tuple(bid_levels),
+    )
+
+
+class TestExecutableSpread(unittest.TestCase):
+    """Гросс/NET — топ стакана; исполнимость — что будет на входе $100."""
+
+    def setUp(self):
+        self.settings = make_settings()  # eval_notional_usd = 100
+
+    def test_vwap_walk_math(self):
+        """Набор $100 по двум уровням: $50 по 100 + $50 по 101 → VWAP ≈100.4975."""
+        vwap, filled = _walk_book_vwap(((100.0, 0.5), (101.0, 0.5)), 100.0)
+        self.assertAlmostEqual(filled, 100.0)
+        # база: 0.5 монеты по 100 + 50/101 монеты по 101 = 0.99505
+        self.assertAlmostEqual(vwap, 100.0 / (0.5 + 50.0 / 101.0), places=6)
+        # Частичный набор: только $75 → $50 по 100 + $25 по 101
+        vwap, filled = _walk_book_vwap(((100.0, 0.5), (101.0, 0.5)), 75.0)
+        self.assertAlmostEqual(filled, 75.0)
+        self.assertAlmostEqual(vwap, 75.0 / (0.5 + 25.0 / 101.0), places=6)
+        # Глубины не хватило: просили $200, есть лишь $100.5
+        vwap, filled = _walk_book_vwap(((100.0, 0.5), (101.0, 0.5)), 200.0)
+        self.assertAlmostEqual(filled, 100.5)
+        self.assertAlmostEqual(vwap, 100.5 / 1.0, places=6)
+
+    def test_store_quote_keeps_depth_levels(self):
+        """_store_quote разбирает все уровни книги и сортирует их."""
+        side = make_side("mexc", "spot", {})
+        side._store_quote("BTC/USDT", {
+            "bids": [[99.0, 2.0], [98.0, 3.0]],
+            "asks": [[100.0, 1.0], [101.0, 4.0], [102.0, 5.0]],
+        })
+        quote = side.quotes["BTC/USDT"]
+        self.assertEqual(quote.ask_levels, ((100.0, 1.0), (101.0, 4.0), (102.0, 5.0)))
+        self.assertEqual(quote.bid_levels, ((99.0, 2.0), (98.0, 3.0)))
+        self.assertAlmostEqual(quote.ask_depth_usd, 100.0 + 404.0 + 510.0)
+        self.assertAlmostEqual(quote.bid_depth_usd, 198.0 + 294.0)
+        vwap, filled = quote.vwap_ask(504.0)  # $100 + $404 по первым двум уровням
+        self.assertAlmostEqual(filled, 504.0)
+        self.assertAlmostEqual(vwap, 504.0 / 5.0, places=6)
+
+    def test_single_level_quote_falls_back_to_top_of_book(self):
+        """Котировка без уровней (старый формат) деградирует до лучшей цены."""
+        quote = make_quote(bid=99.0, ask=100.0, bid_qty=2.0, ask_qty=3.0)
+        self.assertEqual(quote.ask_levels, ((100.0, 3.0),))
+        self.assertEqual(quote.bid_levels, ((99.0, 2.0),))
+        self.assertAlmostEqual(quote.ask_depth_usd, 300.0)
+        vwap, filled = quote.vwap_ask(150.0)
+        self.assertAlmostEqual(filled, 150.0)
+        self.assertAlmostEqual(vwap, 100.0)
+
+    def test_exec_fields_on_deep_book(self):
+        """Глубокий стакан: $100 входит, VWAP-спред чуть меньше топового."""
+        # спот: ask 100×0.6=$60 + 100.5×0.5=$50.25 → $110.25 глубины
+        spot = make_side("mexc", "spot", {"BTC": make_depth_quote(
+            ask_levels=[(100.0, 0.6), (100.5, 0.5)],
+            bid_levels=[(99.0, 1.0)],
+        )})
+        # перп: bid 103×0.6=$61.8 + 102.5×0.5=$51.25 → $113.05 глубины
+        fut = make_side("bybit", "futures", {"BTC": make_depth_quote(
+            ask_levels=[(104.0, 1.0)],
+            bid_levels=[(103.0, 0.6), (102.5, 0.5)],
+        )})
+        scanner = make_scanner(self.settings, [spot], [fut], FakeNotifier())
+        by_base = scanner._collect_opportunities(threshold=float("-inf"))
+        opp = by_base["BTC"][0]
+        # Топ стакана: (103 − 100)/100 = +3.00% − 0.15% = +2.85%
+        self.assertAlmostEqual(opp.net_spread_percent, 2.85, places=6)
+        # На $100 обе ноги вместились целиком
+        self.assertTrue(opp.exec_fully_filled)
+        self.assertAlmostEqual(opp.exec_size_usd, 100.0)
+        self.assertAlmostEqual(opp.fillable_usd, min(110.25, 113.05), places=6)
+        # VWAP-покупка: $60 по 100 + $40 по 100.5 → 100.1996 (проскальзывание)
+        self.assertAlmostEqual(opp.exec_buy_price, 100.0 / (0.6 + 40.0 / 100.5), places=6)
+        self.assertAlmostEqual(
+            opp.exec_sell_price, 100.0 / (0.6 + 38.2 / 102.5), places=6
+        )
+        # Исполнимый спред меньше топового (проскальзывание по уровням)
+        self.assertLess(opp.exec_net_spread_percent, opp.net_spread_percent)
+
+    def test_exec_fields_on_thin_book(self):
+        """Тонкий стакан: на $100 не войти, exec_size = видимой глубине."""
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99.0, ask=100.0, ask_qty=0.5)})   # $50
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103.0, ask=104.0, bid_qty=0.6)})  # $61.8
+        scanner = make_scanner(self.settings, [spot], [fut], FakeNotifier())
+        by_base = scanner._collect_opportunities(threshold=float("-inf"))
+        opp = by_base["BTC"][0]
+        self.assertFalse(opp.exec_fully_filled)
+        self.assertAlmostEqual(opp.exec_size_usd, 50.0)
+        self.assertAlmostEqual(opp.fillable_usd, 50.0)
+        # VWAP на $50 — это лучшая цена (единственный уровень)
+        self.assertAlmostEqual(opp.exec_buy_price, 100.0)
+        self.assertAlmostEqual(opp.exec_sell_price, 103.0)
+        self.assertAlmostEqual(opp.exec_net_spread_percent, 2.85, places=6)
+
+    def test_top_marks_thin_rows_and_shows_exec_profit(self):
+        """В /top тонкие строки помечены «≤$X!», глубокие — профитом."""
+        spot_thin = make_side("mexc", "spot", {"BP": make_quote(bid=0.437, ask=0.438, ask_qty=2.0)})   # $0.876
+        fut_thin = make_side("gate", "futures", {"BP": make_quote(bid=0.482, ask=0.483, bid_qty=2.0)})
+        spot_deep = make_side("okx", "spot", {"HIM": make_quote(bid=0.00872, ask=0.00873, ask_qty=20000.0)})  # $174
+        fut_deep = make_side("binance", "futures", {"HIM": make_quote(bid=0.00882, ask=0.00883, bid_qty=20000.0)})
+        scanner = make_scanner(
+            self.settings, [spot_thin, spot_deep], [fut_thin, fut_deep], FakeNotifier()
+        )
+        message = asyncio.run(scanner._cmd_top("111", ""))
+        table_block = message.split("<pre>")[1].split("</pre>")[0]
+        self.assertIn("BP", table_block)
+        self.assertIn("≤$0.88!", table_block)   # глубина BP ($0.876) < $100 → максимум
+        self.assertIn("HIM", table_block)
+        self.assertIn("Gate.io", table_block)    # полные названия бирж
+        self.assertIn("Binance", table_block)
+        self.assertIn("OKX", table_block)
+        # Вердикт: 1 из 2 связок не проходит по глубине
+        self.assertIn("Глубины меньше $100 у 1 из 2 связок", message)
+        self.assertIn("целиком заходят", message)
+
+    def test_signal_message_contains_exec_line(self):
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99.0, ask=100.0)})
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103.0, ask=104.0)})
+        scanner = make_scanner(self.settings, [spot], [fut], FakeNotifier())
+        message = asyncio.run(scanner._cmd_signal("111", ""))
+        self.assertIn("Исполнимость", message)
+        self.assertIn("вмещается в стакан", message)
+
+    def test_calc_warns_when_amount_exceeds_depth(self):
+        """/calc на сумму больше видимой глубины предупреждает."""
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99.0, ask=100.0, ask_qty=1.0)})   # $100
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103.0, ask=104.0, bid_qty=1.0)})
+        scanner = make_scanner(self.settings, [spot], [fut], FakeNotifier())
+        message = asyncio.run(scanner._cmd_calc("111", "BTC 5000"))
+        self.assertIn("больше видимой глубины", message)
+        self.assertIn("проскальзывание", message)
+        # На сумму, которая влезает, — расчёт VWAP присутствует
+        message = asyncio.run(scanner._cmd_calc("111", "BTC 50"))
+        self.assertIn("С учётом стакана (VWAP)", message)
+
+    def test_eval_notional_env_parsing(self):
+        with mock.patch.dict(os.environ, {"EVAL_NOTIONAL_USD": "250"}, clear=True):
+            settings = Settings.from_env()
+            self.assertAlmostEqual(settings.eval_notional_usd, 250.0)
+        with mock.patch.dict(os.environ, {"EVAL_NOTIONAL_USD": "0"}, clear=True):
+            with self.assertRaises(ValueError):
+                Settings.from_env()
+        # описания конфигурации упоминают размер проверки
+        self.assertIn("$100", make_settings().describe())
 
 
 # ---------------------------------------------------------------------------
