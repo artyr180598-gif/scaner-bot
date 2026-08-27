@@ -1204,8 +1204,17 @@ class ArbitrageScanner:
             buy_col, sell_col = "ЛОНГ ПЕРП", "ПРОДАТЬ СПОТ"
 
         rows = []
+        low_liq_rows = 0
         for position, opp in enumerate(best_list[:limit], start=1):
             mark = "🔥" if opp.net_spread_percent >= self.settings.min_spread_percent else " "
+            # Приблизительный чистый профит со $100 (колонка NET × сумма).
+            profit_100 = 100.0 * opp.net_spread_percent / 100.0
+            profit_str = f"+${profit_100:.2f}" if profit_100 >= 0 else f"-${abs(profit_100):.2f}"
+            # «!» — на лучшей цене меньше $100: вход на $100 уйдёт в проскальзывание.
+            liq = _fmt_usd_human(opp.min_notional_usd)
+            if opp.min_notional_usd < 100.0:
+                liq += "!"
+                low_liq_rows += 1
             rows.append([
                 str(position),
                 opp.base[:8],
@@ -1213,10 +1222,11 @@ class ArbitrageScanner:
                 f"{_exchange_tag(opp.sell_exchange)} {_fmt_price(opp.sell_price)}",
                 f"{opp.gross_spread_percent:+.2f}%",
                 f"{opp.net_spread_percent:+.2f}%{mark}",
-                _fmt_usd_human(opp.min_notional_usd),
+                profit_str,
+                liq,
             ])
         table = _mono_table(
-            ["#", "МОНЕТА", buy_col, sell_col, "РАЗРЫВ", "NET", "ЛИКВ"], rows
+            ["#", "МОНЕТА", buy_col, sell_col, "РАЗРЫВ", "NET", "С $100", "ЛИКВ"], rows
         )
 
         above = sum(1 for o in best_list if o.net_spread_percent >= self.settings.min_spread_percent)
@@ -1228,8 +1238,16 @@ class ArbitrageScanner:
             "",
             "🏷 Биржи: BIN=Binance · BYB=Bybit · GAT=Gate.io · MEX=MEXC · OKX=OKX",
             f"📐 РАЗРЫВ — точный % между ценами двух бирж (гросс) · "
-            f"NET — то же после комиссий {self.settings.total_fee_percent:.2f}% · "
-            f"ЛИКВ — глубина лучшей цены",
+            f"NET — то же после комиссий {self.settings.total_fee_percent:.2f}%",
+            f"💵 С $100 — чистый профит примерно со ста долларов "
+            f"(своя сумма: /calc МОНЕТА 500) · ЛИКВ — глубина лучшей цены",
+        ]
+        if low_liq_rows:
+            lines.append(
+                "❗ «!» у ЛИКВ — на лучшей цене меньше $100: на $100 целиком не войти "
+                "без проскальзывания (входи меньше или жди объём)"
+            )
+        lines += [
             f"🚦 Порог сигнала: {self.settings.min_spread_percent:.2f}% · "
             f"над порогом: {above} из {len(best_list)} монет",
         ]
@@ -1244,7 +1262,8 @@ class ArbitrageScanner:
             "",
             "💡 <b>Как читать:</b> КУПИТЬ — биржа и цена, где монета ДЁШЕВО (ask), "
             "ШОРТ/ПРОДАТЬ — где ДОРОГО (bid). РАЗРЫВ = (продажа − покупка) / покупка × 100.",
-            "   Метка NET — запертый профит при одновременном открытии обеих ног.",
+            "   Метка NET — запертый профит при одновременном открытии обеих ног, "
+            "«С $100» — этот же профит в долларах со ста долларов входа.",
             "   /coin BTC — все цены по всем биржам · /top fs — обратное направление · /guide — обучение.",
         ]
         return "\n".join(lines)
@@ -1977,7 +1996,7 @@ def format_startup_message(
         "• По запросу показываю таблицы: где дёшево, где дорого, сколько заберёшь",
         "",
         "💡 <b>Основные команды:</b>",
-        "/top — таблица топ-спредов (где купить/продать, цены, NET, ликвидность)",
+        "/top — таблица топ-спредов (цены обеих бирж, NET, профит со $100)",
         "/signal — лучшая связка прямо сейчас (детально, с планом)",
         "/coin BTC — все цены BTC по биржам + лучшая связка + план действий",
         "/coins — список монет, которые сканируются (по объёму 24ч)",
@@ -2069,7 +2088,7 @@ def format_help_message(settings: Settings) -> str:
         "Авто-push: SIGNAL_MODE=auto в переменных окружения.",
         "",
         "<b>📊 Команды:</b>",
-        "/top [N] — таблица топ-N спредов: где купить, где шортить, NET, ликвидность",
+        "/top [N] — таблица топ-N спредов: цены обеих бирж, разрыв, NET, профит со $100, ликвидность",
         "/top fs [N] — то же для обратного направления (F→S)",
         "/signal [COIN] — лучшая связка прямо сейчас (детально + план + funding)",
         "/coin BTC (алиас /price BTC) — РАЗБОР: все цены BTC по биржам, лучшая связка, план действий",
@@ -2136,7 +2155,7 @@ def format_guide_message() -> str:
         "на спот-бирже. Бот считает его — /top fs и /coin BTC показывают оба направления.",
         "",
         "<b>5. Где всё смотреть в боте:</b>",
-        "/top — таблица: где купить, где шортить, NET, ликвидность",
+        "/top — таблица: цены обеих бирж, разрыв, NET, профит со $100, ликвидность",
         "/coin BTC — все цены BTC по биржам + лучшая связка + план",
         "/signal — лучшая связка прямо сейчас (по запросу, без спама)",
         "/coins — список монет, /funding BTC — funding, /calc BTC 1000 — профит",

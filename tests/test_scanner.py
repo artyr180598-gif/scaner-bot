@@ -826,10 +826,25 @@ class TestOnDemandMode(unittest.TestCase):
         notifier = FakeNotifier()
         scanner = self._scanner_with_signal(notifier)
         message = asyncio.run(scanner._cmd_top("111", ""))
-        for needle in ("МОНЕТА", "КУПИТЬ СПОТ", "ШОРТ ПЕРП", "РАЗРЫВ", "NET", "ЛИКВ",
+        for needle in ("МОНЕТА", "КУПИТЬ СПОТ", "ШОРТ ПЕРП", "РАЗРЫВ", "NET", "С $100", "ЛИКВ",
                        "MEX 100.0000", "BYB 103.0000", "+3.00%", "+2.85%",
+                       "+$2.85",  # профит со $100 при NET +2.85%
                        "BIN=Binance", "BYB=Bybit", "GAT=Gate.io"):
             self.assertIn(needle, message)
+        # ликвидности $1.0k хватает на вход $100 — предупреждения «!» нет
+        self.assertNotIn("«!»", message)
+
+    def test_top_low_liquidity_warning_marker(self):
+        """На лучшей цене меньше $100 — ЛИКВ помечается «!» и есть пояснение."""
+        notifier = FakeNotifier()
+        settings = make_settings()
+        spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100, ask_qty=0.5)})      # $50
+        fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104, bid_qty=0.6)})  # $61.8
+        scanner = make_scanner(settings, [spot], [fut], notifier)
+        message = asyncio.run(scanner._cmd_top("111", ""))
+        self.assertIn("$50!", message)          # лучшая цена spot-ноги всего $50
+        self.assertIn("«!»", message)           # легенда с объяснением маркера
+        self.assertIn("+$2.85", message)        # профит со $100 при NET +2.85%
 
     def test_top_fs_reverse_direction(self):
         notifier = FakeNotifier()
