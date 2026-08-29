@@ -44,8 +44,9 @@ CommandHandler = Callable[[str, str], Awaitable[Optional[str]]]
 MAIN_MENU_KEYBOARD: dict[str, Any] = {
     "inline_keyboard": [
         [
-            {"text": "📊 Топ спредов", "callback_data": "top"},
-            {"text": "🎯 Лучший сигнал", "callback_data": "signal"},
+            {"text": "📊 Топ S→F", "callback_data": "top"},
+            {"text": "📊 Топ F→S", "callback_data": "top:fs"},
+            {"text": "🎯 Сигнал", "callback_data": "signal"},
         ],
         [
             {"text": "🪙 Монеты", "callback_data": "coins"},

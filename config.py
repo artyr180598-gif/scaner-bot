@@ -24,7 +24,7 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 #: Биржи, которые сканер умеет обслуживать (id как в ccxt).
-SUPPORTED_EXCHANGES: tuple[str, ...] = ("mexc", "bybit", "gate", "okx", "binance")
+SUPPORTED_EXCHANGES: tuple[str, ...] = ("mexc", "bybit", "okx", "binance")
 
 #: Режимы выдачи сигналов.
 SIGNAL_MODES: tuple[str, ...] = ("on_demand", "auto")
@@ -58,6 +58,9 @@ def is_scannable_base(base: str) -> bool:
     if base in EXCLUDED_BASES:
         return False
     if base.endswith(_LEVERAGED_SUFFIXES) and len(base) > 4:
+        return False
+    # 1000PEPE / 1MBONK — другой контракт, не путать с PEPE/BONK.
+    if base.startswith(("1000", "10000", "1M", "1B")):
         return False
     return True
 
@@ -170,11 +173,12 @@ class Settings:
     # физически невозможны. Фильтр: если цена на бирже отклоняется от МЕДИАНЫ
     # по всем биржам сильнее порога — котировка считается «другой монетой /
     # битым стаканом» и в связки не идёт. 0 = выключить проверку.
-    price_deviation_max_percent: float = 50.0  # PRICE_DEVIATION_MAX_PERCENT
-    # Жёсткий потолок гросс-спреда: всё, что выше, — мусорные данные или
-    # неисполнимый разрыв (в реальности межбиржевой спред почти никогда не
-    # превышает единиц процентов). 0 = выключить потолок.
-    max_spread_percent: float = 30.0           # MAX_SPREAD_PERCENT
+    price_deviation_max_percent: float = 15.0  # PRICE_DEVIATION_MAX_PERCENT
+    # Жёсткий потолок гросс-спреда. Реальный межбиржевой basis ликвидных
+    # монет почти никогда не держится около 20%+. 0 = выкл.
+    max_spread_percent: float = 8.0            # MAX_SPREAD_PERCENT
+    # Макс. ширина стакана (ask−bid)/bid, %: шире — неликвид / битая книга.
+    max_book_spread_percent: float = 2.0       # MAX_BOOK_SPREAD_PERCENT
 
     # --- Инструменты ---------------------------------------------------------
     symbols: tuple[str, ...] = ()            # SYMBOLS: BTC,ETH,... (пусто = авто)
@@ -267,9 +271,12 @@ class Settings:
             max_signals_per_scan=_env_int("MAX_SIGNALS_PER_SCAN", 5, minimum=1),
             allow_same_exchange=_env_bool("ALLOW_SAME_EXCHANGE", False),
             price_deviation_max_percent=_env_float(
-                "PRICE_DEVIATION_MAX_PERCENT", 50.0, minimum=0.0
+                "PRICE_DEVIATION_MAX_PERCENT", 15.0, minimum=0.0
             ),
-            max_spread_percent=_env_float("MAX_SPREAD_PERCENT", 30.0, minimum=0.0),
+            max_spread_percent=_env_float("MAX_SPREAD_PERCENT", 8.0, minimum=0.0),
+            max_book_spread_percent=_env_float(
+                "MAX_BOOK_SPREAD_PERCENT", 2.0, minimum=0.0
+            ),
             symbols=symbols,
             auto_discover_symbols=_env_bool("AUTO_DISCOVER_SYMBOLS", True),
             top_symbols_limit=_env_int("TOP_SYMBOLS", 0, minimum=0),

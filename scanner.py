@@ -100,7 +100,6 @@ class ExchangeSpec:
 EXCHANGE_REGISTRY: dict[str, ExchangeSpec] = {
     "mexc":    ExchangeSpec("mexc", "MEXC", "mexc", "mexc", "spot", "swap"),
     "bybit":   ExchangeSpec("bybit", "Bybit", "bybit", "bybit", "spot", "swap"),
-    "gate":    ExchangeSpec("gate", "Gate.io", "gate", "gate", "spot", "swap"),
     "okx":     ExchangeSpec("okx", "OKX", "okx", "okx", "spot", "swap"),
     "binance": ExchangeSpec("binance", "Binance", "binance", "binanceusdm", "spot", "swap"),
 }
@@ -171,6 +170,18 @@ class BookQuote:
     _vwap_bid_cache: Optional[tuple[float, float, float]] = field(
         default=None, init=False, repr=False, compare=False
     )
+
+
+def _book_width_percent(quote: "BookQuote") -> float:
+    """Ширина стакана (ask−bid)/bid, %."""
+    if quote.bid <= 0 or quote.ask <= 0:
+        return 999.0
+    return (quote.ask - quote.bid) / quote.bid * 100.0
+
+
+def _quote_book_sane(quote: "BookQuote") -> bool:
+    """Стакан не перечёркнут и цены положительные."""
+    return quote.bid > 0 and quote.ask > quote.bid
 
 
 def _walk_book_vwap(
@@ -270,6 +281,39 @@ class Opportunity:
     @property
     def min_notional_usd(self) -> float:
         return min(self.spot_notional_usd, self.futures_notional_usd)
+
+    @property
+    def is_quality(self) -> bool:
+        """Рабочая связка: $вход влезает, NET и VWAP-NET неотрицательные."""
+        return (
+            self.exec_fully_filled
+            and self.net_spread_percent >= 0.0
+            and self.exec_net_spread_percent >= 0.0
+        )
+
+    @property
+    def quality_score(self) -> int:
+        """0–100: глубина, исполнимость, умеренный спред, свежесть."""
+        score = 40
+        if self.exec_fully_filled:
+            score += 30
+        elif self.exec_size_usd > 0:
+            score -= 20
+        else:
+            score -= 35
+        if self.fillable_usd >= 500:
+            score += 10
+        elif self.fillable_usd < 50:
+            score -= 15
+        if 0.0 <= self.gross_spread_percent <= 5.0:
+            score += 10
+        elif abs(self.gross_spread_percent) > 6.0:
+            score -= 10
+        if self.data_age_seconds <= 15:
+            score += 10
+        elif self.data_age_seconds > 60:
+            score -= 10
+        return max(0, min(100, score))
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +561,8 @@ class ExchangeSide:
             return
         if bid <= 0 or ask <= 0 or bid_qty <= 0 or ask_qty <= 0:
             return
+        if bid >= ask:
+            return
 
         # Все видимые уровни стакана — для расчёта исполнимости (VWAP):
         # сколько $ влезает в книгу и по какой средней цене.
@@ -607,6 +653,7 @@ class ArbitrageScanner:
             "events_recorded": 0,
             "suspicious_quotes_skipped": 0,
             "spread_capped_skipped": 0,
+            "wide_book_skipped": 0,
         }
         self._started_at = time.time()
 
@@ -841,12 +888,29 @@ class ArbitrageScanner:
                 samples.append(((side.exchange_id, side.market_type, base), mid))
             if len(samples) < 2:
                 continue  # одну котировку не с чем сравнивать
-            reference = statistics.median(mid for _, mid in samples)
+
+            # Кластер «одной монеты»: самая большая группа цен в пределах
+            # limit%. Медиана по всем биржам ломается на бимодальных тикерах
+            # (половина CAT за $0.000002, половина — другой CAT за $800).
+            best_cluster: list[tuple[tuple[str, str, str], float]] = []
+            for _, mid_i in samples:
+                cluster = [
+                    item for item in samples
+                    if abs(item[1] - mid_i) / max(item[1], mid_i) * 100.0 <= limit
+                ]
+                if len(cluster) > len(best_cluster):
+                    best_cluster = cluster
+            if len(best_cluster) < 2:
+                for key, _mid in samples:
+                    outliers[key] = 100.0
+                continue
+            reference = statistics.median(mid for _, mid in best_cluster)
             if reference <= 0:
                 continue
+            cluster_keys = {key for key, _ in best_cluster}
             for key, mid in samples:
                 deviation = abs(mid - reference) / reference * 100.0
-                if deviation > limit:
+                if key not in cluster_keys or deviation > limit:
                     outliers[key] = deviation
         return outliers
 
@@ -909,6 +973,16 @@ class ArbitrageScanner:
                         buy_quote, sell_quote = fut_quote, spot_quote
                     if buy_quote.ask <= 0.0 or sell_quote.bid <= 0.0:
                         continue
+                    if not _quote_book_sane(spot_quote) or not _quote_book_sane(fut_quote):
+                        continue
+                    book_cap = self.settings.max_book_spread_percent
+                    if book_cap > 0:
+                        if (
+                            _book_width_percent(spot_quote) > book_cap
+                            or _book_width_percent(fut_quote) > book_cap
+                        ):
+                            self.stats["wide_book_skipped"] += 1
+                            continue
                     gross = (sell_quote.bid - buy_quote.ask) / buy_quote.ask * 100.0
                     notional = min(buy_quote.ask_notional_usd, sell_quote.bid_notional_usd)
 
@@ -995,8 +1069,14 @@ class ArbitrageScanner:
         by_base = self._collect_opportunities(threshold=self.settings.min_spread_percent)
         pairs: list[tuple[Opportunity, list[Opportunity]]] = []
         for opportunities in by_base.values():
-            pairs.append((opportunities[0], opportunities[1:3]))
-        pairs.sort(key=lambda pair: pair[0].net_spread_percent, reverse=True)
+            quality = [o for o in opportunities if o.is_quality]
+            if not quality:
+                continue
+            pairs.append((quality[0], quality[1:3]))
+        pairs.sort(
+            key=lambda pair: (pair[0].is_quality, pair[0].net_spread_percent),
+            reverse=True,
+        )
         return pairs
 
     def _track_best(self, net: float, base: str, spot_name: str, fut_name: str) -> None:
@@ -1325,7 +1405,10 @@ class ArbitrageScanner:
         outliers = self._compute_price_outliers(now)
         by_base = self._collect_opportunities(threshold=float("-inf"), direction=direction)
         best_list = [opps[0] for opps in by_base.values()]
-        best_list.sort(key=lambda o: o.net_spread_percent, reverse=True)
+        best_list.sort(
+            key=lambda o: (o.is_quality, o.quality_score, o.net_spread_percent),
+            reverse=True,
+        )
 
         if not best_list:
             return (
@@ -1336,21 +1419,41 @@ class ArbitrageScanner:
 
         s = self.settings
         eval_usd = s.eval_notional_usd
-        shown = best_list[:limit]
+        quality_list = [o for o in best_list if o.is_quality]
+        shown = quality_list[:limit]
 
         if direction == DIR_SPOT_TO_FUT:
             header_note = "S→F: купить спот (ask) + шорт перп (bid)"
-            buy_col, sell_col = "КУПИТЬ СПОТ", "ШОРТ ПЕРП"
+            buy_where, sell_where = "ГДЕ КУПИТЬ", "ГДЕ ШОРТ"
         else:
             header_note = "F→S: лонг перп (ask) + продать спот (bid)"
-            buy_col, sell_col = "ЛОНГ ПЕРП", "ПРОДАТЬ СПОТ"
+            buy_where, sell_where = "ГДЕ ЛОНГ", "ГДЕ ПРОДАТЬ"
+
+        if not shown:
+            return (
+                f"📊 <b>Топ спредов</b> · {_esc(header_note)}\n"
+                f"<i>{_fmt_utc_short(now)}</i>\n\n"
+                "Сейчас <b>нет исполнимых связок</b>: после комиссий NET ≤ 0, "
+                f"либо ${eval_usd:.0f} не влезает в стакан, либо цены — тикер-двойник.\n\n"
+                "Это нормально: настоящий арбитраж редкий. "
+                "Попробуй /top (другое направление /top fs) · /status · /coin BTC."
+            )
+
+        if self.settings.funding_enabled and shown:
+            maps = await asyncio.gather(*(self._get_funding_map(o.base) for o in shown[:3]))
+            patched: list[Opportunity] = []
+            for i, opp in enumerate(shown):
+                if i < 3:
+                    rate = maps[i].get(opp.futures_exchange)
+                    patched.append(replace(opp, funding_rate_percent=rate))
+                else:
+                    patched.append(opp)
+            shown = patched
 
         rows = []
         low_depth_rows = 0
         for position, opp in enumerate(shown, start=1):
             mark = "🔥" if opp.net_spread_percent >= s.min_spread_percent else ""
-            # «С $N» — профит на размер входа С УЧЁТОМ стакана (VWAP), либо
-            # максимум, на который хватает глубины: «≤$X!».
             if opp.exec_fully_filled and opp.exec_size_usd > 0:
                 profit = opp.exec_size_usd * opp.exec_net_spread_percent / 100.0
                 exec_cell = f"+${profit:.2f}" if profit >= 0 else f"-${abs(profit):.2f}"
@@ -1360,23 +1463,20 @@ class ArbitrageScanner:
             else:
                 exec_cell = "—"
                 low_depth_rows += 1
-            # «ВХОД МАКС» — сколько $ влезает по видимым уровням обеих ног.
-            entry_cell = _fmt_usd_human(opp.fillable_usd) if opp.fillable_usd > 0 else "—"
-            if 0 < opp.fillable_usd < eval_usd:
-                entry_cell += "!"
             rows.append([
                 str(position),
                 opp.base[:8],
-                f"{opp.buy_exchange:<8}{_fmt_price(opp.buy_price)}",
-                f"{opp.sell_exchange:<8}{_fmt_price(opp.sell_price)}",
+                opp.buy_exchange,
+                _fmt_price(opp.buy_price),
+                opp.sell_exchange,
+                _fmt_price(opp.sell_price),
                 f"{opp.gross_spread_percent:+.2f}%",
                 f"{opp.net_spread_percent:+.2f}%{mark}",
                 exec_cell,
-                entry_cell,
             ])
         table = _mono_table(
-            ["#", "МОНЕТА", buy_col, sell_col, "ГРОСС", "NET",
-             f"С ${eval_usd:.0f}", "ВХОД МАКС"],
+            ["#", "МОНЕТА", buy_where, "ЦЕНА↓", sell_where, "ЦЕНА↑",
+             "ГРОСС", "NET", f"${eval_usd:.0f}"],
             rows,
         )
 
@@ -1404,19 +1504,16 @@ class ArbitrageScanner:
             lines.append("")
 
         lines += [
-            "🏷 <b>Как читать таблицу:</b>",
-            f"   <b>{buy_col}</b> — биржа и цена покупки (ask, где ДЁШЕВО) · "
-            f"<b>{sell_col}</b> — биржа и цена продажи (bid, где ДОРОГО)",
-            f"   <b>ГРОСС</b> = (продажа − покупка) / покупка · "
-            f"<b>NET</b> = ГРОСС − комиссии {s.total_fee_percent:.2f}% "
-            f"(спот {s.spot_taker_fee_percent:.2f}% + перп {s.futures_taker_fee_percent:.2f}%)",
-            f"   <b>С ${eval_usd:.0f}</b> — исполнимый профит с учётом проскальзывания по стакану · "
-            f"«≤$X!» — ${eval_usd:.0f} в стакан не влезает, максимум $X",
-            f"   <b>ВХОД МАКС</b> — сколько $ влезает по видимым уровням обеих ног "
-            f"(«!» — меньше ${eval_usd:.0f})",
-            f"🚦 Порог сигнала: {s.min_spread_percent:.2f}% · "
-            f"над порогом: {above} из {len(best_list)} монет"
-            + (" · 🔥 = спред ≥ порога" if above else ""),
+            "🏷 <b>Таблица = только исполнимые связки</b> "
+            f"(${eval_usd:.0f} влезает в стакан, NET и VWAP-NET ≥ 0).",
+            f"   <b>{buy_where}</b>/<b>ЦЕНА↓</b> — где покупаешь по ask · "
+            f"<b>{sell_where}</b>/<b>ЦЕНА↑</b> — где продаёшь/шортишь по bid.",
+            f"   ГРОСС = (дорого−дёшево)/дёшево · NET = ГРОСС − {s.total_fee_percent:.2f}% "
+            f"(спот {s.spot_taker_fee_percent:.2f}% + перп {s.futures_taker_fee_percent:.2f}%). "
+            f"<b>${eval_usd:.0f}</b> — $ профита по VWAP стакана.",
+            f"🚦 Порог сигнала: {s.min_spread_percent:.2f}% · над порогом {above}/{len(best_list)} монет · "
+            f"потолок гросс {s.max_spread_percent:.0f}% · кластер ±{s.price_deviation_max_percent:.0f}% · "
+            f"ширина книги ≤{s.max_book_spread_percent:.0f}%.",
         ]
         if outliers:
             lines.append(
@@ -1473,13 +1570,25 @@ class ArbitrageScanner:
                 f"{_fmt_price(opp.exec_sell_price)} → "
                 f"NET {opp.exec_net_spread_percent:+.2f}% ≈ {_fmt_profit_usd(profit)}"
             )
-        elif opp.exec_size_usd > 0:
+        lines.append(
+            f"   📊 Оценка {opp.quality_score}/100 · данные ≤ {opp.data_age_seconds:.0f}с · "
+            f"глубина {_fmt_usd_human(opp.fillable_usd)}"
+        )
+        if opp.funding_rate_percent is not None:
+            holder = "шорт" if opp.is_spot_first else "лонг"
+            gets = "получает" if opp.funding_rate_percent >= 0 else "платит"
+            apr = opp.funding_rate_percent * 3 * 365.0
+            lines.append(
+                f"   💰 Funding {opp.futures_exchange}: {opp.funding_rate_percent:+.4f}%/8ч "
+                f"— {holder} {gets} (≈{apr:+.1f}% APR)"
+            )
+        if not opp.exec_fully_filled and opp.exec_size_usd > 0:
             lines.append(
                 f"   ⚠️ Исполнимость: на ${eval_usd:.0f} НЕ войти — видимой глубины "
                 f"обеих ног хватает лишь на ≤{_fmt_usd_human(opp.exec_size_usd)}. "
                 f"Спред живёт только на нано-объёмах, больше — проскальзывание"
             )
-        else:
+        elif not opp.exec_fully_filled:
             lines.append(
                 f"   ⚠️ Исполнимость: в стакане нет видимого объёма — вход невозможен"
             )
@@ -1762,9 +1871,22 @@ class ArbitrageScanner:
         if not pool:
             return "🎯 <b>Сигнал</b>: сейчас нет свежих связок — биржи ещё подключаются или стаканов нет."
 
-        pool.sort(key=lambda o: o.net_spread_percent, reverse=True)
-        best = pool[0]
-        alternatives = pool[1:4]
+        quality_pool = [o for o in pool if o.is_quality]
+        if not quality_pool:
+            if base:
+                return (
+                    f"🎯 <b>Сигнал · {_esc(base)}</b>: нет исполнимой связки "
+                    f"(NET после стакана ≤ 0 или мало глубины на ${self.settings.eval_notional_usd:.0f}).\n\n"
+                    f"Разбор цен: /coin {base}"
+                )
+            return (
+                "🎯 <b>Сигнал</b>: сейчас нет исполнимых связок — "
+                "либо спред съеден комиссиями, либо стакан слишком тонкий.\n\n"
+                "Смотри /top и /status."
+            )
+        quality_pool.sort(key=lambda o: (o.quality_score, o.net_spread_percent), reverse=True)
+        best = quality_pool[0]
+        alternatives = quality_pool[1:4]
 
         # Funding для фьючерсной биржи связки (best-effort, кэшируется).
         if self.settings.funding_enabled:
@@ -1796,7 +1918,8 @@ class ArbitrageScanner:
             fut_count = sum(1 for s in self.futures_sides if s.alive and base in s.symbol_by_base)
             volume = volume_by_base.get(base)
             best_list = by_base_best.get(base, [])
-            net = f"{best_list[0].net_spread_percent:+.2f}%" if best_list else "—"
+            q = next((o for o in best_list if o.is_quality), None)
+            net = f"{q.net_spread_percent:+.2f}%" if q is not None else "—"
             rows.append([
                 str(global_index),
                 base[:8],
@@ -1818,7 +1941,7 @@ class ArbitrageScanner:
                 ["#", "МОНТА", "ОБЪЁМ 24Ч", "СПОТ", "ПЕРП", "СПРЕД"], rows
             ) + "</pre>",
             "",
-            "СПОТ/ПЕРП — на скольких живых биржах есть рынок · СПРЕД — лучший чистый (S→F)",
+            "СПОТ/ПЕРП — число живых бирж · СПРЕД — исполнимый NET (S→F), иначе —",
         ]
         if page < total_pages:
             lines.append(f"➡️ /coins {page + 1} — следующая страница")
