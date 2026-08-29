@@ -13,7 +13,7 @@ check_connection.py — проверка реального доступа к б
 Запуск:
     python check_connection.py                # все биржи из EXCHANGES/.env
     python check_connection.py mexc bybit     # только выбранные
-    python check_connection.py binance gate okx
+    python check_connection.py binance bybit okx
 """
 
 from __future__ import annotations

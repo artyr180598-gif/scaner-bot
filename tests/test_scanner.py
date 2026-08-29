@@ -52,6 +52,9 @@ def make_settings(**overrides) -> Settings:
         cooldown_minutes=15.0,
         spot_taker_fee_percent=0.1,
         futures_taker_fee_percent=0.05,
+        max_spread_percent=30.0,
+        price_deviation_max_percent=50.0,
+        max_book_spread_percent=10.0,
     )
     defaults.update(overrides)
     return Settings(**defaults)
@@ -181,8 +184,8 @@ class TestSpreadEvaluation(unittest.TestCase):
         spot_mexc = make_side("mexc", "spot", {"BTC": make_quote(bid=99, ask=100)})
         spot_okx = make_side("okx", "spot", {"BTC": make_quote(bid=99, ask=99.5)})
         fut_bybit = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104)})
-        fut_gate = make_side("gate", "futures", {"BTC": make_quote(bid=102.5, ask=103.5)})
-        scanner = make_scanner(self.settings, [spot_mexc, spot_okx], [fut_bybit, fut_gate],
+        fut_okx = make_side("okx", "futures", {"BTC": make_quote(bid=102.5, ask=103.5)})
+        scanner = make_scanner(self.settings, [spot_mexc, spot_okx], [fut_bybit, fut_okx],
                                FakeNotifier())
         pairs = scanner._evaluate()
         self.assertEqual(len(pairs), 1)
@@ -346,9 +349,10 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(settings.spot_taker_fee_percent, 0.1)
         self.assertEqual(settings.futures_taker_fee_percent, 0.05)
         self.assertAlmostEqual(settings.total_fee_percent, 0.15)
-        self.assertEqual(settings.price_deviation_max_percent, 50.0)
-        self.assertEqual(settings.max_spread_percent, 30.0)
-        self.assertEqual(settings.exchanges, ("mexc", "bybit", "gate", "okx", "binance"))
+        self.assertEqual(settings.price_deviation_max_percent, 15.0)
+        self.assertEqual(settings.max_spread_percent, 8.0)
+        self.assertEqual(settings.max_book_spread_percent, 2.0)
+        self.assertEqual(settings.exchanges, ("mexc", "bybit", "okx", "binance"))
         self.assertTrue(settings.use_websocket)
         self.assertFalse(settings.allow_same_exchange)
         self.assertIsNone(settings.telegram_bot_token)
@@ -397,6 +401,9 @@ class TestConfig(unittest.TestCase):
         self.assertFalse(is_scannable_base("BTCUP"))    # леверидж-токен
         self.assertFalse(is_scannable_base("BTC/USDT")) # не базовый актив
         self.assertFalse(is_scannable_base(""))
+        self.assertFalse(is_scannable_base("1000PEPE"))
+        self.assertFalse(is_scannable_base("1MBONK"))
+        self.assertTrue(is_scannable_base("KAVA"))
 
 
 # ---------------------------------------------------------------------------
@@ -827,10 +834,10 @@ class TestOnDemandMode(unittest.TestCase):
         notifier = FakeNotifier()
         scanner = self._scanner_with_signal(notifier)
         message = asyncio.run(scanner._cmd_top("111", ""))
-        for needle in ("МОНЕТА", "КУПИТЬ СПОТ", "ШОРТ ПЕРП", "ГРОСС", "NET", "С $100", "ВХОД МАКС",
+        for needle in ("МОНЕТА", "ГДЕ КУПИТЬ", "ГДЕ ШОРТ", "ЦЕНА↓", "ЦЕНА↑", "ГРОСС", "NET",
                        "MEXC", "100.0000", "Bybit", "103.0000", "+3.00%", "+2.85%",
                        "+$2.85",  # исполнимый профит со $100 при NET +2.85%
-                       "ДЕТАЛЬНЫЙ РАЗБОР", "Исполнимость"):
+                       "ДЕТАЛЬНЫЙ РАЗБОР", "Исполнимость", "Оценка"):
             self.assertIn(needle, message)
         # полные названия бирж — без коротких тегов
         self.assertIn("MEXC", message)
@@ -847,20 +854,17 @@ class TestOnDemandMode(unittest.TestCase):
         fut = make_side("bybit", "futures", {"BTC": make_quote(bid=103, ask=104, bid_qty=0.6)})  # $61.8
         scanner = make_scanner(settings, [spot], [fut], notifier)
         message = asyncio.run(scanner._cmd_top("111", ""))
-        self.assertIn("≤$50!", message)         # $100 в стакан не влезает, максимум $50
-        self.assertIn("$50!", message)          # ВХОД МАКС = $50 с маркером
-        self.assertIn("«≤$X!»", message)        # легенда с объяснением маркера
-        self.assertIn("Глубины меньше $100", message)  # честный вердикт по топу
-        self.assertIn("на нано-объёмах", message)      # предупреждение в разборе
+        # Тонкий стакан — не качество: /top не показывает мусор как арбитраж.
+        self.assertIn("нет исполнимых", message)
+        self.assertNotIn("MEXC", message)
 
     def test_top_fs_reverse_direction(self):
         notifier = FakeNotifier()
         scanner = self._scanner_with_signal(notifier)
         message = asyncio.run(scanner._cmd_top("111", "fs"))
-        self.assertIn("ЛОНГ ПЕРП", message)
-        self.assertIn("ПРОДАТЬ СПОТ", message)
-        # F>S: (99 − 104)/104 = −4.81% − 0.15% комиссий = −4.96%
-        self.assertIn("-4.96%", message)
+        self.assertIn("F→S", message)
+        self.assertIn("нет исполнимых", message)
+        self.assertNotIn("-4.96%", message)
 
 
 # ---------------------------------------------------------------------------
@@ -907,6 +911,27 @@ class TestPriceSanity(unittest.TestCase):
         fut = make_side("bybit", "futures", {"MA": make_quote(bid=100.0, ask=101.0)})
         scanner = make_scanner(make_settings(), [spot], [fut], FakeNotifier())
         self.assertEqual(scanner._evaluate(), [])
+
+    def test_twenty_percent_spread_is_junk(self):
+        """~20% между ногами — не арбитраж."""
+        spot = make_side("mexc", "spot", {"XYZ": make_quote(bid=99.0, ask=100.0)})
+        fut = make_side("bybit", "futures", {"XYZ": make_quote(bid=120.0, ask=121.0)})
+        scanner = make_scanner(
+            make_settings(max_spread_percent=8.0, price_deviation_max_percent=15.0),
+            [spot], [fut], FakeNotifier(),
+        )
+        self.assertEqual(scanner._evaluate(), [])
+        self.assertNotIn("XYZ", scanner._collect_opportunities(threshold=float("-inf")))
+
+    def test_wide_intra_book_spread_skipped(self):
+        spot = make_side("mexc", "spot", {"AAA": make_quote(bid=90.0, ask=100.0)})
+        fut = make_side("bybit", "futures", {"AAA": make_quote(bid=103.0, ask=104.0)})
+        scanner = make_scanner(
+            make_settings(max_book_spread_percent=2.0, max_spread_percent=30.0),
+            [spot], [fut], FakeNotifier(),
+        )
+        self.assertEqual(scanner._collect_opportunities(threshold=float("-inf")), {})
+        self.assertGreater(scanner.stats["wide_book_skipped"], 0)
 
     def test_legit_small_spread_survives_filters(self):
         """Обычный рабочий спред 3% фильтрами не трогается."""
@@ -1042,6 +1067,14 @@ class TestExecutableSpread(unittest.TestCase):
         self.assertAlmostEqual(filled, 100.5)
         self.assertAlmostEqual(vwap, 100.5 / 1.0, places=6)
 
+    def test_store_quote_rejects_crossed_book(self):
+        side = make_side("mexc", "spot", {})
+        side._store_quote("BTC/USDT", {
+            "bids": [[101.0, 1.0]],
+            "asks": [[100.0, 1.0]],
+        })
+        self.assertNotIn("BTC/USDT", side.quotes)
+
     def test_store_quote_keeps_depth_levels(self):
         """_store_quote разбирает все уровни книги и сортирует их."""
         side = make_side("mexc", "spot", {})
@@ -1115,7 +1148,7 @@ class TestExecutableSpread(unittest.TestCase):
     def test_top_marks_thin_rows_and_shows_exec_profit(self):
         """В /top тонкие строки помечены «≤$X!», глубокие — профитом."""
         spot_thin = make_side("mexc", "spot", {"BP": make_quote(bid=0.437, ask=0.438, ask_qty=2.0)})   # $0.876
-        fut_thin = make_side("gate", "futures", {"BP": make_quote(bid=0.482, ask=0.483, bid_qty=2.0)})
+        fut_thin = make_side("bybit", "futures", {"BP": make_quote(bid=0.450, ask=0.451, bid_qty=2.0)})
         spot_deep = make_side("okx", "spot", {"HIM": make_quote(bid=0.00872, ask=0.00873, ask_qty=20000.0)})  # $174
         fut_deep = make_side("binance", "futures", {"HIM": make_quote(bid=0.00882, ask=0.00883, bid_qty=20000.0)})
         scanner = make_scanner(
@@ -1123,15 +1156,11 @@ class TestExecutableSpread(unittest.TestCase):
         )
         message = asyncio.run(scanner._cmd_top("111", ""))
         table_block = message.split("<pre>")[1].split("</pre>")[0]
-        self.assertIn("BP", table_block)
-        self.assertIn("≤$0.88!", table_block)   # глубина BP ($0.876) < $100 → максимум
         self.assertIn("HIM", table_block)
-        self.assertIn("Gate.io", table_block)    # полные названия бирж
         self.assertIn("Binance", table_block)
         self.assertIn("OKX", table_block)
-        # Вердикт: 1 из 2 связок не проходит по глубине
-        self.assertIn("Глубины меньше $100 у 1 из 2 связок", message)
-        self.assertIn("целиком заходят", message)
+        self.assertNotIn("BP", table_block)
+        self.assertNotIn("≤$0.88!", table_block)
 
     def test_signal_message_contains_exec_line(self):
         spot = make_side("mexc", "spot", {"BTC": make_quote(bid=99.0, ask=100.0)})
