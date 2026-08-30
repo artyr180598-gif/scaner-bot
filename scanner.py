@@ -2328,7 +2328,8 @@ class ArbitrageScanner:
         """LOW_CHAN: топ своих лонгов или карточка монеты. Не авто-вход."""
         now = time.time()
         if base:
-            snap = self.forge_engine.snapshot(base)
+            ranked = {s.symbol: s for s in self.forge_engine.rank(limit=0)}
+            snap = ranked.get(base) or self.forge_engine.snapshot(base)
             return format_forge_one(snap, now)
         ranked = self.forge_engine.rank(limit=8)
         picked = [s for s in ranked if s.picked]
@@ -2338,7 +2339,7 @@ class ArbitrageScanner:
                 "Нужны дневные бары (~90 дней прогрева из живых мидов). "
                 "Пока смотри /top — рабочий арбитраж.\n\n"
                 "<i>Информационный слой. Авто-вход выключен. "
-                "OOS: +37%/год, Sharpe 0.97, яма −30%.</i>"
+                "OOS FLIPHOLD: +48%/год, Sharpe 1.14, яма −31%.</i>"
             )
         rows = []
         show = picked or ranked[:4]
@@ -2349,8 +2350,8 @@ class ArbitrageScanner:
                 resid, "✓" if s.quiet else "—", "✓" if s.chandelier_ok else "—",
             ])
         return "\n".join([
-            "🛠 <b>FORGE · LOW_CHAN</b>",
-            f"<i>{_fmt_utc_short(now)} · лонг тихих сильнее BTC · не авто-вход</i>",
+            "🛠 <b>FORGE · FLIPHOLD</b>",
+            f"<i>{_fmt_utc_short(now)} · ВХОД в день chandelier · не авто-вход</i>",
             "",
             "<pre>" + _mono_table(
                 ["#", "МОНТА", "СИГН", "ОСТАТ", "ТИХ", "CHAN"], rows
@@ -3044,9 +3045,9 @@ def format_strategy_message(settings: Settings) -> str:
         "стратегии в среднем не бьют buy&amp;hold. Поэтому PULSE <b>не торгует "
         "и не пушит</b> — только контекст рядом с рабочим арбитражем v3.",
         "",
-        "🛠 <b>FORGE / LOW_CHAN</b> — свой отбор: остаток vs BTC среди тихих "
-        "ликвидных + chandelier-выход. Бектест OOS +37%/год Sharpe 0.97, "
-        "яма −30%. Команда /forge. <b>Не авто-вход</b>.",
+        "🛠 <b>FORGE / FLIPHOLD</b> — вход в день включения chandelier среди "
+        "тихих residual-победителей, держать пока chandelier жив. OOS +48%/год "
+        "Sharpe 1.14, яма −31%. Команда /forge. <b>Не авто-вход</b>.",
         "",
         "⚠️ Это не финансовый совет: funding меняется, спред может расходиться, "
         "биржи вводят комиссии. Решение и риск — твои.",

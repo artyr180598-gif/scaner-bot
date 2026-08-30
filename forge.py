@@ -1,10 +1,10 @@
 """
-forge.py — собственный скоринг монет LOW_CHAN (информационный).
+forge.py — собственный скоринг монет (информационный).
 
-Не арбитраж. Не авто-вход. Спека заморожена бектестом forge-v3:
-  остаток vs BTC (14д, β 60д) среди тихих ликвидных + SMA50 + chandelier
-  (20д high − 2.5 ATR). OOS 2024-05→2026-08: +37%/год, Sharpe 0.97,
-  обе половины плюс, fee 20 bps держит. Просадка ≈ −30% — не v3.
+Не арбитраж. Не авто-вход. Спека forge-v5 CHAN_FLIPHOLD:
+  вход в день включения chandelier среди тихих residual-победителей,
+  держать пока chandelier жив (не переранжировать каждый день).
+  OOS +48%/год, Sharpe 1.14, OOS1 PF 1.24, fee20 держит. Яма ≈ −31%.
 
 Тот же код в live (/forge) и в тестах. Без pandas/numpy.
 """
@@ -46,12 +46,15 @@ class ForgeSnapshot:
     quiet: bool = False
     liquid: bool = False
     picked: bool = False
+    entry: bool = False  # сегодня включился chandelier
     rank: int = 0
     reasons: list[str] = field(default_factory=list)
 
     def direction_label(self) -> str:
+        if self.entry and self.picked:
+            return "ВХОД"
         if self.picked:
-            return "ЛОНГ"
+            return "ДЕРЖАТЬ"
         if self.n_bars and self.n_bars < 90:
             return "ПРОГРЕВ"
         return "НЕТ"
@@ -131,6 +134,8 @@ class ForgeEngine:
         self.bar_seconds = bar_seconds
         self._tapes: dict[str, _Tape] = {}
         self._forming: dict[str, list[float]] = {}
+        self._held: set[str] = set()
+        self._prev_chan: dict[str, bool] = {}
 
     def tape(self, symbol: str) -> _Tape:
         got = self._tapes.get(symbol)
@@ -234,41 +239,57 @@ class ForgeEngine:
         snap.vol = f["vol"]
         snap.above_sma = bool(f["above"])
         snap.chandelier_ok = bool(f["chan"])
+        snap.picked = symbol in self._held
         return snap
 
     def rank(self, limit: int = 4) -> list[ForgeSnapshot]:
         cfg = self.cfg
         feats = {sym: self._raw_features(sym) for sym in self._tapes}
         ready = {s: f for s, f in feats.items() if f["n"] >= cfg.min_bars}
-        # PIT: top-N by adv
         by_adv = sorted(ready.items(), key=lambda kv: kv[1]["adv"], reverse=True)[: cfg.pit_n]
         pit = {s for s, _ in by_adv}
         vols = [(s, ready[s]["vol"] or 0.0) for s in pit]
         vols.sort(key=lambda x: x[1])
         n_q = max(1, int(len(vols) * cfg.quiet_pct))
         quiet = {s for s, _ in vols[:n_q]}
-        cands = []
+        pool = [
+            (s, f) for s, f in ready.items()
+            if s in pit and s in quiet and f["above"] and f["resid"] is not None
+        ]
+        pool.sort(key=lambda kv: kv[1]["resid"] or -999, reverse=True)
+        top = {s for s, _ in pool[: cfg.top_k]}
+        flips: set[str] = set()
+        held: set[str] = set()
         for s, f in ready.items():
-            liquid = s in pit
-            q = s in quiet
-            ok = liquid and q and f["above"] and f["chan"] and f["resid"] is not None
-            cands.append((s, f, liquid, q, ok))
-        picked_sorted = sorted(
-            [c for c in cands if c[4]],
-            key=lambda c: c[1]["resid"] or -999,
-            reverse=True,
-        )[: cfg.top_k]
-        picked = {c[0] for c in picked_sorted}
+            prev = self._prev_chan.get(s, False)
+            chan = bool(f["chan"])
+            flip = chan and not prev
+            if flip and s in top:
+                flips.add(s)
+                held.add(s)
+            elif s in self._held and chan:
+                held.add(s)
+            self._prev_chan[s] = chan
+        self._held = held
         out: list[ForgeSnapshot] = []
-        for s, f, liquid, q, ok in cands:
+        for s, f in ready.items():
             snap = ForgeSnapshot(
                 symbol=s, n_bars=f["n"], close=f["close"],
                 resid=f["resid"], vol=f["vol"],
                 above_sma=bool(f["above"]), chandelier_ok=bool(f["chan"]),
-                quiet=q, liquid=liquid, picked=s in picked,
+                quiet=s in quiet, liquid=s in pit,
+                picked=s in held, entry=s in flips,
             )
-            if s in picked:
-                snap.rank = [p[0] for p in picked_sorted].index(s) + 1
+            if s in held:
+                snap.reasons.append("вход chandelier" if s in flips else "держим, пока chandelier")
+            elif not f["chan"]:
+                snap.reasons.append("chandelier выбил")
             out.append(snap)
-        out.sort(key=lambda x: (x.picked, x.resid if x.resid is not None else -999), reverse=True)
+        out.sort(
+            key=lambda x: (x.picked, x.entry, x.resid if x.resid is not None else -999),
+            reverse=True,
+        )
+        for i, snap in enumerate(out):
+            if snap.picked:
+                snap.rank = i + 1
         return out[:limit] if limit else out

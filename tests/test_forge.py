@@ -49,6 +49,31 @@ class TestForgeEngine(unittest.TestCase):
         self.assertIn("QET", picked)
         self.assertNotIn("BTC", picked)  # BTC is the benchmark, residual ~0
 
+    def test_fliphold_keeps_after_leaving_topk(self) -> None:
+        """Держим имя после входа, даже если оно выпало из топа."""
+        cfg = ForgeConfig(min_bars=90, pit_n=4, top_k=1, quiet_pct=1.0)
+        eng = ForgeEngine(cfg)
+        for i in range(100):
+            btc = 100.0 + i * 0.02
+            eng.observe_bar("BTC", i, btc, btc + 0.1, btc - 0.1, btc, 1e6)
+            a = 10.0 + i * 0.08
+            eng.observe_bar("AAA", i, a, a + 0.05, a - 0.05, a, 9e5)
+            c = 10.0 + i * 0.08
+            eng.observe_bar("CCC", i, c, c + 0.05, c - 0.05, c, 9e5)
+        eng._held = {"AAA"}
+        eng._prev_chan = {"AAA": True, "BTC": True, "CCC": True}
+        for j in range(12):
+            i = 100 + j
+            btc = 100.0 + i * 0.02
+            eng.observe_bar("BTC", i, btc, btc + 0.1, btc - 0.1, btc, 1e6)
+            a = 10.0 + 100 * 0.08 + j * 0.01
+            eng.observe_bar("AAA", i, a, a + 0.05, a - 0.05, a, 9e5)
+            c = 10.0 + 100 * 0.08 + j * 0.50
+            eng.observe_bar("CCC", i, c, c + 0.05, c - 0.05, c, 9e5)
+        later = eng.rank(limit=4)
+        picked = [s.symbol for s in later if s.picked]
+        self.assertIn("AAA", picked)
+
 
 if __name__ == "__main__":
     unittest.main()
