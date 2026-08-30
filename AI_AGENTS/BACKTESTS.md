@@ -67,6 +67,17 @@ PULSE OOS: winrate 50.9%, PF 0.92, Sharpe −0.37.
 
 Отчёт: `backtest/results/pulse-v1.md`.
 
+## FORGE (свой picker, overlapping+PIT, лаг 1, IS до 2024-05-01)
+
+| Тег | Что | OOS | Вердикт |
+|---|---|---|---|
+| `forge-v1` | RESID4, DM_BTC_ETH_VT | RESID4 +32%/год sh 0.81 DD −38%; DM +9.3% sh 0.68 DD −15% | живые, не часы |
+| `forge-v2` | LOWVOL, STACK | LOWVOL +30% sh 0.87 DD −29%; STACK DD −5.8% при 23% in-mkt | STACK = кэш, не брать |
+| `forge-v3` | **LOW_CHAN**, BOOK_RP | LOW_CHAN **+37% sh 0.97 DD −30%**, OOS1 PF **1.18**; BOOK_RP DD −14% но OOS1 PF **1.06** | picker = LOW_CHAN |
+| `forge-v4` | VT/DD/MIX на CHAN | CHAN_VD20 OOS1 PF **1.05**; MIX70 PF ок, яма −30% | VT/DD тупик OOS1 |
+
+Автоторговлю направлением не включать. `/forge` — инфо. Сводка: `FORGE_REPORT.md`.
+
 ## Что пробовать следующим (не проверено)
 
 - Maker-выходы (лимитки): снижает exit fee → PnL вырастет на ~0.1-0.15%/сделку.

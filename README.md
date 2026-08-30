@@ -29,6 +29,7 @@
 | `/calc BTC 1000` | сколько профита с твоего депозита |
 | `/signals` | журнал: где за сессию спред был ≥ порога (без отправки, просто история) |
 | `/pulse` · `/pulse BTC` | **информационный** направленный скоринг (режим TREND/RANGE, crowding). Не авто-вход: бектест `pulse-v1` не дал OOS-edge |
+| `/forge` · `/forge BTC` | **свой** скоринг LOW_CHAN (остаток vs BTC среди тихих). OOS +37%/год, яма −30%. **Не авто-вход** |
 
 Если хочешь, чтобы бот сам присылал сигнал при превышении порога —
 ставь переменную `SIGNAL_MODE=auto` (с кулдауном на пару и лимитом
@@ -78,6 +79,7 @@
 | `/funding [COIN]` | Funding-рейты по фьючерсным биржам: % за 8ч, APR, кто платит |
 | `/calc COIN USD` | Калькулятор: профит на твой депозит по лучшей связке |
 | `/pulse [COIN]` | Направленный скоринг PULSE (режим, crowding, score). **Информационный**, не авто-торговля |
+| `/forge [COIN]` | Свой скоринг LOW_CHAN (остаток vs BTC, chandelier). **Информационный**, не авто-торговля |
 | `/signals` | События за сессию: где чистый спред был ≥ порога (журнал, без push) |
 | `/stats` | 🧠 Квантовое ядро: winrate сигналов, лучшие пары, открытые эпизоды |
 | `/status` | Аптайм, статистика, свежих стаканов, лучший спред прямо сейчас |
@@ -221,7 +223,8 @@ cp .env.example .env            # вписать TELEGRAM_BOT_TOKEN и CHAT_ID
 | `scanner.py` | Ядро: сбор стаканов (WS/REST), расчёт спредов (оба направления), команды, форматирование |
 | `strategy.py` | 🧠 Квантовое ядро v3: история спредов пар, z-score/перцентиль, классы CARRY/REVERSION, confidence, эпизоды |
 | `alpha.py` | Направленный скоринг PULSE (информационный `/pulse`, без авто-входа) |
-| `backtest/` | Бектестер: арбитраж (`run_backtest.py`) + направленный walk-forward (`run_pulse.py`) |
+| `forge.py` | Свой скоринг LOW_CHAN (информационный `/forge`, без авто-входа) |
+| `backtest/` | Бектестер: арбитраж (`run_backtest.py`) + направленный (`run_pulse.py`, `run_forge*.py`) |
 | `AI_AGENTS/` | «Мозг» проекта для ИИ-агентов: что работает/не работает, история бектестов, источники данных, правила |
 | `telegram_bot.py` | Telegram-транспорт: отправка с ретраями/429 + приём команд (long polling, без вебхуков) |
 | `check_connection.py` | Диагностика доступности бирж с твоего IP |
@@ -229,7 +232,7 @@ cp .env.example .env            # вписать TELEGRAM_BOT_TOKEN и CHAT_ID
 
 ## ✅ Тесты
 ```bash
-.venv/bin/python -m unittest discover -s tests -v   # 127 тестов, офлайн
+.venv/bin/python -m unittest discover -s tests -v   # офлайн, без сети
 ```
 
 ## 🧪 Бектест
@@ -238,8 +241,9 @@ cp .env.example .env            # вписать TELEGRAM_BOT_TOKEN и CHAT_ID
 .venv/bin/python backtest/run_backtest.py --tag my-run   # отчёт в backtest/results/
 ```
 Итог v3 на 4.5 годах реальных данных — см. `backtest/README.md` и `AI_AGENTS/BACKTESTS.md`.
-Направленный слой (`backtest/run_pulse.py`, отчёт `pulse-v1.md`): **OOS не пройден**,
-автоторговлю ценой не включать. `/pulse` — только скоринг.
+Направленный слой (`backtest/run_pulse.py`, отчёт `pulse-v1.md`): **OOS не пройден**.
+Свой picker LOW_CHAN (`forge-v3.md`): OOS +37%/год Sharpe 0.97, яма −30% — не арбитраж.
+Автоторговлю ценой не включать. `/pulse` и `/forge` — только скоринг.
 
 ## 📝 Честные ограничения
 

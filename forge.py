@@ -1,0 +1,274 @@
+"""
+forge.py — собственный скоринг монет LOW_CHAN (информационный).
+
+Не арбитраж. Не авто-вход. Спека заморожена бектестом forge-v3:
+  остаток vs BTC (14д, β 60д) среди тихих ликвидных + SMA50 + chandelier
+  (20д high − 2.5 ATR). OOS 2024-05→2026-08: +37%/год, Sharpe 0.97,
+  обе половины плюс, fee 20 bps держит. Просадка ≈ −30% — не v3.
+
+Тот же код в live (/forge) и в тестах. Без pandas/numpy.
+"""
+from __future__ import annotations
+
+import math
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Optional
+
+__all__ = ["ForgeConfig", "ForgeSnapshot", "ForgeEngine"]
+
+
+@dataclass(frozen=True)
+class ForgeConfig:
+    max_bars: int = 200
+    min_bars: int = 90
+    mom_n: int = 14
+    beta_n: int = 60
+    sma_n: int = 50
+    vol_n: int = 30
+    atr_n: int = 14
+    chan_n: int = 20
+    chan_k: float = 2.5
+    pit_n: int = 12
+    top_k: int = 4
+    quiet_pct: float = 0.50  # vol rank ≤ median among PIT
+
+
+@dataclass
+class ForgeSnapshot:
+    symbol: str = ""
+    n_bars: int = 0
+    close: float = 0.0
+    resid: Optional[float] = None
+    vol: Optional[float] = None
+    above_sma: bool = False
+    chandelier_ok: bool = False
+    quiet: bool = False
+    liquid: bool = False
+    picked: bool = False
+    rank: int = 0
+    reasons: list[str] = field(default_factory=list)
+
+    def direction_label(self) -> str:
+        if self.picked:
+            return "ЛОНГ"
+        if self.n_bars and self.n_bars < 90:
+            return "ПРОГРЕВ"
+        return "НЕТ"
+
+    def describe_block(self) -> str:
+        lines = [
+            f"FORGE · {self.direction_label()} · {self.symbol}",
+            f"баров {self.n_bars} · close {self.close:.6g}",
+        ]
+        if self.resid is not None:
+            lines.append(f"остаток vs BTC {self.resid*100:+.2f}% (14д)")
+        if self.vol is not None:
+            lines.append(f"вола 30д {self.vol*100:.2f}%")
+        flags = []
+        if self.liquid:
+            flags.append("ликвид")
+        if self.quiet:
+            flags.append("тихий")
+        if self.above_sma:
+            flags.append("SMA50")
+        if self.chandelier_ok:
+            flags.append("chandelier OK")
+        if flags:
+            lines.append("фильтры: " + ", ".join(flags))
+        if self.reasons:
+            lines.append("; ".join(self.reasons))
+        return "\n".join(lines)
+
+
+class _Tape:
+    __slots__ = ("ts", "open", "high", "low", "close", "volume")
+
+    def __init__(self, n: int) -> None:
+        self.ts: deque[float] = deque(maxlen=n)
+        self.open: deque[float] = deque(maxlen=n)
+        self.high: deque[float] = deque(maxlen=n)
+        self.low: deque[float] = deque(maxlen=n)
+        self.close: deque[float] = deque(maxlen=n)
+        self.volume: deque[float] = deque(maxlen=n)
+
+    def add(self, ts: float, o: float, h: float, l: float, c: float, v: float) -> None:
+        if not math.isfinite(c) or c <= 0:
+            return
+        self.ts.append(ts)
+        self.open.append(o if o > 0 else c)
+        self.high.append(h if h > 0 else c)
+        self.low.append(l if l > 0 else c)
+        self.close.append(c)
+        self.volume.append(v if math.isfinite(v) and v > 0 else 0.0)
+
+
+def _std(xs: list[float]) -> float:
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    m = sum(xs) / n
+    return math.sqrt(sum((x - m) ** 2 for x in xs) / (n - 1))
+
+
+def _beta(y: list[float], x: list[float]) -> float:
+    n = min(len(y), len(x))
+    if n < 20:
+        return 1.0
+    y, x = y[-n:], x[-n:]
+    mx = sum(x) / n
+    my = sum(y) / n
+    varx = sum((a - mx) ** 2 for a in x)
+    if varx <= 1e-18:
+        return 1.0
+    cov = sum((a - mx) * (b - my) for a, b in zip(x, y))
+    return cov / varx
+
+
+class ForgeEngine:
+    def __init__(self, config: Optional[ForgeConfig] = None, bar_seconds: float = 86400.0) -> None:
+        self.cfg = config or ForgeConfig()
+        self.bar_seconds = bar_seconds
+        self._tapes: dict[str, _Tape] = {}
+        self._forming: dict[str, list[float]] = {}
+
+    def tape(self, symbol: str) -> _Tape:
+        got = self._tapes.get(symbol)
+        if got is None:
+            got = _Tape(self.cfg.max_bars)
+            self._tapes[symbol] = got
+        return got
+
+    def observe_bar(
+        self,
+        symbol: str,
+        ts: float,
+        open_: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: float = 0.0,
+    ) -> ForgeSnapshot:
+        self.tape(symbol).add(ts, open_, high, low, close, volume)
+        return self.snapshot(symbol)
+
+    def observe_quote(self, symbol: str, ts: float, mid: float, volume: float = 0.0) -> ForgeSnapshot:
+        if not math.isfinite(mid) or mid <= 0 or self.bar_seconds <= 0:
+            return self.snapshot(symbol)
+        bucket = math.floor(ts / self.bar_seconds) * self.bar_seconds
+        forming = self._forming.get(symbol)
+        if forming is None:
+            self._forming[symbol] = [bucket, mid, mid, mid, mid, volume]
+            return self.snapshot(symbol)
+        if bucket < forming[0]:
+            return self.snapshot(symbol)
+        if bucket > forming[0]:
+            self.tape(symbol).add(forming[0], forming[1], forming[2], forming[3], forming[4], forming[5])
+            self._forming[symbol] = [bucket, mid, mid, mid, mid, volume]
+            return self.snapshot(symbol)
+        forming[2] = max(forming[2], mid)
+        forming[3] = min(forming[3], mid)
+        forming[4] = mid
+        forming[5] += volume
+        return self.snapshot(symbol)
+
+    def _rets(self, closes: list[float]) -> list[float]:
+        out = []
+        for i in range(1, len(closes)):
+            if closes[i - 1] > 0:
+                out.append(closes[i] / closes[i - 1] - 1.0)
+        return out
+
+    def _raw_features(self, symbol: str) -> dict:
+        tape = self._tapes.get(symbol)
+        empty = {"n": 0, "close": 0.0, "resid": None, "vol": None, "adv": 0.0,
+                 "above": False, "chan": False}
+        if tape is None or not tape.close:
+            return empty
+        closes = list(tape.close)
+        highs = list(tape.high)
+        lows = list(tape.low)
+        vols = list(tape.volume)
+        n = len(closes)
+        feat = dict(empty)
+        feat["n"] = n
+        feat["close"] = closes[-1]
+        if n < self.cfg.min_bars:
+            return feat
+        rets = self._rets(closes)
+        feat["vol"] = _std(rets[-self.cfg.vol_n:]) if len(rets) >= 8 else None
+        feat["adv"] = sum(c * v for c, v in zip(closes[-self.cfg.vol_n:], vols[-self.cfg.vol_n:]))
+        sma = sum(closes[-self.cfg.sma_n:]) / self.cfg.sma_n
+        sma_prev = sum(closes[-self.cfg.sma_n - 5:-5]) / self.cfg.sma_n if n >= self.cfg.sma_n + 5 else sma
+        feat["above"] = closes[-1] > sma and sma > sma_prev
+        # ATR
+        trs = []
+        for i in range(1, n):
+            trs.append(max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1])))
+        atr = sum(trs[-self.cfg.atr_n:]) / min(self.cfg.atr_n, len(trs)) if trs else 0.0
+        hh = max(highs[-self.cfg.chan_n:])
+        feat["chan"] = closes[-1] >= hh - self.cfg.chan_k * atr
+        # residual vs BTC
+        btc = self._tapes.get("BTC")
+        if btc is not None and len(btc.close) >= self.cfg.min_bars and n > self.cfg.mom_n:
+            br = self._rets(list(btc.close))
+            beta = _beta(rets[-self.cfg.beta_n:], br[-self.cfg.beta_n:])
+            raw = closes[-1] / closes[-1 - self.cfg.mom_n] - 1.0
+            # BTC mom same window
+            bc = list(btc.close)
+            if len(bc) > self.cfg.mom_n:
+                bm = bc[-1] / bc[-1 - self.cfg.mom_n] - 1.0
+                feat["resid"] = raw - beta * bm
+            else:
+                feat["resid"] = raw
+        return feat
+
+    def snapshot(self, symbol: str) -> ForgeSnapshot:
+        # cross-section filled in rank(); here local filters only
+        f = self._raw_features(symbol)
+        snap = ForgeSnapshot(symbol=symbol, n_bars=f["n"], close=f["close"])
+        if f["n"] < self.cfg.min_bars:
+            snap.reasons.append(f"мало баров ({f['n']}/{self.cfg.min_bars})")
+            return snap
+        snap.resid = f["resid"]
+        snap.vol = f["vol"]
+        snap.above_sma = bool(f["above"])
+        snap.chandelier_ok = bool(f["chan"])
+        return snap
+
+    def rank(self, limit: int = 4) -> list[ForgeSnapshot]:
+        cfg = self.cfg
+        feats = {sym: self._raw_features(sym) for sym in self._tapes}
+        ready = {s: f for s, f in feats.items() if f["n"] >= cfg.min_bars}
+        # PIT: top-N by adv
+        by_adv = sorted(ready.items(), key=lambda kv: kv[1]["adv"], reverse=True)[: cfg.pit_n]
+        pit = {s for s, _ in by_adv}
+        vols = [(s, ready[s]["vol"] or 0.0) for s in pit]
+        vols.sort(key=lambda x: x[1])
+        n_q = max(1, int(len(vols) * cfg.quiet_pct))
+        quiet = {s for s, _ in vols[:n_q]}
+        cands = []
+        for s, f in ready.items():
+            liquid = s in pit
+            q = s in quiet
+            ok = liquid and q and f["above"] and f["chan"] and f["resid"] is not None
+            cands.append((s, f, liquid, q, ok))
+        picked_sorted = sorted(
+            [c for c in cands if c[4]],
+            key=lambda c: c[1]["resid"] or -999,
+            reverse=True,
+        )[: cfg.top_k]
+        picked = {c[0] for c in picked_sorted}
+        out: list[ForgeSnapshot] = []
+        for s, f, liquid, q, ok in cands:
+            snap = ForgeSnapshot(
+                symbol=s, n_bars=f["n"], close=f["close"],
+                resid=f["resid"], vol=f["vol"],
+                above_sma=bool(f["above"]), chandelier_ok=bool(f["chan"]),
+                quiet=q, liquid=liquid, picked=s in picked,
+            )
+            if s in picked:
+                snap.rank = [p[0] for p in picked_sorted].index(s) + 1
+            out.append(snap)
+        out.sort(key=lambda x: (x.picked, x.resid if x.resid is not None else -999), reverse=True)
+        return out[:limit] if limit else out

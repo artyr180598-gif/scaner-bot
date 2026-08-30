@@ -62,6 +62,7 @@ from config import (
     is_scannable_base,
 )
 from alpha import PulseEngine, PulseSnapshot
+from forge import ForgeEngine, ForgeSnapshot
 from strategy import Assessment, EpisodeTracker, SignalEngine, StrategyConfig
 from telegram_bot import MAIN_MENU_KEYBOARD, TelegramCommandListener
 
@@ -658,6 +659,7 @@ class ArbitrageScanner:
         # Направленный слой PULSE (информационный /pulse, не авто-торговля).
         # 4ч-бары из живых мидов; пока мало истории — crowding/basis всё равно видны.
         self.pulse_engine = PulseEngine(bar_seconds=4.0 * 3600.0)
+        self.forge_engine = ForgeEngine(bar_seconds=86400.0)
         self.episode_tracker = EpisodeTracker(
             exit_fee_percent=self.signal_engine.cfg.exit_fee_percent,
             z_exit=settings.z_exit,
@@ -941,6 +943,12 @@ class ArbitrageScanner:
                 if rates:
                     fund = statistics.median(rates)
             self.pulse_engine.observe_quote(base, now, mid, fund, basis)
+            depth = 0.0
+            for side in self.spot_sides + self.futures_sides:
+                q = self._fresh_quote(side, base, now)
+                if q is not None:
+                    depth += q.ask_notional_usd + q.bid_notional_usd
+            self.forge_engine.observe_quote(base, now, mid, volume=depth)
 
     def _assessment_for(
         self, opp: Opportunity, funding_rate_percent: Optional[float] = None
@@ -1497,6 +1505,7 @@ class ArbitrageScanner:
             "strategy": self._cmd_strategy,
             "exchanges": self._cmd_exchanges,
             "pulse": self._cmd_pulse,
+            "forge": self._cmd_forge,
         }
 
     async def _cmd_help(self, chat_id: str, args: str) -> str:
@@ -1579,6 +1588,11 @@ class ArbitrageScanner:
         """ /pulse [COIN] — направленная оценка PULSE (информационная, не авто-вход). """
         base = (args.split()[0] if args.strip() else "").upper() or None
         return self._build_pulse_message(base)
+
+    async def _cmd_forge(self, chat_id: str, args: str) -> str:
+        """ /forge — LOW_CHAN скоринг (информационный, не авто-вход). """
+        base = (args.split()[0] if args.strip() else "").upper() or None
+        return self._build_forge_message(base)
 
     # ------------------------------------------------------------------ ответы командам
     async def _build_top_message(self, limit: int, direction: str) -> str:
@@ -2310,6 +2324,43 @@ class ArbitrageScanner:
             "💡 /pulse BTC — разбор монеты · /strategy — математика",
         ])
 
+    def _build_forge_message(self, base: Optional[str]) -> str:
+        """LOW_CHAN: топ своих лонгов или карточка монеты. Не авто-вход."""
+        now = time.time()
+        if base:
+            snap = self.forge_engine.snapshot(base)
+            return format_forge_one(snap, now)
+        ranked = self.forge_engine.rank(limit=8)
+        picked = [s for s in ranked if s.picked]
+        if not ranked or all(s.n_bars < 20 for s in ranked):
+            return (
+                "🛠 <b>FORGE — свой скоринг монет (LOW_CHAN)</b>\n\n"
+                "Нужны дневные бары (~90 дней прогрева из живых мидов). "
+                "Пока смотри /top — рабочий арбитраж.\n\n"
+                "<i>Информационный слой. Авто-вход выключен. "
+                "OOS: +37%/год, Sharpe 0.97, яма −30%.</i>"
+            )
+        rows = []
+        show = picked or ranked[:4]
+        for i, s in enumerate(show, start=1):
+            resid = f"{s.resid*100:+.1f}%" if s.resid is not None else "—"
+            rows.append([
+                str(i), s.symbol[:8], s.direction_label()[:8],
+                resid, "✓" if s.quiet else "—", "✓" if s.chandelier_ok else "—",
+            ])
+        return "\n".join([
+            "🛠 <b>FORGE · LOW_CHAN</b>",
+            f"<i>{_fmt_utc_short(now)} · лонг тихих сильнее BTC · не авто-вход</i>",
+            "",
+            "<pre>" + _mono_table(
+                ["#", "МОНТА", "СИГН", "ОСТАТ", "ТИХ", "CHAN"], rows
+            ) + "</pre>",
+            "",
+            "Остаток = доходность минус β×BTC. Тихий = вола ниже медианы ликвидных. "
+            "CHAN = цена выше 20д-хая − 2.5 ATR. Основной P&amp;L — /top.",
+            "💡 /forge BTC — карточка · /pulse — старый 4ч-скоринг",
+        ])
+
     def _build_signals_log_message(self) -> str:
         """Журнал событий on_demand-режима: где спред был ≥ порога."""
         now = time.time()
@@ -2851,6 +2902,7 @@ def format_help_message(settings: Settings) -> str:
         "/guide — гайд: как исполнять связку, риски",
         "/strategy — стратегии и математика",
         "/pulse [COIN] — направленный скоринг PULSE (информационный, не авто-вход)",
+        "/forge [COIN] — свой скоринг LOW_CHAN (остаток vs BTC, не авто-вход)",
         "/help — эта справка",
         "",
         "<b>Как читать сигнал:</b>",
@@ -2992,6 +3044,10 @@ def format_strategy_message(settings: Settings) -> str:
         "стратегии в среднем не бьют buy&amp;hold. Поэтому PULSE <b>не торгует "
         "и не пушит</b> — только контекст рядом с рабочим арбитражем v3.",
         "",
+        "🛠 <b>FORGE / LOW_CHAN</b> — свой отбор: остаток vs BTC среди тихих "
+        "ликвидных + chandelier-выход. Бектест OOS +37%/год Sharpe 0.97, "
+        "яма −30%. Команда /forge. <b>Не авто-вход</b>.",
+        "",
         "⚠️ Это не финансовый совет: funding меняется, спред может расходиться, "
         "биржи вводят комиссии. Решение и риск — твои.",
     ]
@@ -3010,4 +3066,17 @@ def format_pulse_one(snap: PulseSnapshot, now: float) -> str:
         "",
         "Основной P&amp;L бота — дельта-нейтральный арбитраж: /top · /signal "
         f"{_esc(snap.symbol or 'BTC')}.",
+    ])
+
+
+def format_forge_one(snap: ForgeSnapshot, now: float) -> str:
+    """Карточка /forge COIN."""
+    block = html.escape(snap.describe_block())
+    return "\n".join([
+        f"🛠 <b>FORGE · {_esc(snap.symbol or '?')}/USDT · {_esc(snap.direction_label())}</b>",
+        f"<i>{_fmt_utc_short(now)} · LOW_CHAN, не приказ</i>",
+        "",
+        f"<pre>{block}</pre>",
+        "",
+        "Основной P&amp;L — арбитраж: /top. Авто-вход выключен.",
     ])

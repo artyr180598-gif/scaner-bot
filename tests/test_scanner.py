@@ -690,14 +690,22 @@ class TestCommandHandlers(unittest.TestCase):
     def test_help_command(self):
         scanner = self._scanner()
         message = asyncio.run(scanner._cmd_help("111", ""))
-        for command in ("/top", "/status", "/price", "/help"):
+        for command in ("/top", "/status", "/price", "/help", "/forge"):
             self.assertIn(command, message)
 
     def test_handlers_registry(self):
         scanner = self._scanner()
         handlers = scanner.telegram_handlers()
-        for name in ("start", "help", "status", "top", "spreads", "price"):
+        for name in ("start", "help", "status", "top", "spreads", "price", "pulse", "forge"):
             self.assertIn(name, handlers)
+
+    def test_forge_command_warmup(self):
+        scanner = self._scanner()
+        message = asyncio.run(scanner._cmd_forge("111", ""))
+        self.assertIn("FORGE", message)
+        self.assertIn("авто-вход", message.lower())
+        card = asyncio.run(scanner._cmd_forge("111", "BTC"))
+        self.assertIn("BTC", card)
 
 
 # ---------------------------------------------------------------------------
