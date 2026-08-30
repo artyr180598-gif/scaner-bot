@@ -19,3 +19,7 @@ venv/
 
 # Артефакты
 *.log
+
+# Бектест: сырые данные и крупные артефакты (отчёты .md — коммитим)
+backtest/data_cache/
+backtest/results/*.json

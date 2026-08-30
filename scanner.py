@@ -61,6 +61,7 @@ from config import (
     Settings,
     is_scannable_base,
 )
+from strategy import Assessment, EpisodeTracker, SignalEngine, StrategyConfig
 from telegram_bot import MAIN_MENU_KEYBOARD, TelegramCommandListener
 
 log = logging.getLogger("scanner")
@@ -256,6 +257,11 @@ class Opportunity:
     fillable_usd: float = 0.0         # видимая глубина обеих ног (минимум), $
     buy_levels: tuple[tuple[float, float], ...] = ()   # ask-уровни ноги покупки
     sell_levels: tuple[tuple[float, float], ...] = ()  # bid-уровни ноги продажи
+
+    # --- квантовая оценка (strategy.py, v3) --------------------------------
+    # Z-score/перцентиль спреда против истории пары, funding edge, round-trip
+    # NET, confidence 0-100, грейд A/B/C/D, класс CARRY/REVERSION.
+    assessment: Optional[Assessment] = None
 
     # --- удобные свойства ----------------------------------------------------
     @property
@@ -645,6 +651,14 @@ class ArbitrageScanner:
         self._funding_cache: dict[tuple[str, str], tuple[Optional[float], float]] = {}
         # Кэш объёмов 24ч: (ts, exchange_name, [(base, volume), ...])
         self._volume_cache: Optional[tuple[float, str, list[tuple[str, float]]]] = None
+        # Квантовое ядро v3: статистика спредов по парам + живые эпизоды
+        self.signal_engine = SignalEngine(StrategyConfig.from_settings(settings))
+        self.signal_engine.want_halflife = True  # показываем ожидаемое удержание
+        self.episode_tracker = EpisodeTracker(
+            exit_fee_percent=self.signal_engine.cfg.exit_fee_percent,
+            z_exit=settings.z_exit,
+            max_episode_hours=settings.max_episode_hours,
+        )
         self.stats: dict[str, int] = {
             "scans": 0,
             "signals_sent": 0,
@@ -654,6 +668,7 @@ class ArbitrageScanner:
             "suspicious_quotes_skipped": 0,
             "spread_capped_skipped": 0,
             "wide_book_skipped": 0,
+            "signals_rejected_quant": 0,
         }
         self._started_at = time.time()
 
@@ -814,6 +829,91 @@ class ArbitrageScanner:
     def _live_sides(self) -> list[ExchangeSide]:
         return [s for s in self.spot_sides + self.futures_sides if s.alive]
 
+    # ------------------------------------------------------------------ quant feed
+    def _observe_engine(self, now: float) -> None:
+        """
+        Квантовое ядро v3: каждый скан записывает ЛУЧШИЙ чистый спред каждой
+        монеты в обоих направлениях (S>F и F>S) в rolling-историю пары.
+
+        Важно: пишем ВСЁ распределение (а не только связки выше порога) —
+        иначе z-score и перцентиль считались бы по «обрезанным» данным.
+        Funding здесь не нужен: он асинхронный; класс CARRY досчитывается
+        snapshot-оценкой в командах/авто-пуше (assess_snapshot).
+        """
+        fee_percent = self.settings.total_fee_percent
+        outliers = self._compute_price_outliers(now)
+        for direction in (DIR_SPOT_TO_FUT, DIR_FUT_TO_SPOT):
+            best_by_base: dict[str, tuple[float, float]] = {}  # base -> (net, fillable)
+            for spot_side in self.spot_sides:
+                if not spot_side.alive:
+                    continue
+                spot_cutoff = now - spot_side.effective_book_max_age()
+                for fut_side in self.futures_sides:
+                    if not fut_side.alive:
+                        continue
+                    if spot_side.exchange_id == fut_side.exchange_id and not self.settings.allow_same_exchange:
+                        continue
+                    fut_cutoff = now - fut_side.effective_book_max_age()
+                    for base in self.bases:
+                        spot_symbol = spot_side.symbol_by_base.get(base)
+                        fut_symbol = fut_side.symbol_by_base.get(base)
+                        if spot_symbol is None or fut_symbol is None:
+                            continue
+                        spot_quote = spot_side.quotes.get(spot_symbol)
+                        fut_quote = fut_side.quotes.get(fut_symbol)
+                        if spot_quote is None or fut_quote is None:
+                            continue
+                        if spot_quote.timestamp < spot_cutoff or fut_quote.timestamp < fut_cutoff:
+                            continue
+                        if outliers:
+                            if (
+                                (spot_side.exchange_id, spot_side.market_type, base) in outliers
+                                or (fut_side.exchange_id, fut_side.market_type, base) in outliers
+                            ):
+                                continue
+                        if direction == DIR_SPOT_TO_FUT:
+                            buy_ask, sell_bid = spot_quote.ask, fut_quote.bid
+                        else:
+                            buy_ask, sell_bid = fut_quote.ask, spot_quote.bid
+                        if buy_ask <= 0.0 or sell_bid <= 0.0:
+                            continue
+                        net = (sell_bid - buy_ask) / buy_ask * 100.0 - fee_percent
+                        if self.settings.max_spread_percent > 0 and abs(net) > self.settings.max_spread_percent:
+                            continue
+                        prev = best_by_base.get(base)
+                        if prev is None or net > prev[0]:
+                            fillable = min(
+                                spot_quote.ask_depth_usd + spot_quote.bid_depth_usd,
+                                fut_quote.ask_depth_usd + fut_quote.bid_depth_usd,
+                            )
+                            best_by_base[base] = (net, fillable)
+            for base, (net, fillable) in best_by_base.items():
+                assessment = self.signal_engine.observe_and_assess(
+                    key=f"{base}|{direction}",
+                    ts=now,
+                    net_spread_percent=net,
+                    gross_spread_percent=net + fee_percent,
+                    direction_spot_to_fut=(direction == DIR_SPOT_TO_FUT),
+                    funding_rate_percent=None,
+                    fillable_usd=fillable,
+                    fresh=True,
+                )
+                self.episode_tracker.update(assessment, now)
+
+    def _assessment_for(
+        self, opp: Opportunity, funding_rate_percent: Optional[float] = None
+    ) -> Assessment:
+        """Snapshot-оценка связки с учётом funding (не пишет в историю)."""
+        return self.signal_engine.assess_snapshot(
+            key=f"{opp.base}|{opp.direction}",
+            net_spread_percent=opp.net_spread_percent,
+            gross_spread_percent=opp.gross_spread_percent,
+            direction_spot_to_fut=opp.is_spot_first,
+            funding_rate_percent=funding_rate_percent if funding_rate_percent is not None else opp.funding_rate_percent,
+            fillable_usd=opp.fillable_usd,
+            fresh=opp.data_age_seconds <= self.settings.book_max_age_seconds,
+        )
+
     # ------------------------------------------------------------------ main loop
     async def _main_loop(self) -> None:
         s = self.settings
@@ -824,6 +924,8 @@ class ArbitrageScanner:
         while True:
             await asyncio.sleep(s.scan_interval_seconds)
             self.stats["scans"] += 1
+
+            self._observe_engine(time.time())
 
             pairs = self._evaluate()
             if s.signal_mode == "auto":
@@ -1066,7 +1168,14 @@ class ArbitrageScanner:
         Связки S>F, подходящие под сигнал/журнал: лучшая связка на пару +
         альтернативы, отсортировано по убыванию чистого спреда.
         """
-        by_base = self._collect_opportunities(threshold=self.settings.min_spread_percent)
+        # Кандидаты: в fixed-режиме — плоский порог (легаси v2), в adaptive —
+        # все пары с неотрицательным NET (качество отфильтрует квантовое ядро).
+        threshold = (
+            self.settings.min_spread_percent
+            if self.settings.strategy_mode == "fixed"
+            else 0.0
+        )
+        by_base = self._collect_opportunities(threshold=threshold)
         pairs: list[tuple[Opportunity, list[Opportunity]]] = []
         for opportunities in by_base.values():
             quality = [o for o in opportunities if o.is_quality]
@@ -1093,6 +1202,11 @@ class ArbitrageScanner:
             return
         now = time.time()
         for best, _ in pairs:
+            if self.settings.strategy_mode != "fixed":
+                assessment = self._assessment_for(best)
+                if not assessment.actionable:
+                    continue  # журнал = только подтверждённые движком сигналы
+                best = replace(best, assessment=assessment)
             if now < self._event_cooldown_until.get(best.base, 0.0):
                 continue
             self._events.append(best)
@@ -1114,7 +1228,7 @@ class ArbitrageScanner:
         now = time.time()
         sent = 0
 
-        for best, alternatives in pairs:
+        for idx, (best, alternatives) in enumerate(pairs):
             if sent >= self.settings.max_signals_per_scan:
                 log.info(
                     "Сигналов за цикл больше лимита (%d): %d подавлено",
@@ -1125,6 +1239,26 @@ class ArbitrageScanner:
             if now < cooldown_until:
                 self.stats["signals_suppressed_cooldown"] += 1
                 continue
+
+            # Квантовый гейт: в adaptive-режим пушим только подтверждённые
+            # движком сигналы с достаточной уверенностью. Для топ-10 кандидатов
+            # подтягиваем funding (кэш 10 мин) — без него CARRY-класс не оценить.
+            if self.settings.strategy_mode != "fixed":
+                funding_rate = best.funding_rate_percent
+                if funding_rate is None and idx < 10 and self.settings.funding_enabled:
+                    fmap = await self._get_funding_map(best.base)
+                    funding_rate = fmap.get(best.futures_exchange)
+                assessment = self._assessment_for(best, funding_rate)
+                best = replace(best, assessment=assessment)
+                alternatives = [
+                    replace(a, assessment=self._assessment_for(a)) for a in alternatives
+                ]
+                if not assessment.actionable:
+                    self.stats["signals_rejected_quant"] += 1
+                    continue
+                if assessment.confidence < self.signal_engine.cfg.confidence_min_push:
+                    self.stats["signals_rejected_quant"] += 1
+                    continue
 
             html_message = format_signal_message(
                 best, alternatives, self.settings,
@@ -1315,6 +1449,7 @@ class ArbitrageScanner:
             "coins": self._cmd_coins,
             "funding": self._cmd_funding,
             "signals": self._cmd_signals,
+            "stats": self._cmd_stats,
             "calc": self._cmd_calc,
             "guide": self._cmd_guide,
             "strategy": self._cmd_strategy,
@@ -1373,6 +1508,9 @@ class ArbitrageScanner:
 
     async def _cmd_signals(self, chat_id: str, args: str) -> str:
         return self._build_signals_log_message()
+
+    async def _cmd_stats(self, chat_id: str, args: str) -> str:
+        return self._build_stats_message()
 
     async def _cmd_calc(self, chat_id: str, args: str) -> str:
         # /calc BTC 1000  -> base=BTC, amount=1000
@@ -1450,6 +1588,13 @@ class ArbitrageScanner:
                     patched.append(opp)
             shown = patched
 
+        # Квантовая оценка каждой показанной связки (z-score против истории
+        # пары + confidence + класс CARRY/REVERSION)
+        if self.settings.strategy_mode != "fixed":
+            shown = [
+                replace(o, assessment=self._assessment_for(o)) for o in shown
+            ]
+
         rows = []
         low_depth_rows = 0
         for position, opp in enumerate(shown, start=1):
@@ -1463,6 +1608,12 @@ class ArbitrageScanner:
             else:
                 exec_cell = "—"
                 low_depth_rows += 1
+            quant_cell = "—"
+            if opp.assessment is not None:
+                a = opp.assessment
+                quant_cell = f"{a.zscore:+.1f}σ·{a.grade}"
+                if a.actionable:
+                    quant_cell += "✅"
             rows.append([
                 str(position),
                 opp.base[:8],
@@ -1472,11 +1623,12 @@ class ArbitrageScanner:
                 _fmt_price(opp.sell_price),
                 f"{opp.gross_spread_percent:+.2f}%",
                 f"{opp.net_spread_percent:+.2f}%{mark}",
+                quant_cell,
                 exec_cell,
             ])
         table = _mono_table(
             ["#", "МОНЕТА", buy_where, "ЦЕНА↓", sell_where, "ЦЕНА↑",
-             "ГРОСС", "NET", f"${eval_usd:.0f}"],
+             "ГРОСС", "NET", "Z·ГРЕЙД", f"${eval_usd:.0f}"],
             rows,
         )
 
@@ -1515,6 +1667,16 @@ class ArbitrageScanner:
             f"потолок гросс {s.max_spread_percent:.0f}% · кластер ±{s.price_deviation_max_percent:.0f}% · "
             f"ширина книги ≤{s.max_book_spread_percent:.0f}%.",
         ]
+        if self.settings.strategy_mode != "fixed":
+            cfg = self.signal_engine.cfg
+            lines.append(
+                f"🧠 <b>Z·ГРЕЙД</b> — аномалия спреда против истории пары "
+                f"(окно {s.history_seconds/3600:.0f} ч) и уверенность движка "
+                f"A/B/C/D · ✅ = подтверждённый сигнал "
+                f"(CARRY: funding edge ≥{cfg.min_funding_edge_percent:.2f}% · "
+                f"REVERSION: z ≥{cfg.z_entry:.1f}σ и NET после round-trip "
+                f"≥{cfg.min_net_reversion_percent:.2f}%)"
+            )
         if outliers:
             lines.append(
                 f"🛡 Отфильтровано подозрительных котировок: {len(outliers)} "
@@ -1582,6 +1744,9 @@ class ArbitrageScanner:
                 f"   💰 Funding {opp.futures_exchange}: {opp.funding_rate_percent:+.4f}%/8ч "
                 f"— {holder} {gets} (≈{apr:+.1f}% APR)"
             )
+        if opp.assessment is not None:
+            for quant_line in opp.assessment.describe_block().splitlines():
+                lines.append(f"   {quant_line}")
         if not opp.exec_fully_filled and opp.exec_size_usd > 0:
             lines.append(
                 f"   ⚠️ Исполнимость: на ${eval_usd:.0f} НЕ войти — видимой глубины "
@@ -1893,6 +2058,11 @@ class ArbitrageScanner:
             funding_map = await self._get_funding_map(best.base)
             best = replace(best, funding_rate_percent=funding_map.get(best.futures_exchange))
 
+        # Квантовая оценка (z-score, funding edge, round-trip NET, confidence)
+        if self.settings.strategy_mode != "fixed":
+            best = replace(best, assessment=self._assessment_for(best))
+            alternatives = [replace(a, assessment=self._assessment_for(a)) for a in alternatives]
+
         return format_signal_message(best, alternatives, self.settings, cooldown_until=0.0)
 
     async def _build_coins_message(self, page: int) -> str:
@@ -1984,6 +2154,76 @@ class ArbitrageScanner:
             "Сигнал S→F (шорт перп): при funding &gt; 0 шорт ПЛУЩЕ ещё и за funding-платежи.",
             "Сигнал F→S (лонг перп): при funding &gt; 0 лонг платит — учти в расчёте.",
         ])
+
+    def _build_stats_message(self) -> str:
+        """
+        /stats — живая статистика квантового ядра: сколько пар под наблюдением,
+        качество сигналов (winrate эпизодов), лучшие пары, открытые эпизоды.
+        """
+        engine = self.signal_engine
+        tracker = self.episode_tracker
+        series = engine._series
+        cfg = engine.cfg
+        now = time.time()
+
+        fresh_pairs = sum(
+            1 for srs in series.values()
+            if srs.last_ts is not None and now - srs.last_ts <= 3 * self.settings.scan_interval_seconds + 1
+        )
+        ready_pairs = sum(
+            1 for srs in series.values() if srs.stats().n >= cfg.min_history
+        )
+        summary = tracker.summary()
+        lines = [
+            "🧠 <b>КВАНТОВОЕ ЯДРО · СТАТИСТИКА</b>",
+            f"<i>{_fmt_utc_short(now)}</i>",
+            "",
+            f"Режим: <b>{_esc(self.settings.strategy_mode)}</b> · память пар: "
+            f"{len(series)} (свежих {fresh_pairs}, статистика готова у {ready_pairs})",
+            f"Окно истории {cfg.history_seconds/3600:.0f} ч · минимум наблюдений {cfg.min_history} · "
+            f"подтверждений {cfg.min_persistence}",
+            f"Гейты: CARRY funding≥{cfg.min_funding_edge_percent:.2f}% · REVERSION z≥{cfg.z_entry:.1f}σ, "
+            f"NET после round-trip ≥{cfg.min_net_reversion_percent:.2f}%",
+            "",
+            "📈 <b>ЭПИЗОДЫ СИГНАЛОВ</b> (вошли → спред сошёлся → вышли)",
+            f"Закрыто: <b>{summary['episodes']:.0f}</b> · открыто сейчас: {summary['open']:.0f}",
+        ]
+        if summary["episodes"]:
+            lines += [
+                f"Winrate: <b>{summary['winrate']:.0f}%</b> · средний захват "
+                f"{summary['avg_pnl_percent']:+.3f}% (после комиссий выхода)",
+                f"Среднее удержание: {summary['avg_hold_hours']:.1f} ч",
+                "",
+                "🏆 <b>ЛУЧШИЕ ПАРЫ</b> (по среднему захвату)",
+                "<pre>ПАРА                     ЭПИЗ  WIN%   AVG%</pre>",
+            ]
+            for key, eps, winrate, avg in tracker.best_pairs(10):
+                short = key.replace("|S>F", " S→F").replace("|F>S", " F→S")
+                lines.append(
+                    f"<code>{_esc(short[:24]):<24} {eps:>4}  {winrate:>5.0f}  {avg:>+6.3f}</code>"
+                )
+        else:
+            lines.append(
+                "Пока нет закрытых эпизодов — движку нужно ~30 мин истории и "
+                "подтверждённые сигналы (см. /top, колонка Z·ГРЕЙД)."
+            )
+        open_eps = tracker.open_episodes
+        if open_eps:
+            lines += ["", "🔓 <b>ОТКРЫТЫЕ ЭПИЗОДЫ</b>"]
+            for ep in open_eps[:10]:
+                age_h = (now - ep.opened_at) / 3600.0
+                lines.append(
+                    f"<code>{_esc(ep.key[:26]):<26} вход {ep.entry_net_percent:+.2f}% "
+                    f"z{ep.entry_z:+.1f}σ · {age_h:.1f} ч</code>"
+                )
+        lines += [
+            "",
+            f"Сканирований: {self.stats['scans']:,} · сигналов отклонено движком: "
+            f"{self.stats.get('signals_rejected_quant', 0):,}",
+            "<i>Оценка захвата консервативна: funding при удержании не начисляется "
+            "(реально чуть лучше). Это не финансовый совет.</i>",
+        ]
+        return "\n".join(lines)
 
     def _build_signals_log_message(self) -> str:
         """Журнал событий on_demand-режима: где спред был ≥ порога."""
@@ -2248,6 +2488,13 @@ def format_signal_message(
         "━━━━━━━━━━━━━━━━━━━━",
         f"💎 <b>Чистый спред: {o.net_spread_percent:+.2f}%</b> (после комиссий {s.total_fee_percent:.2f}%)",
         f"📊 Гросс-спред: <b>{o.gross_spread_percent:+.2f}%</b>",
+    ]
+    if o.assessment is not None:
+        lines += [
+            "",
+            f"<pre>{html.escape(o.assessment.describe_block())}</pre>",
+        ]
+    lines += [
         f"📐 Разрыв цен: <code>{_fmt_price(o.buy_price)}</code> → "
         f"<code>{_fmt_price(o.sell_price)}</code> (Δ = {_fmt_price(o.sell_price - o.buy_price)})",
         "",
@@ -2415,6 +2662,7 @@ def format_startup_message(
         "/funding BTC — funding-рейты по биржам (кто кому платит)",
         "/calc BTC 1000 — сколько заработаешь с $1000",
         "/signals — события: где спред был ≥ порога за сессию",
+        "/stats — статистика квантового ядра: winrate сигналов, лучшие пары, открытые эпизоды",
         "/help — все команды и как всё читать",
         "",
         "<i>Схема хеджа: LONG спот + SHORT перп = без риска направления. "
@@ -2495,9 +2743,13 @@ def format_help_message(settings: Settings) -> str:
         "Бот сверяет цены всех бирж с медианой и выкидывает такие котировки — "
         "ты видишь только настоящие, исполнимые разрывы.",
         "",
-        "🔕 <b>По умолчанию бот НИЧЕГО не присылает сам — только по запросу</b> "
-        f"(порог «сигнала»: {settings.min_spread_percent:.2f}%).",
-        "Авто-push: SIGNAL_MODE=auto в переменных окружения.",
+        "🔕 <b>По умолчанию бот НИЧЕГО не присылает сам — только по запросу</b>. "
+        "Авто-push: SIGNAL_MODE=auto (только подтверждённые движком сигналы).",
+        "",
+        "🧠 <b>Квантовое ядро v3</b>: каждая пара держит скользящую историю спреда; "
+        "сигнал = статистическая аномалия (z-score) + экономика сделки с честными "
+        "round-trip комиссиями и funding. Классы: CARRY (сбор funding) и "
+        "REVERSION (сходимость аномалии). Подробнее: /strategy, /stats.",
         "",
         "<b>📊 Команды:</b>",
         "/top [N] — таблица топ-N спредов: где купить/продать, по каким ценам, гросс → NET, исполнимый профит со $100 и макс. вход",
@@ -2508,6 +2760,7 @@ def format_help_message(settings: Settings) -> str:
         "/funding BTC — funding по биржам: кто кому платит, APR",
         "/calc BTC 1000 — профит на свой депозит",
         "/signals — события: где спред был ≥ порога за сессию",
+        "/stats — статистика квантового ядра: winrate сигналов, лучшие пары, открытые эпизоды",
         "/status — аптайм, статистика, лучший спред",
         "/exchanges — детальный статус бирж (WS/REST, ошибки)",
         "/guide — гайд: как исполнять связку, риски",
@@ -2593,57 +2846,60 @@ def format_guide_message() -> str:
 
 
 def format_strategy_message(settings: Settings) -> str:
-    return "\n".join([
-        "🧠 <b>СТРАТЕГИИ И МАТЕМАТИКА АРБИТРАЖА</b>",
+    """Математика и логика стратегий (v3: квантовое ядро)."""
+    rt_fee = settings.total_fee_percent * 2
+    lines = [
+        "🧠 <b>СТРАТЕГИЯ v3 — КВАНТОВОЕ ЯДРО</b>",
         "",
-        "<b>Формулы:</b>",
+        "<b>Формулы связки:</b>",
         "S→F: Gross = (FutBid − SpotAsk) / SpotAsk × 100%",
         "F→S: Gross = (SpotBid − FutAsk) / FutAsk × 100%",
-        f"Net = Gross − Fees ({settings.spot_taker_fee_percent:.2f}% + "
-        f"{settings.futures_taker_fee_percent:.2f}% = {settings.total_fee_percent:.2f}%)",
-        f"Сигнал: Net ≥ {settings.min_spread_percent:.2f}%",
+        f"Net = Gross − комиссии входа ({settings.total_fee_percent:.2f}%)",
+        "Round-trip Net = Net − комиссии выхода − проскальзывание + funding",
         "",
-        "<b>Пример S→F:</b>",
-        "SpotAsk MEXC = 100.00, FutBid Bybit = 103.00",
-        "Gross = (103−100)/100×100 = +3.00%",
-        f"Net = 3.00% − {settings.total_fee_percent:.2f}% = {3.0 - settings.total_fee_percent:.2f}%",
-        f"Депозит $1000 → профит ${1000 * (3.0 - settings.total_fee_percent) / 100:.2f}",
+        f"<b>Режим: {settings.strategy_mode.upper()}</b>",
+    ]
+    if settings.strategy_mode == "fixed":
+        lines += [
+            f"Плоский порог: сигнал при Net ≥ {settings.min_spread_percent:.2f}% "
+            "(легаси v2). Проблема: на ликвидных парах исполнимый спред почти "
+            "всегда 0.05–0.8% — порог 2% почти никогда не срабатывает.",
+        ]
+    else:
+        lines += [
+            "Два класса сигналов (проверены бектестом на 4.5 годах реальных "
+            "данных Binance spot+perp+funding, см. AI_AGENTS/BACKTESTS.md):",
+            "",
+            "💰 <b>CARRY</b> — сбор funding за удержание (дни-недели):",
+            f"   вход: funding edge ≥ {settings.min_funding_edge_percent:.2f}% за "
+            f"{settings.funding_horizon_hours:.0f} ч · z ≥ {settings.z_entry_min:.1f}σ · "
+            f"ожидаемый итог ≥ {settings.min_net_roundtrip_percent:.2f}%",
+            "   выход: funding развернулся против позиции / TP / SL / тайм-стоп",
+            "",
+            "⚡ <b>REVERSION</b> — сходимость аномалий спреда (часы-дни):",
+            f"   вход: z-аномалия ≥ {settings.z_entry:.1f}σ против истории пары "
+            f"(окно {settings.history_seconds/3600:.0f} ч) · NET после round-trip "
+            f"≥ {settings.min_net_reversion_percent:.2f}%",
+            "   выход: спред вернулся к среднему (z ≤ 0) с профитом",
+            "",
+            f"🛡 Анти-шум: {settings.min_persistence} подтверждений подряд · "
+            f"{settings.min_history} наблюдений истории · глубина ≥ "
+            f"${settings.min_fillable_usd:.0f} · confidence-грейд A/B/C/D",
+            f"💳 Комиссии честно: round-trip ≈ {rt_fee:.2f}% (вход+выход, обе ноги) "
+            "+ проскальзывание по стакану (VWAP).",
+            "",
+            "Бектест v3 (2021-11→2026-05, 49 монет, все издержки включены): "
+            "Profit Factor 3.33 · winrate 71% · maxDD 1.29% · +43.9% за период "
+            "при консервативных аллокациях 5%/10%. Старый порог 2% дал бы лишь "
+            "68 сделок за 4.5 года — v3 даёт 1269 сигналов.",
+        ]
+    lines += [
         "",
-        "<b>Типы арбитражей (что считает бот / что нет):</b>",
-        "1️⃣ <b>Spot → Futures (S→F)</b> ✅ основной:",
-        "   Купить спот, шорт перп на другой бирже. Работает в contango (фьючерс дороже).",
-        "   Бонус: при положительном funding шорт получает выплаты каждые 8ч.",
+        "<b>Типы арбитражей:</b> 1️⃣ S→F (спот дешевле, перп дороже) — основной; "
+        "2️⃣ F→S (обратный, /top fs); 3️⃣ Spot↔Spot с переводом — бот НЕ считает "
+        "(время сети + риск движения).",
         "",
-        "2️⃣ <b>Futures → Spot (F→S)</b> ✅ /top fs, /coin показывает:",
-        "   Лонг перп + продажа спота. Работает в backwardation (спот дороже).",
-        "   Требует инвентарь монеты на спот-бирже.",
-        "",
-        "3️⃣ <b>Spot → Spot (межбиржевой)</b> ⚠️ бот не считает:",
-        "   Купил спот на A, продал спот на B. Нужен перевод монет по сети: "
-        "время + комиссия сети + риск движения цены за время перевода.",
-        "",
-        "4️⃣ <b>Futures → Futures</b> ⚠️ бот не считает:",
-        "   Лонг перп на одной, шорт на другой. Не нужен спот, только маржа, "
-        "но funding с двух сторон съедает профит.",
-        "",
-        "<b>Funding Rate — второй источник дохода:</b>",
-        "Каждые 8ч лонги и шорты обмениваются выплатой. При funding +0.01%/8ч шорт "
-        "получает 0.03%/день ≈ 10% APR. Смотри /funding BTC: знак показывает, "
-        "кто кому платит.",
-        "",
-        "<b>Риски и снижение:</b>",
-        "• Проскальзывание → лимитки + проверка исполнимости в /top и /signal",
-        "• Funding → проверяй /funding до входа",
-        "• Ликвидация → 1x–3x, изолированная маржа",
-        "• Комиссии вывода → держи USDT на обеих биржах",
-        "• Сбой биржи → /status, торгуй на живых",
-        "",
-        "<b>Вдохновлено сканерами с GitHub</b> (ArbitrageScanner, crypto-futures-arbitrage-scanner, "
-        "OKX spot-futures bot): реальные стаканы WS+REST, оба направления, funding, "
-        "таблицы с ценами, исполнение — руками (без API-ключей и без риска за твои средства).",
-        "",
-        f"⚙️ Текущий порог: {settings.min_spread_percent:.2f}%, комиссии "
-        f"{settings.total_fee_percent:.2f}%, кулдаун {settings.cooldown_minutes:.0f}м",
-        "",
-        "<i>Пошаговое исполнение — /guide · пример на реальных ценах — /coin BTC</i>",
-    ])
+        "⚠️ Это не финансовый совет: funding меняется, спред может расходиться, "
+        "биржи вводят комиссии. Решение и риск — твои.",
+    ]
+    return "\n".join(lines)

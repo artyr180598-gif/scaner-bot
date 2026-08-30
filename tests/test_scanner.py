@@ -55,6 +55,9 @@ def make_settings(**overrides) -> Settings:
         max_spread_percent=30.0,
         price_deviation_max_percent=50.0,
         max_book_spread_percent=10.0,
+        # Легаси-тесты ниже проверяют СТАРУЮ семантику плоского порога v2.
+        # Поведение v3 (adaptive) покрыто в TestQuantEngine.
+        strategy_mode="fixed",
     )
     defaults.update(overrides)
     return Settings(**defaults)

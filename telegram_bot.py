@@ -59,6 +59,7 @@ MAIN_MENU_KEYBOARD: dict[str, Any] = {
         ],
         [
             {"text": "📩 События", "callback_data": "signals"},
+            {"text": "🧠 Статистика ядра", "callback_data": "stats"},
             {"text": "🏦 Биржи", "callback_data": "exchanges"},
         ],
         [
