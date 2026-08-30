@@ -7,7 +7,8 @@
   пробовали), `AI_AGENTS/DATA_SOURCES.md` (сеть и данные), этот файл.
 - Код: `scanner.py` (сбор/команды/формат), `strategy.py` (квантовое ядро),
   `config.py` (env → Settings), `telegram_bot.py` (транспорт),
-  `backtest/` (данные+симулятор), `tests/` (118 офлайн-тестов).
+  `alpha.py` (информационный PULSE), `backtest/` (данные+симулятор),
+  `tests/` (127 офлайн-тестов).
 
 ## 1. Окружение
 
@@ -24,7 +25,7 @@ DRY-RUN (сообщения в лог). Сеть до бирж из песочн
 ## 2. Тесты (обязательный минимум после любого изменения)
 
 ```bash
-.venv/bin/python -m unittest discover -s tests        # все 118 должны пройти
+.venv/bin/python -m unittest discover -s tests        # все 127 должны пройти
 .venv/bin/python -m unittest tests.test_strategy -v   # только квант-ядро
 ```
 
@@ -46,6 +47,16 @@ DRY-RUN (сообщения в лог). Сеть до бирж из песочн
 - Ключевые флаги: `--z-entry`, `--min-funding-edge`, `--persistence`,
   `--take-profit/--stop-loss`, `--flip-hours/--flip-threshold`,
   `--slippage-bps` (стресс 5–10), `--alloc/--alloc-rev`, `--start/--end`.
+
+Направленный бектест (PULSE, **не** ломает арбитраж v3):
+
+```bash
+.venv/bin/python backtest/run_pulse.py --tag pulse-vX
+```
+
+Канон: `backtest/results/pulse-v1.md` (49 монет). `pulse-smoke.md` — 3 монеты,
+игнорировать. Направленную автоторговлю не включать, пока OOS не даст
+PF≥1.20 + avg>0 + Sharpe>0.
 
 ## 4. Типовые грабли (уже наступали — см. BRAIN.md «ЧТО НЕ РАБОТАЕТ»)
 

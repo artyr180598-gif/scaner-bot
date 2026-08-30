@@ -61,6 +61,7 @@ from config import (
     Settings,
     is_scannable_base,
 )
+from alpha import PulseEngine, PulseSnapshot
 from strategy import Assessment, EpisodeTracker, SignalEngine, StrategyConfig
 from telegram_bot import MAIN_MENU_KEYBOARD, TelegramCommandListener
 
@@ -654,6 +655,9 @@ class ArbitrageScanner:
         # Квантовое ядро v3: статистика спредов по парам + живые эпизоды
         self.signal_engine = SignalEngine(StrategyConfig.from_settings(settings))
         self.signal_engine.want_halflife = True  # показываем ожидаемое удержание
+        # Направленный слой PULSE (информационный /pulse, не авто-торговля).
+        # 4ч-бары из живых мидов; пока мало истории — crowding/basis всё равно видны.
+        self.pulse_engine = PulseEngine(bar_seconds=4.0 * 3600.0)
         self.episode_tracker = EpisodeTracker(
             exit_fee_percent=self.signal_engine.cfg.exit_fee_percent,
             z_exit=settings.z_exit,
@@ -899,6 +903,44 @@ class ArbitrageScanner:
                     fresh=True,
                 )
                 self.episode_tracker.update(assessment, now)
+        self._observe_pulse(now)
+
+    def _observe_pulse(self, now: float) -> None:
+        """Кормит PULSE медианным mid + базисом каждой монеты (без look-ahead)."""
+        for base in self.bases:
+            mids: list[float] = []
+            spot_mid: Optional[float] = None
+            fut_mid: Optional[float] = None
+            for side in self.spot_sides:
+                quote = self._fresh_quote(side, base, now)
+                if quote is None or quote.bid <= 0 or quote.ask <= 0:
+                    continue
+                mid = (quote.bid + quote.ask) / 2.0
+                mids.append(mid)
+                if spot_mid is None:
+                    spot_mid = mid
+            for side in self.futures_sides:
+                quote = self._fresh_quote(side, base, now)
+                if quote is None or quote.bid <= 0 or quote.ask <= 0:
+                    continue
+                mid = (quote.bid + quote.ask) / 2.0
+                if fut_mid is None:
+                    fut_mid = mid
+            if not mids:
+                continue
+            mid = statistics.median(mids)
+            basis = None
+            if spot_mid and fut_mid and spot_mid > 0:
+                basis = (fut_mid - spot_mid) / spot_mid * 100.0
+            fund: Optional[float] = None
+            if self._funding_cache:
+                rates = [
+                    v[0] for (ex, b), v in self._funding_cache.items()
+                    if b == base and v[0] is not None
+                ]
+                if rates:
+                    fund = statistics.median(rates)
+            self.pulse_engine.observe_quote(base, now, mid, fund, basis)
 
     def _assessment_for(
         self, opp: Opportunity, funding_rate_percent: Optional[float] = None
@@ -1454,6 +1496,7 @@ class ArbitrageScanner:
             "guide": self._cmd_guide,
             "strategy": self._cmd_strategy,
             "exchanges": self._cmd_exchanges,
+            "pulse": self._cmd_pulse,
         }
 
     async def _cmd_help(self, chat_id: str, args: str) -> str:
@@ -1531,6 +1574,11 @@ class ArbitrageScanner:
 
     async def _cmd_exchanges(self, chat_id: str, args: str) -> str:
         return self._build_exchanges_message()
+
+    async def _cmd_pulse(self, chat_id: str, args: str) -> str:
+        """ /pulse [COIN] — направленная оценка PULSE (информационная, не авто-вход). """
+        base = (args.split()[0] if args.strip() else "").upper() or None
+        return self._build_pulse_message(base)
 
     # ------------------------------------------------------------------ ответы командам
     async def _build_top_message(self, limit: int, direction: str) -> str:
@@ -2225,6 +2273,43 @@ class ArbitrageScanner:
         ]
         return "\n".join(lines)
 
+    def _build_pulse_message(self, base: Optional[str]) -> str:
+        """Направленная оценка PULSE: одна монета или топ по |score|."""
+        now = time.time()
+        if base:
+            snap = self.pulse_engine.snapshot(base)
+            return format_pulse_one(snap, now)
+        ranked = self.pulse_engine.rank(limit=12)
+        if not ranked or all(s.n_bars < 8 for s in ranked):
+            return (
+                "📡 <b>PULSE — направленный скоринг</b>\n\n"
+                "Пока мало 4ч-баров (движок собирает миды в живые свечи). "
+                "Через несколько часов появится RSI/моментум; crowding по funding — "
+                "как только подтянется /funding.\n\n"
+                "<i>Информационный слой, не авто-вход. Бектест направленных стратегий "
+                "на 4.5 годах: после комиссий классический TA не бьёт buy&amp;hold. "
+                "Основной P&amp;L — арбитраж v3 (/top).</i>\n\n"
+                "💡 /pulse BTC — оценка одной монеты · /top — рабочие спреды"
+            )
+        rows = []
+        for i, s in enumerate(ranked, start=1):
+            rows.append([
+                str(i), s.symbol[:8], s.direction_label(),
+                f"{s.score:+.2f}", s.regime[:5], s.grade, f"{s.confidence}",
+            ])
+        return "\n".join([
+            "📡 <b>PULSE · ТОП НАПРАВЛЕНИЙ</b>",
+            f"<i>{_fmt_utc_short(now)} · score −1…+1 · не авто-вход</i>",
+            "",
+            "<pre>" + _mono_table(
+                ["#", "МОНТА", "Сторона", "SCORE", "РЕЖИМ", "ГР", "CONF"], rows
+            ) + "</pre>",
+            "",
+            "SCORE &gt; 0 → лонг, &lt; 0 → шорт. Грейд A/B — ориентир, не приказ. "
+            "Основной продукт — хедж спот↔перп (/top).",
+            "💡 /pulse BTC — разбор монеты · /strategy — математика",
+        ])
+
     def _build_signals_log_message(self) -> str:
         """Журнал событий on_demand-режима: где спред был ≥ порога."""
         now = time.time()
@@ -2765,6 +2850,7 @@ def format_help_message(settings: Settings) -> str:
         "/exchanges — детальный статус бирж (WS/REST, ошибки)",
         "/guide — гайд: как исполнять связку, риски",
         "/strategy — стратегии и математика",
+        "/pulse [COIN] — направленный скоринг PULSE (информационный, не авто-вход)",
         "/help — эта справка",
         "",
         "<b>Как читать сигнал:</b>",
@@ -2899,7 +2985,29 @@ def format_strategy_message(settings: Settings) -> str:
         "2️⃣ F→S (обратный, /top fs); 3️⃣ Spot↔Spot с переводом — бот НЕ считает "
         "(время сети + риск движения).",
         "",
+        "",
+        "📡 <b>PULSE (направление цены)</b> — отдельный информационный слой "
+        "(/pulse): режим TREND/RANGE + crowding (funding/basis z) + нормированный "
+        "моментум. Прогнан на тех же 4.5 годах: после комиссий направленные "
+        "стратегии в среднем не бьют buy&amp;hold. Поэтому PULSE <b>не торгует "
+        "и не пушит</b> — только контекст рядом с рабочим арбитражем v3.",
+        "",
         "⚠️ Это не финансовый совет: funding меняется, спред может расходиться, "
         "биржи вводят комиссии. Решение и риск — твои.",
     ]
     return "\n".join(lines)
+
+
+def format_pulse_one(snap: PulseSnapshot, now: float) -> str:
+    """Карточка /pulse COIN."""
+    side = snap.direction_label()
+    block = html.escape(snap.describe_block())
+    return "\n".join([
+        f"📡 <b>PULSE · {_esc(snap.symbol or '?')}/USDT · {_esc(side)}</b>",
+        f"<i>{_fmt_utc_short(now)} · информационный скоринг, не приказ</i>",
+        "",
+        f"<pre>{block}</pre>",
+        "",
+        "Основной P&amp;L бота — дельта-нейтральный арбитраж: /top · /signal "
+        f"{_esc(snap.symbol or 'BTC')}.",
+    ])
