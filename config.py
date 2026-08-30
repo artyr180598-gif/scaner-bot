@@ -150,6 +150,43 @@ class Settings:
     # (Railway перезапускает контейнер при каждом деплое).
     startup_message: bool = True            # STARTUP_MESSAGE
 
+    # --- Квантовое ядро v3 (strategy.py) --------------------------------------
+    # adaptive — двухклассовый движок: CARRY (сбор funding, удержание дни-недели)
+    # и REVERSION (вход на аномалии спреда по z-score, выход на сходимости);
+    # fixed — легаси-режим v2 (плоский порог MIN_SPREAD_PERCENT).
+    strategy_mode: str = "adaptive"              # STRATEGY_MODE: adaptive | fixed
+    # CARRY: минимальный ожидаемый итог (спред − round-trip комиссии + funding), %
+    min_net_roundtrip_percent: float = 0.15      # MIN_NET_ROUNDTRIP_PERCENT
+    # CARRY: минимальный вклад funding за горизонт, %
+    min_funding_edge_percent: float = 0.30       # MIN_FUNDING_EDGE_PERCENT
+    # CARRY: z-пол текущего спреда (не лезем, когда спред вывернут против нас)
+    z_entry_min: float = -1.0                    # Z_ENTRY_MIN
+    # REVERSION: z-score аномалии для входа (0 = класс выключен по z)
+    z_entry: float = 1.5                         # Z_ENTRY (провалидирован бектестом)
+    # REVERSION: минимальная сходимость ПОСЛЕ round-trip комиссий, %
+    min_net_reversion_percent: float = 0.20      # MIN_NET_REVERSION_PERCENT
+    # REVERSION: перцентиль текущего спреда в истории пары (0 = выкл.)
+    pct_entry: float = 90.0                      # PCT_ENTRY
+    # Анти-мерцание: сколько подтверждений подряд (сканов/баров)
+    min_persistence: int = 3                     # MIN_PERSISTENCE
+    # Минимум наблюдений истории для статистики (5-сек сканы → ~30 мин)
+    min_history: int = 360                       # MIN_HISTORY (5-сек сканы → ~30 мин)
+    # Окно памяти пары, секунд (по умолчанию 6 ч)
+    history_seconds: float = 6.0 * 3600.0        # HISTORY_SECONDS
+    max_samples: int = 2000                      # MAX_SAMPLES
+    # Горизонт ожидаемого удержания для начисления funding, ч
+    funding_horizon_hours: float = 240.0         # FUNDING_HORIZON_HOURS (10 суток, как в бектесте)
+    # Полужизнь спреда (AR(1)): выше — «не сходится», вход запрещён. 0 = выкл.
+    max_halflife_hours: float = 0.0              # MAX_HALFLIFE_HOURS
+    # Минимальная исполнимая глубина обеих ног для сигнала, $
+    min_fillable_usd: float = 100.0              # MIN_FILLABLE_USD
+    # Авто-пуш только при уверенности не ниже этой (0–100)
+    confidence_min_push: int = 65                # CONFIDENCE_MIN_PUSH
+    # Выход из эпизода: z спреда вернулся к среднему
+    z_exit: float = 0.0                          # Z_EXIT
+    # Тайм-стоп эпизода, ч (0 = без стопа)
+    max_episode_hours: float = 240.0             # MAX_EPISODE_HOURS
+
     # --- Фильтр сигналов ----------------------------------------------------
     min_spread_percent: float = 2.0          # MIN_SPREAD_PERCENT (алиас MIN_SPREAD)
     cooldown_minutes: float = 15.0           # COOLDOWN_MINUTES — антиспам на пару
@@ -262,6 +299,23 @@ class Settings:
             chat_ids=tuple(_env_list_str("CHAT_ID")),
             signal_mode=_env_choice("SIGNAL_MODE", SIGNAL_MODES, "on_demand"),
             startup_message=_env_bool("STARTUP_MESSAGE", True),
+            strategy_mode=_env_choice("STRATEGY_MODE", ("adaptive", "fixed"), "adaptive"),
+            min_net_roundtrip_percent=_env_float("MIN_NET_ROUNDTRIP_PERCENT", 0.15),
+            min_funding_edge_percent=_env_float("MIN_FUNDING_EDGE_PERCENT", 0.30),
+            z_entry_min=_env_float("Z_ENTRY_MIN", -1.0),
+            z_entry=_env_float("Z_ENTRY", 1.5),
+            min_net_reversion_percent=_env_float("MIN_NET_REVERSION_PERCENT", 0.20),
+            pct_entry=_env_float("PCT_ENTRY", 90.0),
+            min_persistence=_env_int("MIN_PERSISTENCE", 3, minimum=1),
+            min_history=_env_int("MIN_HISTORY", 360, minimum=1),
+            history_seconds=_env_float("HISTORY_SECONDS", 6.0 * 3600.0, minimum=60.0),
+            max_samples=_env_int("MAX_SAMPLES", 2000, minimum=10),
+            funding_horizon_hours=_env_float("FUNDING_HORIZON_HOURS", 240.0, minimum=0.0),
+            max_halflife_hours=_env_float("MAX_HALFLIFE_HOURS", 0.0, minimum=0.0),
+            min_fillable_usd=_env_float("MIN_FILLABLE_USD", 100.0, minimum=0.0),
+            confidence_min_push=_env_int("CONFIDENCE_MIN_PUSH", 65, minimum=0),
+            z_exit=_env_float("Z_EXIT", 0.0),
+            max_episode_hours=_env_float("MAX_EPISODE_HOURS", 240.0, minimum=0.0),
             min_spread_percent=min_spread,
             cooldown_minutes=_env_float("COOLDOWN_MINUTES", 15.0, minimum=0.0),
             spot_taker_fee_percent=_env_float("SPOT_TAKER_FEE_PERCENT", 0.1, minimum=0.0),
@@ -324,9 +378,19 @@ class Settings:
                 f"(кулдаун {self.cooldown_minutes:.0f} мин/пара, "
                 f"лимит {self.max_signals_per_scan}/цикл)"
             )
+        if self.strategy_mode == "adaptive":
+            strategy_line = (
+                "adaptive v3 — CARRY (funding edge ≥ "
+                f"{self.min_funding_edge_percent:.2f}%) + REVERSION "
+                f"(z ≥ {self.z_entry:.1f}σ, NET после round-trip ≥ "
+                f"{self.min_net_reversion_percent:.2f}%)"
+            )
+        else:
+            strategy_line = f"fixed (легаси v2) — плоский порог {self.min_spread_percent:.2f}%"
         return (
             "Конфигурация:\n"
             f"  Режим сигналов:   {signal_line}\n"
+            f"  Квант. стратегия: {strategy_line}\n"
             f"  Биржи:            {', '.join(e.upper() for e in self.exchanges)}\n"
             f"  Источник данных:  {mode}\n"
             f"  Инструменты:      {sources}\n"
