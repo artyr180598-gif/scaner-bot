@@ -74,6 +74,29 @@ class TestForgeEngine(unittest.TestCase):
         picked = [s.symbol for s in later if s.picked]
         self.assertIn("AAA", picked)
 
+    def test_hydrate_and_bootstrap_no_fake_entry(self) -> None:
+        cfg = ForgeConfig(min_bars=90, pit_n=4, top_k=2, quiet_pct=1.0)
+        eng = ForgeEngine(cfg)
+        rows_btc, rows_a = [], []
+        for i in range(120):
+            px = 100.0 + i * 0.05
+            rows_btc.append((float(i), px, px + 0.1, px - 0.1, px, 1e6))
+            q = 20.0 + i * 0.2
+            rows_a.append((float(i), q, q + 0.05, q - 0.05, q, 8e5))
+        self.assertGreaterEqual(eng.hydrate_bars("BTC", rows_btc), 90)
+        eng.hydrate_bars("AAA", rows_a)
+        eng.hydrate_bars("BBB", [(i, 15+i*0.01, 15, 15, 15+i*0.01, 8e5) for i in range(120)])
+        eng.bootstrap()
+        ranked = eng.rank(limit=4)
+        entries = [s.symbol for s in ranked if s.entry]
+        self.assertEqual(entries, [])  # после bootstrap нет ложного «ВХОД»
+
+    def test_why_lines_wait(self) -> None:
+        from forge import ForgeSnapshot
+        snap = ForgeSnapshot(symbol="X", n_bars=100, liquid=False)
+        self.assertEqual(snap.verdict(), "ЖДАТЬ")
+        self.assertTrue(any("ликвид" in w for w in snap.why_lines()))
+
 
 if __name__ == "__main__":
     unittest.main()

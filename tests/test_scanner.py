@@ -21,6 +21,7 @@ import ccxt
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import Settings, is_scannable_base                     # noqa: E402
+from forge import ForgeSnapshot                                    # noqa: E402
 from scanner import (                                              # noqa: E402
     DIR_FUT_TO_SPOT,
     DIR_SPOT_TO_FUT,
@@ -30,6 +31,7 @@ from scanner import (                                              # noqa: E402
     ExchangeSide,
     Opportunity,
     _walk_book_vwap,
+    format_forge_one,
     format_signal_message,
     format_startup_message,
 )
@@ -706,6 +708,18 @@ class TestCommandHandlers(unittest.TestCase):
         self.assertIn("авто-вход", message.lower())
         card = asyncio.run(scanner._cmd_forge("111", "BTC"))
         self.assertIn("BTC", card)
+
+    def test_forge_card_has_plan_and_stop(self):
+        snap = ForgeSnapshot(
+            symbol="SOL", n_bars=120, close=100.0, resid=0.04, vol=0.02,
+            sma=90.0, stop=92.0, atr=2.0, above_sma=True, chandelier_ok=True,
+            quiet=True, liquid=True, picked=True, entry=True,
+        )
+        msg = format_forge_one(snap, time.time(), btc_note="BTC в аптренде SMA50")
+        self.assertIn("ВХОД", msg)
+        self.assertIn("стоп", msg.lower())
+        self.assertIn("1x–3x", msg)
+        self.assertIn("яма", msg.lower())
 
 
 # ---------------------------------------------------------------------------

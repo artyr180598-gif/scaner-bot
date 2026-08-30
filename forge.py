@@ -41,6 +41,9 @@ class ForgeSnapshot:
     close: float = 0.0
     resid: Optional[float] = None
     vol: Optional[float] = None
+    sma: Optional[float] = None
+    stop: Optional[float] = None
+    atr: Optional[float] = None
     above_sma: bool = False
     chandelier_ok: bool = False
     quiet: bool = False
@@ -82,6 +85,53 @@ class ForgeSnapshot:
         if self.reasons:
             lines.append("; ".join(self.reasons))
         return "\n".join(lines)
+
+    def stop_pct(self) -> Optional[float]:
+        if self.close and self.stop is not None and self.close > 0:
+            return (self.close - self.stop) / self.close
+        return None
+
+    def verdict(self) -> str:
+        if self.entry and self.picked:
+            return "ВХОД"
+        if self.picked:
+            return "ДЕРЖАТЬ"
+        if self.n_bars and self.n_bars < 90:
+            return "ПРОГРЕВ"
+        return "ЖДАТЬ"
+
+    def why_lines(self) -> list[str]:
+        """Короткий тезис: почему вход / почему нет. Не приказ."""
+        v = self.verdict()
+        why: list[str] = []
+        if v == "ВХОД":
+            why.append("chandelier только что включился — это день входа по правилам FLIPHOLD")
+            if self.quiet:
+                why.append("монета тихая (вола ниже медианы ликвидных) — меньше рваных ложных пробоев")
+            if self.resid is not None and self.resid > 0:
+                why.append(f"сильнее BTC за 14д на {self.resid*100:+.1f}% (остаток после β)")
+            if self.above_sma:
+                why.append("цена и SMA50 в аптренде")
+        elif v == "ДЕРЖАТЬ":
+            why.append("сделка уже открыта правилами: держим, пока chandelier жив")
+            if self.stop is not None:
+                why.append(f"выход — дневной close ниже стопа {self.stop:.6g}")
+        else:
+            if self.n_bars < 90:
+                why.append("мало истории, вердикта нет")
+            elif not self.liquid:
+                why.append("нет в point-in-time топе ликвидности — не берём")
+            elif not self.quiet:
+                why.append("вола выше медианы — не тихая, отсев")
+            elif not self.above_sma:
+                why.append("нет аптренда SMA50")
+            elif not self.chandelier_ok:
+                why.append("chandelier выключен — тренд сломан или ещё не начался")
+            elif self.resid is not None and self.resid <= 0:
+                why.append("не сильнее BTC — чужой моментум, не наш")
+            else:
+                why.append("не в топ-4 тихих — сигнал чужой монеты сильнее")
+        return why
 
 
 class _Tape:
@@ -136,6 +186,27 @@ class ForgeEngine:
         self._forming: dict[str, list[float]] = {}
         self._held: set[str] = set()
         self._prev_chan: dict[str, bool] = {}
+        self._bootstrapped: bool = False
+
+    def ready(self) -> bool:
+        btc = self._tapes.get("BTC")
+        if btc is None or len(btc.close) < self.cfg.min_bars:
+            return False
+        warmed = sum(1 for t in self._tapes.values() if len(t.close) >= self.cfg.min_bars)
+        return warmed >= 6
+
+    def hydrate_bars(
+        self,
+        symbol: str,
+        rows: list[tuple[float, float, float, float, float, float]],
+    ) -> int:
+        """Заливает дневные OHLCV (ts, o, h, l, c, v), если лента ещё короткая."""
+        tape = self.tape(symbol)
+        if len(tape.close) >= self.cfg.min_bars:
+            return len(tape.close)
+        for ts, o, h, l, c, v in rows:
+            tape.add(ts, o, h, l, c, v)
+        return len(tape.close)
 
     def tape(self, symbol: str) -> _Tape:
         got = self._tapes.get(symbol)
@@ -187,7 +258,7 @@ class ForgeEngine:
     def _raw_features(self, symbol: str) -> dict:
         tape = self._tapes.get(symbol)
         empty = {"n": 0, "close": 0.0, "resid": None, "vol": None, "adv": 0.0,
-                 "above": False, "chan": False}
+                 "above": False, "chan": False, "sma": None, "stop": None, "atr": None}
         if tape is None or not tape.close:
             return empty
         closes = list(tape.close)
@@ -237,12 +308,15 @@ class ForgeEngine:
             return snap
         snap.resid = f["resid"]
         snap.vol = f["vol"]
+        snap.sma = f["sma"]
+        snap.stop = f["stop"]
+        snap.atr = f["atr"]
         snap.above_sma = bool(f["above"])
         snap.chandelier_ok = bool(f["chan"])
         snap.picked = symbol in self._held
         return snap
 
-    def rank(self, limit: int = 4) -> list[ForgeSnapshot]:
+    def _universe(self) -> tuple[dict[str, dict], set[str], set[str], set[str]]:
         cfg = self.cfg
         feats = {sym: self._raw_features(sym) for sym in self._tapes}
         ready = {s: f for s, f in feats.items() if f["n"] >= cfg.min_bars}
@@ -250,7 +324,7 @@ class ForgeEngine:
         pit = {s for s, _ in by_adv}
         vols = [(s, ready[s]["vol"] or 0.0) for s in pit]
         vols.sort(key=lambda x: x[1])
-        n_q = max(1, int(len(vols) * cfg.quiet_pct))
+        n_q = max(1, int(len(vols) * cfg.quiet_pct)) if vols else 0
         quiet = {s for s, _ in vols[:n_q]}
         pool = [
             (s, f) for s, f in ready.items()
@@ -258,6 +332,24 @@ class ForgeEngine:
         ]
         pool.sort(key=lambda kv: kv[1]["resid"] or -999, reverse=True)
         top = {s for s, _ in pool[: cfg.top_k]}
+        return ready, pit, quiet, top
+
+    def bootstrap(self) -> None:
+        """После заливки истории: текущие валидные имена = ДЕРЖАТЬ, не ложный ВХОД."""
+        if self._bootstrapped:
+            return
+        ready, _pit, _quiet, top = self._universe()
+        held: set[str] = set()
+        for s, f in ready.items():
+            chan = bool(f["chan"])
+            self._prev_chan[s] = chan
+            if s in top and chan:
+                held.add(s)
+        self._held = held
+        self._bootstrapped = True
+
+    def rank(self, limit: int = 4) -> list[ForgeSnapshot]:
+        ready, pit, quiet, top = self._universe()
         flips: set[str] = set()
         held: set[str] = set()
         for s, f in ready.items():
@@ -276,6 +368,7 @@ class ForgeEngine:
             snap = ForgeSnapshot(
                 symbol=s, n_bars=f["n"], close=f["close"],
                 resid=f["resid"], vol=f["vol"],
+                sma=f["sma"], stop=f["stop"], atr=f["atr"],
                 above_sma=bool(f["above"]), chandelier_ok=bool(f["chan"]),
                 quiet=s in quiet, liquid=s in pit,
                 picked=s in held, entry=s in flips,

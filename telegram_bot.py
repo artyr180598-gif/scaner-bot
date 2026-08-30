@@ -64,8 +64,8 @@ MAIN_MENU_KEYBOARD: dict[str, Any] = {
         ],
         [
             {"text": "📡 Pulse", "callback_data": "pulse"},
-            {"text": "🛠 Forge", "callback_data": "forge"},
-            {"text": "🛠 Forge BTC", "callback_data": "forge:BTC"},
+            {"text": "🛠 Рекомендации", "callback_data": "forge"},
+            {"text": "🛠 Разбор BTC", "callback_data": "forge:BTC"},
         ],
         [
             {"text": "📚 Гайд", "callback_data": "guide"},
