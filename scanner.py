@@ -630,6 +630,9 @@ class ArbitrageScanner:
 
     #: попыток подключиться к бирже на старте, прежде чем исключить её
     MARKET_LOAD_ATTEMPTS = 3
+    #: в деградирующем режиме (нет живых spot/futures-сторон) — период
+    #: повторных попыток подключиться к биржам, с
+    RECOVERY_RETRY_SECONDS = 60.0
     #: сколько событий (спред ≥ порога) держать в журнале /signals
     EVENT_LOG_LIMIT = 100
     #: строк на страницу списка монет /coins
@@ -644,6 +647,9 @@ class ArbitrageScanner:
         self._cooldown_until: dict[str, float] = {}        # auto-режим: антидубль push
         self._last_best: Optional[tuple[float, str, str]] = None  # (net%, base, маршрут)
         self._listener_task: Optional[asyncio.Task] = None
+        # Деградирующий режим: процесс живёт без бирж и догоняет их сам.
+        self._recovery_busy = False
+        self._last_recovery_attempt = 0.0
         # Журнал событий on_demand-режима: связки, где спред был ≥ порога.
         self._events: deque[Opportunity] = deque(maxlen=self.EVENT_LOG_LIMIT)
         self._event_cooldown_until: dict[str, float] = {}
@@ -699,11 +705,18 @@ class ArbitrageScanner:
             try:
                 await self.notifier.send_html(
                     f"⚠️ <b>Сканер не смог подключиться к биржам</b>\n{message}. "
-                    f"Перезапуск через {self.settings.restart_backoff_seconds:.0f}с."
+                    f"Повторю попытку каждые {self.RECOVERY_RETRY_SECONDS:.0f}с — "
+                    f"бот остаётся на связи (/status, /exchanges)."
                 )
             except Exception:  # noqa: BLE001
                 pass
-            raise RuntimeError(message)
+            # Деградирующий режим (раньше здесь был raise → процесс умирал и
+            # перезапускался с backoff, а в эти паузы бот МОЛЧАЛ на все
+            # команды). Теперь процесс живёт, принимает команды и догоняет
+            # биржи в _main_loop → _maybe_recover.
+            log.error("Старт в деградирующем режиме: %s", message)
+            self._start_command_listener()
+            return
 
         self.bases = await self._resolve_bases()
         for side in self._live_sides():
@@ -914,6 +927,60 @@ class ArbitrageScanner:
             fresh=opp.data_age_seconds <= self.settings.book_max_age_seconds,
         )
 
+    # ------------------------------------------------------------------ recovery
+    async def _maybe_recover(self) -> None:
+        """
+        Деградирующий режим: на старте не поднялась хотя бы одна группа
+        (spot или futures). Процесс живёт и отвечает в Telegram; здесь мы
+        ~раз в минуту повторяем подключение мёртвых сторон. Как только
+        поднялись и спот, и перп — восстанавливаем базы и сбор котировок.
+        """
+        live = self._live_sides()
+        has_spot = any(sd.alive for sd in live if sd.market_type == "spot")
+        has_futures = any(sd.alive for sd in live if sd.market_type == "futures")
+        if has_spot and has_futures:
+            return  # всё в порядке — обычная работа
+        if self._recovery_busy:
+            return
+        now_mono = time.monotonic()
+        if now_mono - self._last_recovery_attempt < self.RECOVERY_RETRY_SECONDS:
+            return
+        self._last_recovery_attempt = now_mono
+        self._recovery_busy = True
+        try:
+            await self._init_markets()
+            live_spots = [sd for sd in self.spot_sides if sd.alive]
+            live_futures = [sd for sd in self.futures_sides if sd.alive]
+            if not live_spots or not live_futures:
+                log.warning(
+                    "Восстановление пока не удалось: живых сторон spot=%d futures=%d "
+                    "(попробую ещё через %.0fс)",
+                    len(live_spots), len(live_futures), self.RECOVERY_RETRY_SECONDS,
+                )
+                return
+            self.bases = await self._resolve_bases()
+            for side in self._live_sides():
+                side.assign_symbols(self.bases)
+                side.start()
+            log.info(
+                "Биржи восстановлены: %d живых сторон, %d пар — возврат в обычную работу",
+                len(self._live_sides()), len(self.bases),
+            )
+            try:
+                await self.notifier.send_html(
+                    "✅ <b>Соединение с биржами восстановлено</b> — снова сканирую "
+                    f"({len(self.bases)} пар).",
+                    reply_markup=MAIN_MENU_KEYBOARD,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — цикл восстановления не умирает
+            log.exception("Ошибка попытки восстановить биржи")
+        finally:
+            self._recovery_busy = False
+
     # ------------------------------------------------------------------ main loop
     async def _main_loop(self) -> None:
         s = self.settings
@@ -924,6 +991,8 @@ class ArbitrageScanner:
         while True:
             await asyncio.sleep(s.scan_interval_seconds)
             self.stats["scans"] += 1
+
+            await self._maybe_recover()
 
             self._observe_engine(time.time())
 

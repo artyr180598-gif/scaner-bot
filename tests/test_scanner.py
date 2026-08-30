@@ -1447,6 +1447,160 @@ class TestFullLifecycle(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Деградирующий режим: биржи недоступны → процесс живёт и догоняет их
+# ---------------------------------------------------------------------------
+
+class StubFlakyExchange:
+    """Стаб биржи, у которой load_markets падает первые N вызовов, потом — ок."""
+
+    def __init__(self, fail_times: int):
+        self.fail_times = fail_times
+        self.calls = 0
+        self.markets = {}
+        self.closed = False
+        self.has = {"watchOrderBook": False}
+
+    async def load_markets(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise ccxt.NetworkError("exchange unreachable (test)")
+        self.markets = {
+            "BTC/USDT": {"active": True, "quote": "USDT", "base": "BTC", "type": "spot"},
+            "BTC/USDT:USDT": {
+                "active": True, "quote": "USDT", "base": "BTC",
+                "type": "swap", "swap": True, "linear": True, "settle": "USDT",
+            },
+        }
+        return self.markets
+
+    async def fetch_order_book(self, symbol, limit=None):
+        bid, ask = (99.0, 100.0) if symbol.endswith("/USDT") else (103.0, 104.0)
+        return {"bids": [[bid, 10.0]], "asks": [[ask, 10.0]], "timestamp": 0}
+
+    async def close(self):
+        self.closed = True
+
+
+class FakePollingNotifier(FakeNotifier):
+    """FakeNotifier + long polling getUpdates (для слушателя команд)."""
+
+    def __init__(self):
+        super().__init__()
+        self.polls = 0
+
+    async def get_updates(self, offset=0, timeout=25.0, allowed_updates=("message",)):
+        self.polls += 1
+        await asyncio.sleep(0.05)
+        return []
+
+
+class DegradedScanner(ScenarioScanner):
+    """Сканер с быстрым циклом догона бирж (офлайн-тест)."""
+
+    MARKET_LOAD_ATTEMPTS = 1
+
+    def __init__(self, settings: Settings, notifier, sides):
+        super().__init__(settings, notifier, sides)
+        self.RECOVERY_RETRY_SECONDS = 0.05
+
+
+class TestDegradedRecovery(unittest.TestCase):
+    def _make(self, fail_spot: int, fail_fut: int, **overrides):
+        settings = make_settings(
+            scan_interval_seconds=0.1,
+            rest_poll_interval_seconds=0.05,
+            rest_throttle_seconds=0.0,
+            chat_ids=("111",),
+            **overrides,
+        )
+        spot_ex = StubFlakyExchange(fail_spot)
+        fut_ex = StubFlakyExchange(fail_fut)
+        spot = ExchangeSide(settings, EXCHANGE_REGISTRY["mexc"], "spot",
+                            exchange=spot_ex)
+        fut = ExchangeSide(settings, EXCHANGE_REGISTRY["bybit"], "futures",
+                           exchange=fut_ex)
+        notifier = FakePollingNotifier()
+        scanner = DegradedScanner(settings, notifier, [spot, fut])
+        return spot_ex, fut_ex, notifier, scanner, spot, fut
+
+    def test_startup_all_dead_stays_alive_and_listens(self):
+        """Все биржи мёртвы: crash-цикла НЕТ, предупреждение ушло,
+        слушатель команд запущен — бот отвечает в деградирующем режиме."""
+        spot_ex, fut_ex, notifier, scanner, spot, fut = self._make(10**9, 10**9)
+
+        async def scenario():
+            await scanner._startup()  # раньше здесь поднимался RuntimeError
+            self.assertFalse(spot.alive)
+            self.assertFalse(fut.alive)
+            self.assertEqual(scanner.bases, [])
+            self.assertTrue(
+                any("не смог подключиться" in m for m in notifier.messages),
+                f"предупреждение не отправлено: {notifier.messages}",
+            )
+            # слушатель команд живёт — бот не молчит
+            self.assertIsNotNone(scanner._listener_task)
+            self.assertFalse(scanner._listener_task.done())
+            scanner._listener_task.cancel()
+            try:
+                await scanner._listener_task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(scenario())
+
+    def test_recovery_restores_bases_and_collection(self):
+        """Биржи «вернулись»: _maybe_recover поднимает стороны, решает базы,
+        стартует сбор и присылает уведомление."""
+        spot_ex, fut_ex, notifier, scanner, spot, fut = self._make(10**9, 10**9)
+
+        async def scenario():
+            await scanner._startup()
+            # теперь биржи отвечают
+            spot_ex.fail_times = spot_ex.calls
+            fut_ex.fail_times = fut_ex.calls
+            await scanner._maybe_recover()
+            scanner._listener_task.cancel()
+            try:
+                await scanner._listener_task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(scenario())
+
+        self.assertTrue(spot.alive and fut.alive, "стороны должны ожить")
+        self.assertEqual(scanner.bases, ["BTC"])
+        self.assertTrue(spot.symbols and fut.symbols, "сбор котировок запущен")
+        self.assertTrue(
+            any("восстановлено" in m for m in notifier.messages),
+            f"уведомление о восстановлении не отправлено: {notifier.messages}",
+        )
+
+    def test_recovery_in_main_loop_end_to_end(self):
+        """run(): деградирующий старт → биржи вернулись → сканер догнал их
+        сам без перезапуска процесса."""
+        spot_ex, fut_ex, notifier, scanner, spot, fut = self._make(3, 3)
+
+        async def scenario():
+            task = asyncio.create_task(scanner.run())
+            for _ in range(200):
+                await asyncio.sleep(0.05)
+                if spot.alive and fut.alive:
+                    break
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(scenario())
+
+        self.assertTrue(spot.alive and fut.alive, "биржи должны вернуться сами")
+        self.assertEqual(scanner.bases, ["BTC"])
+        self.assertTrue(any("не смог подключиться" in m for m in notifier.messages))
+        self.assertTrue(any("восстановлено" in m for m in notifier.messages))
+
+
+# ---------------------------------------------------------------------------
 # Конфиг: новый режим сигналов
 # ---------------------------------------------------------------------------
 
