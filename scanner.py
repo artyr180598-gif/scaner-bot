@@ -660,6 +660,10 @@ class ArbitrageScanner:
         # 4ч-бары из живых мидов; пока мало истории — crowding/basis всё равно видны.
         self.pulse_engine = PulseEngine(bar_seconds=4.0 * 3600.0)
         self.forge_engine = ForgeEngine(bar_seconds=86400.0)
+        self._forge_hydrate_task: Optional[asyncio.Task] = None
+        self._forge_universe_done: bool = False
+        self._forge_last_refresh: float = 0.0
+        self._forge_alerted: set[str] = set()
         self.episode_tracker = EpisodeTracker(
             exit_fee_percent=self.signal_engine.cfg.exit_fee_percent,
             z_exit=settings.z_exit,
@@ -715,6 +719,7 @@ class ArbitrageScanner:
         for side in self._live_sides():
             side.assign_symbols(self.bases)
             side.start()
+        self._kick_forge_hydrate()
 
         dead = [s.label for s in self.spot_sides + self.futures_sides if not s.alive]
         log.info(
@@ -740,6 +745,13 @@ class ArbitrageScanner:
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
             self._listener_task = None
+        if self._forge_hydrate_task is not None:
+            self._forge_hydrate_task.cancel()
+            try:
+                await self._forge_hydrate_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self._forge_hydrate_task = None
         for side in self.spot_sides + self.futures_sides:
             await side.aclose()
         await self.notifier.close()
@@ -994,6 +1006,9 @@ class ArbitrageScanner:
             if s.market_refresh_minutes > 0 and now_mono - last_refresh >= s.market_refresh_minutes * 60:
                 last_refresh = now_mono
                 await self._refresh_markets()
+            if time.time() - self._forge_last_refresh >= 20 * 60:
+                self._kick_forge_hydrate(refresh=True)
+            await self._maybe_push_forge_entries()
 
     # ------------------------------------------------------------------ evaluation
     @staticmethod
@@ -1595,18 +1610,42 @@ class ArbitrageScanner:
         base = (args.split()[0] if args.strip() else "").upper() or None
         return self._build_forge_message(base)
 
-    async def _ensure_forge_history(self) -> None:
-        """Один раз подтягивает дневные свечи, чтобы /forge не ждал 90 дней мидов."""
-        if self.forge_engine.ready():
+    def _kick_forge_hydrate(self, *, refresh: bool = False) -> None:
+        if self._forge_hydrate_task is not None and not self._forge_hydrate_task.done():
             return
-        side = next(
+        self._forge_hydrate_task = asyncio.create_task(
+            self._hydrate_forge_universe(refresh=refresh),
+            name="forge-hydrate",
+        )
+
+    async def _ensure_forge_history(self) -> None:
+        """Не блокирует Telegram: качает все монеты в фоне, ждёт максимум 2с."""
+        self._kick_forge_hydrate()
+        task = self._forge_hydrate_task
+        if task is None or task.done() or self.forge_engine.ready():
+            if task is not None and task.done() and task.exception() is None:
+                pass
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+        except asyncio.TimeoutError:
+            return
+
+    def _forge_spot_side(self) -> Optional[ExchangeSide]:
+        return next(
             (s for s in self.spot_sides if s.alive and getattr(s.exchange, "markets", None)),
             None,
         )
+
+    async def _hydrate_forge_universe(self, *, refresh: bool = False) -> None:
+        """Дневные свечи по ВСЕМ базам. refresh=True — только последние 5 баров."""
+        side = self._forge_spot_side()
         if side is None:
+            self._forge_last_refresh = time.time()
             return
         bases = ["BTC"] + [b for b in self.bases if b != "BTC"]
         sem = asyncio.Semaphore(3)
+        limit = 5 if refresh and self._forge_universe_done else 200
 
         async def pull(base: str) -> None:
             symbol = side.symbol_by_base.get(base)
@@ -1615,10 +1654,10 @@ class ArbitrageScanner:
             async with sem:
                 try:
                     raw = await asyncio.wait_for(
-                        side.exchange.fetch_ohlcv(symbol, "1d", limit=200),
+                        side.exchange.fetch_ohlcv(symbol, "1d", limit=limit),
                         timeout=10.0,
                     )
-                except (asyncio.CancelledError, asyncio.TimeoutError):
+                except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001
                     log.debug("forge hydrate %s: %s", base, exc)
@@ -1638,12 +1677,54 @@ class ArbitrageScanner:
                 self.forge_engine.hydrate_bars(base, rows)
 
         try:
-            await asyncio.gather(*(pull(b) for b in bases[:36]))
+            await asyncio.gather(*(pull(b) for b in bases))
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             log.warning("forge hydrate: %s", exc)
+        self._forge_last_refresh = time.time()
+        self._forge_universe_done = True
         self.forge_engine.bootstrap()
+        cov = self.forge_engine.coverage()
+        log.info(
+            "FORGE: проверено %d монет, тёплых %d, hydrated %d",
+            cov["tapes"], cov["warm"], cov["hydrated"],
+        )
+
+    async def _maybe_push_forge_entries(self) -> None:
+        """Пуш только когда все 7 фильтров сошлись. Не ордер, не arb-auto."""
+        if not self.forge_engine._bootstrapped:
+            return
+        if getattr(self.notifier, "dry_run", False):
+            return
+        if not self.settings.chat_ids:
+            return
+        ranked = self.forge_engine.rank(limit=0)
+        buys = [s for s in ranked if s.buy_ok()]
+        held = {s.symbol for s in ranked if s.picked}
+        self._forge_alerted &= held | {s.symbol for s in buys}
+        now = time.time()
+        btc_snap = self.forge_engine.snapshot("BTC")
+        btc_note = (
+            "BTC в аптренде SMA50" if btc_snap.above_sma else "BTC без аптренда SMA50 — альты слабее"
+        )
+        for snap in buys:
+            if snap.symbol in self._forge_alerted:
+                continue
+            html = format_forge_one(snap, now, btc_note=btc_note)
+            html = (
+                "📣 <b>РЕКОМЕНДАЦИЯ НА ПОКУПКУ</b> — все фильтры сошлись.\n"
+                "Авто-ордер не выставляю.\n\n"
+                + html
+            )
+            try:
+                delivered = await self.notifier.send_html(html, reply_markup=MAIN_MENU_KEYBOARD)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("forge alert %s: %s", snap.symbol, exc)
+                continue
+            if delivered:
+                self._forge_alerted.add(snap.symbol)
+                log.info("FORGE ВХОД %s close=%s stop=%s", snap.symbol, snap.close, snap.stop)
 
     # ------------------------------------------------------------------ ответы командам
     async def _build_top_message(self, limit: int, direction: str) -> str:
@@ -2382,6 +2463,8 @@ class ArbitrageScanner:
         btc_note = (
             "BTC в аптренде SMA50" if btc_snap.above_sma else "BTC без аптренда SMA50 — альты слабее"
         )
+        cov = self.forge_engine.coverage()
+        pending = max(0, len(self.bases) - cov["hydrated"])
         if base:
             ranked = {s.symbol: s for s in self.forge_engine.rank(limit=0)}
             snap = ranked.get(base) or self.forge_engine.snapshot(base)
@@ -2395,15 +2478,23 @@ class ArbitrageScanner:
             except Exception:  # noqa: BLE001
                 pulse_note = ""
             return format_forge_one(snap, now, btc_note=btc_note, pulse_note=pulse_note)
-        ranked = self.forge_engine.rank(limit=12)
+        ranked = self.forge_engine.rank(limit=0)
         if not ranked or all(s.n_bars < 20 for s in ranked):
+            scan_n = len(self.bases)
             return (
-                "🛠 <b>FORGE — рекомендации по направлению</b>\n\n"
-                "История ещё не подтянулась (нужны дневные свечи). "
-                "Рабочий P&amp;L без направления цены — /top.\n\n"
+                "🛠 <b>FORGE — сканирую все монеты</b>\n\n"
+                f"В работе {scan_n} пар, тёплых лент {cov['warm']}. "
+                "Качаю дневные свечи по всему универсу — рекомендация на покупку "
+                "появится, когда сойдутся все 7 фильтров.\n\n"
+                "Рабочий P&amp;L без направления цены — /top.\n"
                 "<i>FLIPHOLD OOS +48%/год, Sharpe 1.14, яма −31%. Авто-вход выключен.</i>"
             )
-        return format_forge_book(ranked, now, btc_note=btc_note)
+        return format_forge_book(
+            ranked, now, btc_note=btc_note,
+            scanned=max(cov["hydrated"], cov["tapes"]),
+            universe=len(self.bases),
+            pending=pending,
+        )
 
     def _build_signals_log_message(self) -> str:
         """Журнал событий on_demand-режима: где спред был ≥ порога."""
@@ -3123,18 +3214,20 @@ def format_forge_one(
     """Полный разбор /forge COIN: вердикт, почему, стоп, риск."""
     v = snap.verdict()
     if v == "ВХОД":
-        head = "рекомендация: ЛОНГ (день входа)"
+        head = "рекомендация: ЛОНГ — все 7 фильтров сошлись"
     elif v == "ДЕРЖАТЬ":
         head = "рекомендация: держать лонг, не доливать вслепую"
+    elif v == "СМОТРЕТЬ":
+        head = "почти вход: ждём chandelier, не покупать заранее"
     elif v == "ПРОГРЕВ":
         head = "рекомендация: нет — мало истории"
     else:
         head = "рекомендация: не входить"
     checks = [
-        ["ликвид PIT", "да" if snap.liquid else "нет"],
-        ["тихий", "да" if snap.quiet else "нет"],
-        ["SMA50 аптренд", "да" if snap.above_sma else "нет"],
-        ["chandelier", "вкл" if snap.chandelier_ok else "выкл"],
+        [name, "✓" if ok else "✗"]
+        for name, ok in snap.checklist()
+    ]
+    checks += [
         ["остаток vs BTC", f"{snap.resid*100:+.2f}%" if snap.resid is not None else "—"],
         ["вола 30д", f"{snap.vol*100:.2f}%" if snap.vol is not None else "—"],
         ["close", f"{snap.close:.6g}" if snap.close else "—"],
@@ -3157,14 +3250,23 @@ def format_forge_one(
         lines += ["", f"BTC: {_esc(btc_note)}"]
     if pulse_note:
         lines += [f"Контекст 4ч: {_esc(pulse_note)}"]
+    if snap.buy_ok():
+        lines += [
+            "",
+            "<b>План покупки (руками):</b>",
+            "1. Только спот или перп <b>1x–3x изолированно</b> — не больше.",
+            "2. Вход — лимитка у close, не догонять +10% день.",
+            "3. Выход <b>обязательный</b>: дневной close ниже стопа chandelier "
+            "(20д хай − 2.5 ATR). Без «ещё подержу».",
+            "4. Не усреднять, если стоп сработал.",
+        ]
+    else:
+        lines += [
+            "",
+            "<b>Покупка сейчас — нет.</b> Бот рекомендует лонг только когда "
+            "все 7 фильтров зелёные (в т.ч. день включения chandelier).",
+        ]
     lines += [
-        "",
-        "<b>План, если берёшь (руками):</b>",
-        "1. Только спот или перп <b>1x–3x изолированно</b> — не больше.",
-        "2. Вход — не маркет-огонь: лимитка у close, не догонять +10% день.",
-        "3. Выход <b>обязательный</b>: дневной close ниже стопа chandelier "
-        "(20д хай − 2.5 ATR). Без «ещё подержу».",
-        "4. Не усреднять, если стоп сработал.",
         "",
         "<b>На дистанции (честно):</b> OOS +48%/год, Sharpe 1.14, "
         "дневной wr ~28%, <b>яма −31%</b>. Это тренд, не скальп. "
@@ -3175,55 +3277,71 @@ def format_forge_one(
     return "\n".join(lines)
 
 
-def format_forge_book(ranked: list[ForgeSnapshot], now: float, *, btc_note: str = "") -> str:
-    """Сводка рекомендаций: новые входы, что держать, что не трогать."""
-    entries = [s for s in ranked if s.entry and s.picked]
-    holds = [s for s in ranked if s.picked and not s.entry]
+def format_forge_book(
+    ranked: list[ForgeSnapshot],
+    now: float,
+    *,
+    btc_note: str = "",
+    scanned: int = 0,
+    universe: int = 0,
+    pending: int = 0,
+) -> str:
+    """Сводка: покупка только если все фильтры сошлись."""
+    buys = [s for s in ranked if s.buy_ok()]
+    holds = [s for s in ranked if s.picked and not s.buy_ok()]
+    watches = [s for s in ranked if s.verdict() == "СМОТРЕТЬ"][:4]
     rows = []
-    show = (entries + holds)[:6] or ranked[:4]
+    show = (buys + holds + watches)[:8] or ranked[:4]
     for i, s in enumerate(show, start=1):
         resid = f"{s.resid*100:+.1f}%" if s.resid is not None else "—"
         rows.append([
             str(i), s.symbol[:8], s.verdict()[:8],
             resid, "✓" if s.quiet else "—", "✓" if s.chandelier_ok else "—",
         ])
+    n_ok = sum(1 for s in ranked if s.n_bars >= 90)
     lines = [
-        "🛠 <b>FORGE · РЕКОМЕНДАЦИИ (FLIPHOLD)</b>",
-        f"<i>{_fmt_utc_short(now)} · куда может пойти цена · не авто-вход</i>",
+        "🛠 <b>FORGE · СКАН ВСЕХ МОНЕТ</b>",
+        f"<i>{_fmt_utc_short(now)} · покупка только если 7/7 фильтров</i>",
         "",
+        f"Проверено <b>{scanned or n_ok}</b> из {universe or len(ranked)}"
+        + (f" (ещё качаю {pending})" if pending else ""),
         f"BTC: {_esc(btc_note)}" if btc_note else "",
         "<pre>" + _mono_table(
             ["#", "МОНТА", "ВЕРДКТ", "ОСТАТ", "ТИХ", "CHAN"], rows
         ) + "</pre>",
         "",
     ]
-    if entries:
-        lines.append("<b>Новые входы сегодня</b>")
-        for s in entries[:3]:
-            tip = s.why_lines()[0] if s.why_lines() else "правила FLIPHOLD"
+    if buys:
+        lines.append("<b>КУПИТЬ (все фильтры сошлись)</b>")
+        for s in buys[:4]:
             stop = f"{s.stop:.6g}" if s.stop is not None else "chandelier"
             lines.append(
-                f"• <b>{_esc(s.symbol)}</b> — ЛОНГ. {html.escape(tip)}. "
-                f"Стоп close &lt; {_esc(stop)}. Плечо ≤3x изолированно."
+                f"• <b>{_esc(s.symbol)}</b> лонг. Стоп close &lt; {_esc(stop)}. "
+                f"Плечо 1x–3x изолированно. Не догонять."
             )
-            lines.append("")
+        lines.append("")
+    if watches:
+        names = ", ".join(s.symbol for s in watches)
+        lines.append(
+            f"<b>Смотреть (ещё не покупать):</b> {_esc(names)} — "
+            "тренд и сила vs BTC уже есть, ждём день chandelier."
+        )
+        lines.append("")
     if holds:
         names = ", ".join(s.symbol for s in holds[:6])
-        lines.append(f"<b>Держать:</b> {_esc(names)} — пока chandelier включён, не перекладывать.")
+        lines.append(f"<b>Держать:</b> {_esc(names)} — пока chandelier включён.")
         lines.append("")
-    if not entries and not holds:
+    if not buys:
         lines.append(
-            "Сейчас <b>нет входа</b>: нет тихих победителей с живым chandelier. "
-            "Это нормально — система часто вне рынка (~47% дней в рынке)."
+            "Сейчас <b>нет покупки</b>: ни одна монета не прошла все 7 фильтров. "
+            "Это нормально — в рынке ~47% дней, wr дней ~28%."
         )
         lines.append("")
     lines += [
-        "<b>Как читать:</b> остаток = сила сверх BTC. Тихий = не дёрганая вола. "
-        "ВХОД = chandelier включился сегодня. ДЕРЖАТЬ = уже в тренде. "
-        "ЖДАТЬ = фильтры не сошлись.",
+        "<b>7 фильтров:</b> 90д истории · ликвид PIT · тихий · SMA50 · "
+        "сильнее BTC · chandelier · день flip в топ-4.",
         "",
-        "На дистанции: +48%/год OOS, яма −31%, wr дней ~28%. "
-        "Не «без ошибок» — выход по стопу обязателен.",
-        "💡 /forge SOL — полный разбор монеты · /top — арбитраж без направления цены",
+        "На дистанции: +48%/год OOS, яма −31%. Не «без ошибок». Авто-вход выключен.",
+        "💡 /forge SOL — полный чеклист монеты · /top — арбитраж без направления",
     ]
     return "\n".join([ln for ln in lines if ln is not None])

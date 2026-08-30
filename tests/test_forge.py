@@ -97,6 +97,67 @@ class TestForgeEngine(unittest.TestCase):
         self.assertEqual(snap.verdict(), "ЖДАТЬ")
         self.assertTrue(any("ликвид" in w for w in snap.why_lines()))
 
+    def test_features_have_stop_and_sma(self) -> None:
+        eng = ForgeEngine(ForgeConfig(min_bars=90, pit_n=4, top_k=2, quiet_pct=1.0))
+        for i in range(120):
+            px = 100.0 + i * 0.05
+            eng.observe_bar("BTC", i, px, px + 0.2, px - 0.2, px, 1e6)
+            q = 20.0 + i * 0.2
+            eng.observe_bar("AAA", i, q, q + 0.05, q - 0.05, q, 8e5)
+        snap = eng.snapshot("AAA")
+        self.assertIsNotNone(snap.sma)
+        self.assertIsNotNone(snap.stop)
+        self.assertIsNotNone(snap.atr)
+        self.assertGreater(snap.close, 0)
+
+    def test_rank_keeps_entry_on_same_bar(self) -> None:
+        cfg = ForgeConfig(min_bars=90, pit_n=4, top_k=2, quiet_pct=1.0)
+        eng = ForgeEngine(cfg)
+        for i in range(120):
+            px = 100.0 + i * 0.05
+            eng.observe_bar("BTC", float(i), px, px + 0.2, px - 0.2, px, 1e6)
+            q = 20.0 + i * 0.25
+            eng.observe_bar("AAA", float(i), q, q + 0.05, q - 0.05, q, 8e5)
+            w = 15.0 + i * 0.02
+            eng.observe_bar("BBB", float(i), w, w + 0.02, w - 0.02, w, 8e5)
+        first = eng.rank(limit=0)
+        second = eng.rank(limit=0)
+        e1 = {s.symbol for s in first if s.entry}
+        e2 = {s.symbol for s in second if s.entry}
+        self.assertEqual(e1, e2)
+
+    def test_buy_ok_needs_all_filters(self) -> None:
+        from forge import ForgeSnapshot
+        snap = ForgeSnapshot(
+            symbol="SOL", n_bars=120, close=100.0, resid=0.04, vol=0.02,
+            sma=90.0, stop=92.0, atr=2.0, above_sma=True, chandelier_ok=True,
+            quiet=True, liquid=True, picked=True, entry=True,
+        )
+        self.assertTrue(snap.buy_ok())
+        self.assertEqual(snap.verdict(), "ВХОД")
+        snap.quiet = False
+        self.assertFalse(snap.buy_ok())
+        self.assertNotEqual(snap.verdict(), "ВХОД")
+
+    def test_watch_when_waiting_chandelier(self) -> None:
+        from forge import ForgeSnapshot
+        snap = ForgeSnapshot(
+            symbol="AAA", n_bars=120, resid=0.03, above_sma=True,
+            chandelier_ok=False, quiet=True, liquid=True, setup=True,
+        )
+        self.assertEqual(snap.verdict(), "СМОТРЕТЬ")
+        self.assertFalse(snap.buy_ok())
+
+    def test_upsert_replaces_same_day(self) -> None:
+        eng = ForgeEngine(bar_seconds=86400.0)
+        rows = [(86400.0 * i, 10.0, 11.0, 9.0, 10.0 + i * 0.01, 100.0) for i in range(5)]
+        eng.hydrate_bars("AAA", rows)
+        n = len(eng.tape("AAA").close)
+        eng.hydrate_bars("AAA", [(86400.0 * 4, 10.0, 12.0, 9.0, 11.5, 200.0)])
+        self.assertEqual(len(eng.tape("AAA").close), n)
+        self.assertEqual(eng.tape("AAA").close[-1], 11.5)
+        self.assertEqual(eng.tape("AAA").high[-1], 12.0)
+
 
 if __name__ == "__main__":
     unittest.main()

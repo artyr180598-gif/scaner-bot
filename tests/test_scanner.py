@@ -720,6 +720,20 @@ class TestCommandHandlers(unittest.TestCase):
         self.assertIn("стоп", msg.lower())
         self.assertIn("1x–3x", msg)
         self.assertIn("яма", msg.lower())
+        self.assertTrue(snap.buy_ok())
+
+    def test_forge_book_buy_only_when_all_filters(self):
+        from scanner import format_forge_book
+        bad = ForgeSnapshot(symbol="JUNK", n_bars=120, resid=-0.02, liquid=False)
+        good = ForgeSnapshot(
+            symbol="SOL", n_bars=120, close=100.0, resid=0.05, vol=0.02,
+            sma=90.0, stop=92.0, atr=2.0, above_sma=True, chandelier_ok=True,
+            quiet=True, liquid=True, picked=True, entry=True,
+        )
+        msg = format_forge_book([good, bad], time.time(), scanned=40, universe=40)
+        self.assertIn("SOL", msg)
+        self.assertIn("КУПИТЬ", msg)
+        self.assertIn("7 фильтров", msg)
 
 
 # ---------------------------------------------------------------------------
