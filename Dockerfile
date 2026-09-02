@@ -14,15 +14,18 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Затем код приложения (все Python-модули: directional, market_data, strategy
-# и др.). Раньше копировался фиксированный список — при добавлении новых модулей
-# бот падал на старте с ModuleNotFoundError.
-COPY *.py ./
+# Затем код: пакет приложения и офлайн-гейт (tools.selftest вызывается
+# из `python -m app.main --selftest`).
+COPY app ./app
+COPY tools ./tools
+
+# Каталог для журнала сигналов и настроек чатов (том Railway).
+RUN mkdir -p /app/data && chown -R 1000:1000 /app/data
 
 # Непривилегированный пользователь.
-RUN useradd --create-home --shell /usr/sbin/nologin appuser
+RUN useradd --create-home --shell /usr/sbin/nologin --uid 1000 appuser
 USER appuser
 
 # Worker-процесс: не слушает порт, работает бесконечным циклом.
-# SIGTERM обрабатывается в main.py (graceful shutdown для redeploy на Railway).
-CMD ["python", "main.py"]
+# SIGTERM обрабатывается в app/main.py (graceful shutdown для redeploy).
+CMD ["python", "-m", "app.main"]
