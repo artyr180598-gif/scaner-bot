@@ -56,6 +56,11 @@ from typing import Any, Iterable, Optional
 import ccxt
 import ccxt.pro
 
+from directional import DirectionalConfig, RISK_PROFILES
+from directional_service import CarryContext, DirectionalService
+from market_data import CcxtMarketDataProvider
+from signal_history import SignalHistory
+
 from config import (
     FALLBACK_BASES,
     Settings,
@@ -665,6 +670,34 @@ class ArbitrageScanner:
             z_exit=settings.z_exit,
             max_episode_hours=settings.max_episode_hours,
         )
+        # --- Направленное ядро v4 (TA по свечам, Long/Short) -----------------
+        self.directional: Optional[DirectionalService] = None
+        self._directional_provider: Optional[CcxtMarketDataProvider] = None
+        self._last_watch_check = 0.0
+        if getattr(settings, "directional_enabled", False):
+            self._directional_provider = CcxtMarketDataProvider(
+                settings.directional_exchange,
+                quote=settings.directional_quote,
+            )
+            self.directional = DirectionalService(
+                self._directional_provider,
+                config=DirectionalConfig(
+                    entry_tf=settings.directional_entry_tf,
+                    confirm_tfs=tuple(settings.directional_confirm_tfs),
+                    context_tf=settings.directional_context_tf,
+                ),
+                history=SignalHistory(
+                    settings.signal_history_path,
+                    ttl_hours=settings.signal_history_ttl_hours,
+                ),
+                default_profile=settings.risk_profile,
+                cache_seconds=settings.directional_cache_seconds,
+                universe_size=settings.directional_universe_size,
+                scan_concurrency=settings.directional_concurrency,
+                candles_limit=settings.directional_candles_limit,
+                carry_lookup=self._carry_context,
+            )
+
         self.stats: dict[str, int] = {
             "scans": 0,
             "signals_sent": 0,
@@ -740,6 +773,12 @@ class ArbitrageScanner:
         self._start_command_listener()
 
     async def _shutdown(self) -> None:
+        if self._directional_provider is not None:
+            try:
+                await self._directional_provider.close()
+            except Exception:  # noqa: BLE001
+                pass
+
         if self._listener_task is not None:
             self._listener_task.cancel()
             try:
@@ -913,6 +952,44 @@ class ArbitrageScanner:
                 )
                 self.episode_tracker.update(assessment, now)
 
+    def _carry_context(self, base: str) -> Optional[CarryContext]:
+        """
+        Мост между двумя ядрами: спрашивает у арбитражного (рыночно-нейтрального)
+        движка, есть ли по этой монете carry/спред-возможность.
+
+        Возвращает None, если по монете нет свежих котировок или оценка не
+        готова — направленный анализ от этого не страдает.
+        """
+        try:
+            base = base.upper()
+            best: Optional[tuple[float, Any, Any]] = None
+            for direction in (DIR_SPOT_TO_FUT, DIR_FUT_TO_SPOT):
+                by_base = self._collect_opportunities(
+                    threshold=float("-inf"), direction=direction
+                )
+                for opp in by_base.get(base, [])[:1]:
+                    assessment = self._assessment_for(opp)
+                    score = assessment.roundtrip_net_percent
+                    if best is None or score > best[0]:
+                        best = (score, opp, assessment)
+            if best is None:
+                return None
+            score, opp, assessment = best
+            headline = (
+                f"связка {opp.buy_exchange}→{opp.sell_exchange}: ожидаемый чистый "
+                f"итог {score:+.2f}% после всех комиссий "
+                f"(грейд {assessment.grade}, уверенность ядра {assessment.confidence}%)"
+                + (" — проходит ворота входа" if assessment.actionable else "")
+            )
+            return CarryContext(
+                headline=headline,
+                net_percent=float(score),
+                confidence=float(assessment.confidence),
+                actionable=bool(assessment.actionable),
+            )
+        except Exception:  # noqa: BLE001 — мост не должен ломать анализ
+            return None
+
     def _assessment_for(
         self, opp: Opportunity, funding_rate_percent: Optional[float] = None
     ) -> Assessment:
@@ -1013,6 +1090,7 @@ class ArbitrageScanner:
             if s.market_refresh_minutes > 0 and now_mono - last_refresh >= s.market_refresh_minutes * 60:
                 last_refresh = now_mono
                 await self._refresh_markets()
+            await self._maybe_watchlist_alerts()
 
     # ------------------------------------------------------------------ evaluation
     @staticmethod
@@ -1350,6 +1428,36 @@ class ArbitrageScanner:
             await asyncio.sleep(0.3)
 
     # ------------------------------------------------------------------ periodic
+    async def _maybe_watchlist_alerts(self) -> None:
+        """
+        Проверяет watchlist пользователей и присылает карточку, когда по монете
+        появился проходной сигнал. Частота — WATCHLIST_ALERT_MINUTES,
+        антиспам на монету — WATCHLIST_ALERT_COOLDOWN_MINUTES.
+        """
+        s = self.settings
+        if self.directional is None or s.watchlist_alert_minutes <= 0:
+            return
+        now_mono = time.monotonic()
+        if now_mono - self._last_watch_check < s.watchlist_alert_minutes * 60:
+            return
+        self._last_watch_check = now_mono
+        try:
+            alerts = await self.directional.check_alerts(
+                cooldown_minutes=s.watchlist_alert_cooldown_minutes
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Проверка watchlist упала")
+            return
+        import directional_view as dview
+
+        for chat_id, signal in alerts:
+            html_text = "🔔 <b>Алерт по watchlist</b>\n\n" + dview.format_signal_card(signal)
+            await self.notifier.send_html_to_chat(
+                chat_id, html_text,
+                reply_markup=dview.signal_keyboard(signal.base, in_watchlist=True),
+            )
+            log.info("Watchlist-алерт: %s %s → чат %s", signal.base, signal.direction, chat_id)
+
     async def _refresh_markets(self) -> None:
         """Периодическое обновление рынков: листинги/деллистинги, статус active."""
         log.info("Обновляю списки рынков бирж...")
@@ -1504,14 +1612,22 @@ class ArbitrageScanner:
         self._listener_task = asyncio.create_task(listener.run(), name="telegram-commands")
 
     def telegram_handlers(self) -> dict[str, Any]:
-        """Реестр команд: имя команды -> async-обработчик (chat_id, args) -> HTML."""
-        return {
+        """
+        Реестр команд: имя команды -> async-обработчик (chat_id, args) -> HTML
+        (или кортеж (HTML, своя клавиатура)).
+
+        Два ядра живут в одном боте:
+          * направленное (TA, Long/Short): /scan, /an, /why, /learn, /profile,
+            /watch, /accuracy — регистрируются из DirectionalService;
+          * нейтральное (арбитраж/carry): /top, /signal, /price, /funding и т.д.
+        """
+        handlers: dict[str, Any] = {
             "start": self._cmd_help,
             "help": self._cmd_help,
             "status": self._cmd_status,
             "top": self._cmd_top,
             "spreads": self._cmd_top,
-            "scan": self._cmd_top,
+            "arb": self._cmd_top,
             "signal": self._cmd_signal,
             "price": self._cmd_price,
             "coin": self._cmd_price,
@@ -1524,6 +1640,11 @@ class ArbitrageScanner:
             "strategy": self._cmd_strategy,
             "exchanges": self._cmd_exchanges,
         }
+        if self.directional is not None:
+            # направленные команды регистрируются ПОСЛЕ арбитражных и имеют
+            # приоритет для пересекающихся имён (/scan теперь = поиск сетапов)
+            handlers.update(self.directional.handlers())
+        return handlers
 
     async def _cmd_help(self, chat_id: str, args: str) -> str:
         return format_help_message(self.settings)
@@ -2798,7 +2919,19 @@ def format_status_message(scanner: ArbitrageScanner) -> str:
 
 def format_help_message(settings: Settings) -> str:
     return "\n".join([
-        "🤖 <b>Сканер арбитража SPOT ↔ FUTURES — справка</b>",
+        "🤖 <b>Крипто-бот: направленные сигналы + арбитраж — справка</b>",
+        "",
+        "<b>🎯 Направленный анализ (Long/Short по графику):</b>",
+        "/scan [N] — скан рынка: скрининг всех пар биржи → глубокий разбор лучших → топ сетапов",
+        "/an BTC — полный разбор монеты: направление, вход, стоп, тейки, плечо, R/R",
+        "/why BTC — из чего сложился вывод: все факторы с весами и вкладом",
+        "/learn BTC — подробное объяснение сетапа для новичка (6 разделов)",
+        "/profile — риск-профиль: консервативный / средний / агрессивный",
+        "/watch BTC, /unwatch BTC — следить за монетой и получать алерты",
+        "/accuracy [BTC] — честная статистика прошлых сигналов (win-rate, R/R)",
+        "/menu — меню направленного анализа",
+        "",
+        "<b>🔁 Арбитраж (рыночно-нейтральные связки спот↔перп):</b> см. ниже /top, /signal.",
         "",
         "<b>Как это работает:</b>",
         f"Держу живые стаканы {len(settings.exchanges)} бирж "
@@ -2821,7 +2954,7 @@ def format_help_message(settings: Settings) -> str:
         "REVERSION (сходимость аномалии). Подробнее: /strategy, /stats.",
         "",
         "<b>📊 Команды:</b>",
-        "/top [N] — таблица топ-N спредов: где купить/продать, по каким ценам, гросс → NET, исполнимый профит со $100 и макс. вход",
+        "/top [N] (алиас /arb) — таблица топ-N спредов: где купить/продать, по каким ценам, гросс → NET, исполнимый профит со $100 и макс. вход",
         "/top fs [N] — то же для обратного направления (F→S)",
         "/signal [COIN] — лучшая связка прямо сейчас (детально + план + funding)",
         "/coin BTC (алиас /price BTC) — РАЗБОР: все цены BTC по биржам, лучшая связка, план действий",

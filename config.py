@@ -246,6 +246,27 @@ class Settings:
     market_refresh_minutes: float = 720.0    # MARKET_REFRESH_MINUTES
     status_log_minutes: float = 10.0         # STATUS_LOG_MINUTES
     restart_backoff_seconds: float = 30.0    # RESTART_BACKOFF_SECONDS
+    # --- Направленный анализ v4 (Long/Short по свечам) -----------------------
+    # Второе ядро бота: технический анализ реальных свечей биржи и выдача
+    # направленного сигнала с планом сделки. Работает независимо от арбитража.
+    directional_enabled: bool = True             # DIRECTIONAL_ENABLED
+    # Биржа-источник свечей для TA (любая из поддерживаемых ccxt).
+    directional_exchange: str = "bybit"          # DIRECTIONAL_EXCHANGE
+    directional_quote: str = "USDT"              # DIRECTIONAL_QUOTE
+    directional_entry_tf: str = "5m"             # DIRECTIONAL_ENTRY_TF
+    directional_confirm_tfs: tuple[str, ...] = ("15m", "1h")  # DIRECTIONAL_CONFIRM_TFS
+    directional_context_tf: str = "4h"           # DIRECTIONAL_CONTEXT_TF
+    directional_candles_limit: int = 300         # DIRECTIONAL_CANDLES_LIMIT
+    directional_universe_size: int = 40          # DIRECTIONAL_UNIVERSE (монет в скане)
+    directional_cache_seconds: float = 45.0      # DIRECTIONAL_CACHE_SECONDS
+    directional_concurrency: int = 6             # DIRECTIONAL_CONCURRENCY
+    risk_profile: str = "moderate"               # RISK_PROFILE: conservative|moderate|aggressive
+    signal_history_path: str = "signal_history.json"  # SIGNAL_HISTORY_PATH
+    signal_history_ttl_hours: float = 24.0       # SIGNAL_HISTORY_TTL_HOURS
+    watchlist_alert_minutes: float = 10.0        # WATCHLIST_ALERT_MINUTES (0 = выкл.)
+    watchlist_alert_cooldown_minutes: float = 60.0  # WATCHLIST_ALERT_COOLDOWN_MINUTES
+
+    # --- Прочее -------------------------------------------------------------
     log_level: str = "INFO"                  # LOG_LEVEL
 
     # --- Вычисляемое --------------------------------------------------------
@@ -349,6 +370,28 @@ class Settings:
             market_refresh_minutes=_env_float("MARKET_REFRESH_MINUTES", 720.0, minimum=10.0),
             status_log_minutes=_env_float("STATUS_LOG_MINUTES", 10.0, minimum=0.0),
             restart_backoff_seconds=_env_float("RESTART_BACKOFF_SECONDS", 30.0, minimum=1.0),
+            directional_enabled=_env_bool("DIRECTIONAL_ENABLED", True),
+            directional_exchange=(os.getenv("DIRECTIONAL_EXCHANGE") or "bybit").strip().lower(),
+            directional_quote=(os.getenv("DIRECTIONAL_QUOTE") or "USDT").strip().upper(),
+            directional_entry_tf=(os.getenv("DIRECTIONAL_ENTRY_TF") or "5m").strip(),
+            directional_confirm_tfs=tuple(
+                tf.strip() for tf in (os.getenv("DIRECTIONAL_CONFIRM_TFS") or "15m,1h").split(",")
+                if tf.strip()
+            ),
+            directional_context_tf=(os.getenv("DIRECTIONAL_CONTEXT_TF") or "4h").strip(),
+            directional_candles_limit=_env_int("DIRECTIONAL_CANDLES_LIMIT", 300, minimum=60),
+            directional_universe_size=_env_int("DIRECTIONAL_UNIVERSE", 40, minimum=1),
+            directional_cache_seconds=_env_float("DIRECTIONAL_CACHE_SECONDS", 45.0, minimum=0.0),
+            directional_concurrency=_env_int("DIRECTIONAL_CONCURRENCY", 6, minimum=1),
+            risk_profile=_env_choice(
+                "RISK_PROFILE", ("conservative", "moderate", "aggressive"), "moderate"
+            ),
+            signal_history_path=(os.getenv("SIGNAL_HISTORY_PATH") or "signal_history.json").strip(),
+            signal_history_ttl_hours=_env_float("SIGNAL_HISTORY_TTL_HOURS", 24.0, minimum=1.0),
+            watchlist_alert_minutes=_env_float("WATCHLIST_ALERT_MINUTES", 10.0, minimum=0.0),
+            watchlist_alert_cooldown_minutes=_env_float(
+                "WATCHLIST_ALERT_COOLDOWN_MINUTES", 60.0, minimum=1.0
+            ),
             log_level=log_level,
         )
 
@@ -389,6 +432,8 @@ class Settings:
             strategy_line = f"fixed (легаси v2) — плоский порог {self.min_spread_percent:.2f}%"
         return (
             "Конфигурация:\n"
+            f"  Направл. анализ:  "
+            f"{'вкл, ' + self.directional_exchange.upper() + ', ТФ ' + self.directional_entry_tf + '/' + '/'.join(self.directional_confirm_tfs) + '/' + self.directional_context_tf + ', профиль ' + self.risk_profile if self.directional_enabled else 'выключен'}\n"
             f"  Режим сигналов:   {signal_line}\n"
             f"  Квант. стратегия: {strategy_line}\n"
             f"  Биржи:            {', '.join(e.upper() for e in self.exchanges)}\n"

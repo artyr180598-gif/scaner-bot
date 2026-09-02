@@ -44,18 +44,23 @@ CommandHandler = Callable[[str, str], Awaitable[Optional[str]]]
 MAIN_MENU_KEYBOARD: dict[str, Any] = {
     "inline_keyboard": [
         [
-            {"text": "📊 Топ S→F", "callback_data": "top"},
-            {"text": "📊 Топ F→S", "callback_data": "top:fs"},
-            {"text": "🎯 Сигнал", "callback_data": "signal"},
+            {"text": "🎯 Сигналы (Long/Short)", "callback_data": "scan"},
+            {"text": "🧭 Меню анализа", "callback_data": "menu"},
+        ],
+        [
+            {"text": "🔎 Найти монету", "callback_data": "find"},
+            {"text": "📈 Точность", "callback_data": "accuracy"},
+            {"text": "👁 Watchlist", "callback_data": "watch"},
+        ],
+        [
+            {"text": "📊 Арбитраж S→F", "callback_data": "top"},
+            {"text": "📊 Арбитраж F→S", "callback_data": "top:fs"},
+            {"text": "🎯 Связка", "callback_data": "signal"},
         ],
         [
             {"text": "🪙 Монеты", "callback_data": "coins"},
             {"text": "💠 Разбор BTC", "callback_data": "price:BTC"},
-            {"text": "💠 Разбор ETH", "callback_data": "price:ETH"},
-        ],
-        [
             {"text": "💰 Funding BTC", "callback_data": "funding:BTC"},
-            {"text": "🧮 Кальк BTC $1000", "callback_data": "calc:BTC 1000"},
         ],
         [
             {"text": "📩 События", "callback_data": "signals"},
@@ -387,14 +392,23 @@ class TelegramCommandListener:
         if handler is None:
             handler = self._handlers.get("help")
             args = ""
+        keyboard: dict[str, Any] = MAIN_MENU_KEYBOARD
         try:
-            html = await handler(chat_id, args)
+            result = await handler(chat_id, args)
+            # Обработчик может вернуть либо HTML, либо (HTML, своя клавиатура) —
+            # второй вариант нужен модулям со своим меню (направленный анализ).
+            if isinstance(result, tuple):
+                html, custom_keyboard = result
+                if custom_keyboard:
+                    keyboard = custom_keyboard
+            else:
+                html = result
         except Exception:  # noqa: BLE001
             log.exception("Ошибка обработчика команды /%s", command)
             html = "⚠️ Не удалось выполнить команду, попробуйте позже."
         if html:
             await self._notifier.send_html_to_chat(
-                chat_id, html, reply_markup=MAIN_MENU_KEYBOARD
+                chat_id, html, reply_markup=keyboard
             )
 
     # ------------------------------------------------------------------ helpers
