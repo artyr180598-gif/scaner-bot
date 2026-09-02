@@ -14,8 +14,10 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Затем код приложения.
-COPY config.py scanner.py telegram_bot.py main.py check_connection.py ./
+# Затем код приложения (все Python-модули: directional, market_data, strategy
+# и др.). Раньше копировался фиксированный список — при добавлении новых модулей
+# бот падал на старте с ModuleNotFoundError.
+COPY *.py ./
 
 # Непривилегированный пользователь.
 RUN useradd --create-home --shell /usr/sbin/nologin appuser
