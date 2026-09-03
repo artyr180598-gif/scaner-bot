@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from chris_bots.config.settings import (
+    TOKEN_ENV_NAMES,
     Settings,
     get_settings,
     load_env,
@@ -23,6 +24,7 @@ from chris_bots.config.settings import (
     loaded_env_keys,
     parse_env_text,
     reset_settings_cache,
+    token_env_name,
 )
 
 OK = "[OK]  "
@@ -31,7 +33,17 @@ FAIL = "[FAIL]"
 _TOKEN = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
 
 # Ключи, которые тесты трогают — их нужно вернуть как было.
-_TOUCHED = ("TELEGRAM_TOKEN", "ENV_FILE", "DOTENV_PATH", "DRY_RUN", "LOG_LEVEL")
+_TOUCHED = (
+    "TELEGRAM_TOKEN",
+    "BOT_TOKEN",
+    "TELEGRAM_BOT_TOKEN",
+    "TG_TOKEN",
+    "BOT_API_TOKEN",
+    "ENV_FILE",
+    "DOTENV_PATH",
+    "DRY_RUN",
+    "LOG_LEVEL",
+)
 
 
 class _env_sandbox:
@@ -229,6 +241,73 @@ def t_settings_constructed_directly_reads_dotenv():
             print(OK + "Settings() напрямую тоже подхватывает .env")
 
 
+def t_token_alias_bot_token():
+    """Railway/Heroku: токен лежит в BOT_TOKEN, а не в TELEGRAM_TOKEN."""
+    with _env_sandbox():
+        os.environ["BOT_TOKEN"] = _TOKEN
+        reset_settings_cache()
+        settings = get_settings()
+        assert settings.telegram_token == _TOKEN, repr(settings.telegram_token)
+        assert token_env_name() == "BOT_TOKEN", token_env_name()
+        settings.validate()
+        print(OK + "BOT_TOKEN принимается как токен")
+
+
+def t_all_token_aliases_accepted():
+    """Каждое имя из TOKEN_ENV_NAMES должно работать."""
+    for name in TOKEN_ENV_NAMES:
+        with _env_sandbox():
+            os.environ[name] = _TOKEN
+            reset_settings_cache()
+            settings = get_settings()
+            assert settings.telegram_token == _TOKEN, f"{name}: {settings.telegram_token!r}"
+            assert token_env_name() == name, f"{name} -> {token_env_name()}"
+            settings.validate()
+    print(OK + f"все {len(TOKEN_ENV_NAMES)} имён принимаются: {', '.join(TOKEN_ENV_NAMES)}")
+
+
+def t_telegram_token_wins_over_alias():
+    """Приоритет: TELEGRAM_TOKEN важнее BOT_TOKEN."""
+    with _env_sandbox():
+        os.environ["TELEGRAM_TOKEN"] = "111:primary_token_value"
+        os.environ["BOT_TOKEN"] = "222:alias_token_value"
+        reset_settings_cache()
+        settings = get_settings()
+        assert settings.telegram_token == "111:primary_token_value", settings.telegram_token
+        assert token_env_name() == "TELEGRAM_TOKEN"
+        print(OK + "TELEGRAM_TOKEN имеет приоритет над алиасами")
+
+
+def t_empty_alias_falls_through():
+    """Пустой BOT_TOKEN не должен маскировать настоящий TELEGRAM_TOKEN."""
+    with _env_sandbox():
+        os.environ["BOT_TOKEN"] = "   "
+        os.environ["TELEGRAM_TOKEN"] = _TOKEN
+        reset_settings_cache()
+        settings = get_settings()
+        assert settings.telegram_token == _TOKEN, repr(settings.telegram_token)
+        assert token_env_name() == "TELEGRAM_TOKEN"
+        print(OK + "пустой алиас пропускается")
+
+
+def t_missing_token_lists_present_vars():
+    """Ошибка должна показывать, какие похожие переменные реально есть в окружении."""
+    with _env_sandbox():
+        os.environ["MY_CUSTOM_SECRET"] = "123:not_a_token_name_we_track"
+        try:
+            get_settings().validate()
+        except ValueError as exc:
+            msg = str(exc)
+            for name in TOKEN_ENV_NAMES:
+                assert name in msg, f"{name} не упомянут в ошибке: {msg}"
+            assert "MY_CUSTOM_SECRET" in msg, f"переменная не показана: {msg}"
+            # Значение секрета не должно попасть в лог.
+            assert "not_a_token_name_we_track" not in msg, "значение секрета утекло в ошибку!"
+            print(OK + "ошибка перечисляет ожидаемые имена и найденные переменные")
+            return
+        raise AssertionError("validate() не бросил ошибку")
+
+
 def t_valid_settings_pass():
     with _env_sandbox():
         os.environ["TELEGRAM_TOKEN"] = _TOKEN
@@ -248,6 +327,11 @@ TESTS: List = [
     test_token_without_colon_rejected,
     t_token_whitespace_cleaned,
     t_settings_constructed_directly_reads_dotenv,
+    t_token_alias_bot_token,
+    t_all_token_aliases_accepted,
+    t_telegram_token_wins_over_alias,
+    t_empty_alias_falls_through,
+    t_missing_token_lists_present_vars,
     t_valid_settings_pass,
 ]
 

@@ -25,7 +25,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from .config.settings import get_settings, loaded_env_file
+from .config.settings import get_settings, loaded_env_file, token_env_name
 from .core.events import EventBus
 from .data.exchange.gateway import close_gateway, get_gateway
 from .data.storage.sqlite_store import SignalStore
@@ -59,8 +59,8 @@ async def main() -> int:
         log.critical("settings invalid: %s", exc)
         return 2
 
-    log.info("chris_bots starting (token=%s…, dry_run=%s)",
-             settings.telegram_token[:8], settings.dry_run)
+    log.info("chris_bots starting (token из %s=%s…, dry_run=%s)",
+             token_env_name() or "—", settings.telegram_token[:8], settings.dry_run)
 
     # ── Инфраструктура ────────────────────────────────────────
     bus = EventBus()

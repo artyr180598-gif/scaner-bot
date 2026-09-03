@@ -221,35 +221,88 @@ _TOKEN_PLACEHOLDERS = {
 }
 
 
+# Имена переменных, из которых берётся токен (по убыванию приоритета).
+# На хостингах (Railway, Render, Heroku) переменную часто называют иначе —
+# принимаем распространённые синонимы, чтобы бот не падал из-за одного имени.
+TOKEN_ENV_NAMES: Tuple[str, ...] = (
+    "TELEGRAM_TOKEN",
+    "BOT_TOKEN",
+    "TELEGRAM_BOT_TOKEN",
+    "TG_TOKEN",
+    "BOT_API_TOKEN",
+)
+
+# Из какой переменной фактически взят токен (для логов и диагностики).
+_token_env_used: Optional[str] = None
+
+
+def token_env_name() -> Optional[str]:
+    """Имя переменной окружения, из которой взят токен."""
+    return _token_env_used
+
+
+def _tokenish_env_names() -> List[str]:
+    """
+    Имена переменных окружения, похожих на токен бота.
+
+    Только имена — значения секретов в лог не попадают.
+    """
+    markers = ("TOKEN", "TELEGRAM", "BOT", "TG_", "SECRET", "API_KEY")
+    return sorted(k for k in os.environ if any(m in k.upper() for m in markers))
+
+
+def _read_raw_token() -> Tuple[Optional[str], str]:
+    """Ищет токен по списку имён. Возвращает (имя переменной, сырое значение)."""
+    for name in TOKEN_ENV_NAMES:
+        raw = os.getenv(name)
+        if raw is not None and raw.strip() != "":
+            return name, raw
+    return None, ""
+
+
 def _clean_token() -> Tuple[str, Optional[str]]:
     """
-    Читает TELEGRAM_TOKEN и чистит его от типичных огрехов копипасты
-    (пробелы/переводы строк по краям, обёртка в кавычки).
+    Читает токен из первой подходящей переменной и чистит его от типичных
+    огрехов копипасты (пробелы/переводы строк по краям, обёртка в кавычки).
 
     Возвращает (токен, предупреждение).
     """
-    raw = os.getenv("TELEGRAM_TOKEN", "")
-    if raw is None:
+    global _token_env_used
+
+    name, raw = _read_raw_token()
+    _token_env_used = name
+    if name is None:
         return "", None
+
     token = raw.strip()
     warning: Optional[str] = None
     if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
         token = token[1:-1].strip()
-        warning = "TELEGRAM_TOKEN был в кавычках — кавычки убраны"
+        warning = f"{name} был в кавычках — кавычки убраны"
     elif token != raw:
-        warning = "в TELEGRAM_TOKEN были лишние пробелы/переводы строк — обрезаны"
+        warning = f"в {name} были лишние пробелы/переводы строк — обрезаны"
     return token, warning
 
 
 def _token_hint() -> str:
-    """Подсказка для ошибки про отсутствующий токен."""
+    """Подсказка для ошибки про отсутствующий/неверный токен."""
+    expected = ", ".join(TOKEN_ENV_NAMES)
+
     if _loaded_env_file:
-        source = f"загружен файл {_loaded_env_file}"
+        source = f"загружен .env: {_loaded_env_file}"
     else:
-        source = f".env не найден (искали: {_searched_env_files()})"
+        source = "файл .env не найден — беру только переменные окружения процесса"
+
+    found = _tokenish_env_names()
+    if found:
+        seen = "в окружении процесса есть похожие переменные: " + ", ".join(found)
+    else:
+        seen = "в окружении процесса нет ни одной переменной, похожей на токен"
+
     return (
-        "получите токен у @BotFather и пропишите TELEGRAM_TOKEN=<токен> в .env "
-        f"(cp .env.example .env) или экспортируйте в окружение. Сейчас: {source}."
+        f"ожидается одна из переменных: {expected}. Сейчас {seen} ({source}). "
+        "Токен выдаёт @BotFather. Если на хостинге переменная называется иначе — "
+        "переименуйте её в TELEGRAM_TOKEN."
     )
 
 
