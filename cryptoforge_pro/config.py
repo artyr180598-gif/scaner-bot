@@ -45,8 +45,16 @@ class Settings(BaseSettings):
     bot_username: str = Field(default="", description="Optional @username of the bot")
 
     # Access control ------------------------------------------------------------
+    # Railway often exposes CHAT_ID for the allowed chat. Standard variables
+    # ALLOWED_CHAT_IDS / ADMIN_CHAT_IDS keep full control. If CHAT_ID is set
+    # and standard vars are empty, it is used as both admin and allowed chat.
     admin_chat_ids: str = Field(default="", description="Comma separated admin chat ids")
     allowed_chat_ids: str = Field(default="", description="Empty = everyone, comma separated otherwise")
+    raw_chat_id: str = Field(
+        default="",
+        validation_alias="CHAT_ID",
+        description="Railway CHAT_ID — single allowed chat, optional",
+    )
 
     # Market / exchanges ---------------------------------------------------------
     exchanges: str = Field(default="binance,bybit", description="Comma separated exchanges")
@@ -93,18 +101,24 @@ class Settings(BaseSettings):
     http_timeout: float = Field(default=10.0, ge=2.0, le=60.0)
     cache_ttl_seconds: int = Field(default=45, ge=5, le=600)
 
-    @field_validator("admin_chat_ids", "allowed_chat_ids")
+    @field_validator("admin_chat_ids", "allowed_chat_ids", "raw_chat_id")
     @classmethod
     def _split_ids(cls, v: str) -> str:
         return v.strip()
 
     @property
     def admin_ids(self) -> set[int]:
-        return self._parse_ids(self.admin_chat_ids)
+        ids = self._parse_ids(self.admin_chat_ids)
+        if not ids and self.raw_chat_id.strip():
+            ids = self._parse_ids(self.raw_chat_id)
+        return ids
 
     @property
     def allowed_ids(self) -> set[int]:
-        return self._parse_ids(self.allowed_chat_ids)
+        ids = self._parse_ids(self.allowed_chat_ids)
+        if not ids and self.raw_chat_id.strip():
+            ids = self._parse_ids(self.raw_chat_id)
+        return ids
 
     @property
     def exchange_list(self) -> list[str]:
