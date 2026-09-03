@@ -1,20 +1,20 @@
-"""Entry point: python -m cryptoforge_pro.main"""
-
+"""Production entry point for CryptoForge Ultimate."""
 from __future__ import annotations
-
 import asyncio
-import sys
-
-from cryptoforge_pro.app import run
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from cryptoforge_pro.config import get_settings
-from cryptoforge_pro.utils import configure_logging
+from cryptoforge_pro.ultimate_bot import Bybit, Scanner, Store
+from cryptoforge_pro.ultimate_telegram import router, setup
 
+async def run():
+    s=get_settings()
+    if not s.telegram_token: raise SystemExit("Set TELEGRAM_BOT_TOKEN or TELEGRAM_TOKEN")
+    api=Bybit(s.http_timeout); scanner=Scanner(api,s.min_volume_usd_24h); store=Store(s.signals_db.replace("signals.db","ultimate.db"))
+    await store.init(); setup(scanner,store,s.allowed_ids)
+    bot=Bot(s.telegram_token,default=DefaultBotProperties(parse_mode="HTML")); dp=Dispatcher(); dp.include_router(router)
+    try: await dp.start_polling(bot,allowed_updates=["message","callback_query"])
+    finally: await bot.session.close(); await api.close()
 
-def main() -> None:
-    settings = get_settings()
-    configure_logging(settings.log_level)
-    asyncio.run(run(settings))
-
-
-if __name__ == "__main__":
-    main()
+def main(): asyncio.run(run())
+if __name__=="__main__": main()
