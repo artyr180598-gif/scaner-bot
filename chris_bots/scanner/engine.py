@@ -84,18 +84,27 @@ class ScannerEngine:
         await self.narrator.close()
 
     # ── Public API ─────────────────────────────────────────────
-    async def scan_exchange(self, exchange: str) -> ScanReport:
+    async def scan_exchange(
+        self, exchange: str, top_n: Optional[int] = None
+    ) -> ScanReport:
         """
         Полный скан одной биржи. Возвращает ScanReport с сигналами,
         прошедшими ВСЕ фильтры (включая min_confidence >= 75%).
+
+        `top_n` — необязательный переопределяющий лимит тикеров для этого
+        скана. Если не задан — берётся значение из настроек
+        (settings.top_n_symbols). Settings frozen, поэтому лимит передаём
+        параметром, а не мутируем настройки.
         """
         report = ScanReport(exchange=exchange, started_at=time.time())
         t0 = time.time()
 
+        limit = self.s.top_n_symbols if top_n is None else top_n
+
         await self.bus.publish(ScanStarted(trigger="scan_exchange"))
 
         # 1) Тикеры
-        tickers = await self.gw.fetch_tickers_meta(exchange, top_n=self.s.top_n_symbols)
+        tickers = await self.gw.fetch_tickers_meta(exchange, top_n=limit)
         report.scanned = len(tickers)
         log.info("[%s] fetched %d tickers", exchange, len(tickers))
 
@@ -145,12 +154,17 @@ class ScannerEngine:
         await self._finish(report, t0)
         return report
 
-    async def scan_all(self) -> Dict[str, ScanReport]:
-        """Сканирует все биржи из gateway. Возвращает exchange → ScanReport."""
+    async def scan_all(self, top_n: Optional[int] = None) -> Dict[str, ScanReport]:
+        """
+        Сканирует все биржи из gateway. Возвращает exchange → ScanReport.
+
+        `top_n` — необязательный переопределяющий лимит тикеров (см.
+        scan_exchange). Если не задан — используется settings.top_n_symbols.
+        """
         out: Dict[str, ScanReport] = {}
         for ex in self.gw.available():
             try:
-                out[ex] = await self.scan_exchange(ex)
+                out[ex] = await self.scan_exchange(ex, top_n=top_n)
             except Exception as exc:  # noqa: BLE001
                 log.exception("scan %s failed: %s", ex, exc)
                 out[ex] = ScanReport(exchange=ex, duration_seconds=0.0)

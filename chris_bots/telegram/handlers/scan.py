@@ -45,10 +45,9 @@ async def scan_run(call: CallbackQuery) -> None:
     deep = call.data == "scan:deep"
     top_n = 150 if deep else 50
 
-    # Подкручиваем top_n на лету (демо-режим).
+    # Лимит top_n передаём параметром (Settings frozen — его нельзя
+    # мутировать на лету, поэтому проброс через параметры, а не правка .env).
     engine: ScannerEngine = _get_engine()
-    original = engine.s.top_n_symbols
-    engine.s.top_n_symbols = top_n  # type: ignore[misc]
 
     await call.message.edit_text(
         f"⏳ Запускаю {'глубокий' if deep else 'быстрый'} скан рынка…\n"
@@ -59,7 +58,7 @@ async def scan_run(call: CallbackQuery) -> None:
     started = time.time()
     try:
         async with _SCAN_LOCK:
-            reports = await engine.scan_all()
+            reports = await engine.scan_all(top_n=top_n)
             _LAST_SCAN["reports"] = reports
             _LAST_SCAN["timestamp"] = time.time()
     except Exception as exc:  # noqa: BLE001
@@ -72,8 +71,6 @@ async def scan_run(call: CallbackQuery) -> None:
             reply_markup=back_kb(),
         )
         return
-    finally:
-        engine.s.top_n_symbols = original  # type: ignore[misc]
 
     duration = time.time() - started
     # Суммируем по биржам.
