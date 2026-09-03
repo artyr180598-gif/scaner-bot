@@ -1,5 +1,6 @@
 import math
 import unittest
+from dataclasses import fields
 
 from cryptoforge_pro.ultimate_bot import Candle, TA, price
 
@@ -19,8 +20,8 @@ class UltimateTests(unittest.TestCase):
     def test_metrics_are_finite(self):
         candles = [Candle(i, 100 + i * .1, 101 + i * .1, 99 + i * .1, 100 + i * .1, 1000 + i) for i in range(250)]
         m = TA.metrics(candles)
-        for value in vars(m).values():
-            self.assertTrue(math.isfinite(float(value)))
+        for f in fields(m):
+            self.assertTrue(math.isfinite(float(getattr(m, f.name))))
 
     def test_price_format(self):
         self.assertEqual(price(100.0), "100.00")
