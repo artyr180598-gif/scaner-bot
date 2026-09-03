@@ -27,6 +27,7 @@ def _run_suite(name: str, tests: List[Callable[[], None]]) -> int:
 
 def main() -> int:
     from chris_bots.tests import smoke
+    from chris_bots.tests import config_test
     from chris_bots.tests import indicators_test
     from chris_bots.tests import scoring_test
     from chris_bots.tests import services_test
@@ -34,6 +35,7 @@ def main() -> int:
 
     suites = [
         ("smoke", smoke.TESTS),
+        ("config", config_test.TESTS),
         ("indicators", indicators_test.TESTS),
         ("scoring/filters/plan", scoring_test.TESTS),
         ("services", services_test.TESTS),

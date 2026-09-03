@@ -7,7 +7,10 @@ ccxt>=4.3,<5.0
 # Data
 pandas>=2.2,<3.0
 numpy>=1.26,<3.0
-pandas-ta>=0.3.14b0  # опционально, если нужны готовые формулы
+# pandas-ta — НЕ используется в коде и не ставится на Python 3.11
+# (на PyPI нет сборки под 3.11, из-за него падал весь `pip install -r requirements.txt`).
+# Если понадобится — ставьте отдельно: pip install pandas-ta
+# pandas-ta>=0.3.14b0
 
 # Storage
 aiosqlite>=0.20

@@ -2,13 +2,182 @@
 Настройки приложения.
 
 Загружаются из переменных окружения. Валидируются при старте (см. Settings.validate).
+
+Перед чтением ENV автоматически подхватывается файл `.env` (см. load_env):
+это то, чего раньше не хватало — README просил сделать `cp .env.example .env`,
+но файл никто не читал, и бот падал с «TELEGRAM_TOKEN is required».
+
+Порядок приоритета (сверху вниз):
+    1. Реальные переменные окружения процесса (никогда не перезаписываются).
+    2. Файл из ENV_FILE / DOTENV_PATH, если задан явно.
+    3. `.env.local` и `.env` в текущей директории, затем в родительских,
+       затем рядом с корнем пакета.
 """
 from __future__ import annotations
 
+import logging
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+log = logging.getLogger(__name__)
+
+# Имена файлов в порядке убывания приоритета внутри одной директории.
+ENV_FILE_NAMES: Tuple[str, ...] = (".env.local", ".env")
+
+# Какой файл фактически загружен (для логов и понятных ошибок).
+_loaded_env_file: Optional[str] = None
+_loaded_keys: Tuple[str, ...] = ()
+_env_loaded = False
+
+
+def _candidate_env_files() -> List[Path]:
+    """Все кандидаты `.env` в порядке приоритета (без дублей)."""
+    raw_candidates: List[Path] = []
+
+    for var in ("ENV_FILE", "DOTENV_PATH"):
+        explicit = os.getenv(var)
+        if explicit and explicit.strip():
+            raw_candidates.append(Path(explicit.strip()).expanduser())
+
+    # От cwd вверх до корня файловой системы.
+    cwd = Path.cwd().resolve()
+    roots: List[Path] = [cwd, *cwd.parents]
+
+    # Корень репозитория (chris_bots/config/settings.py → parents[2]).
+    # Нужно, когда бот запускают не из корня проекта.
+    pkg_root = Path(__file__).resolve().parents[2]
+    if pkg_root not in roots:
+        roots.extend([pkg_root, *pkg_root.parents])
+
+    for base in roots:
+        for name in ENV_FILE_NAMES:
+            raw_candidates.append(base / name)
+
+    seen = set()
+    result: List[Path] = []
+    for path in raw_candidates:
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            result.append(path)
+    return result
+
+
+def _searched_env_files(limit: int = 4) -> str:
+    """Короткая сводка «где искали» — для текста ошибки."""
+    paths = [str(p) for p in _candidate_env_files()[:limit]]
+    return ", ".join(paths) + (", …" if len(_candidate_env_files()) > limit else "")
+
+
+def _unescape_double_quoted(value: str) -> str:
+    return (
+        value.replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace('\\"', '"')
+        .replace("\\\\", "\\")
+    )
+
+
+def parse_env_text(text: str) -> Dict[str, str]:
+    """
+    Минимальный парсер `.env` — запасной вариант, если python-dotenv не установлен.
+
+    Поддерживает: `KEY=value`, `export KEY=value`, кавычки ('...' / "..."),
+    комментарии (`#`) и пустые строки.
+    """
+    result: Dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip().lstrip("\ufeff")
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key or any(ch.isspace() for ch in key):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            quote = value[0]
+            value = value[1:-1]
+            if quote == '"':
+                value = _unescape_double_quoted(value)
+        else:
+            # Инлайн-комментарий только после пробела: VALUE # comment
+            hash_pos = value.find(" #")
+            if hash_pos != -1:
+                value = value[:hash_pos].rstrip()
+        result[key] = value
+    return result
+
+
+def _apply_vars(values: Dict[str, str]) -> List[str]:
+    """Пишет значения в os.environ, не трогая уже заданные переменные."""
+    applied: List[str] = []
+    for key, value in values.items():
+        if key in os.environ:
+            continue  # Реальное окружение важнее файла.
+        os.environ[key] = value
+        applied.append(key)
+    return applied
+
+
+def load_env(force: bool = False) -> Optional[str]:
+    """
+    Загружает первый найденный `.env`. Идемпотентна.
+
+    Возвращает путь к загруженному файлу или None, если файла нет.
+    """
+    global _loaded_env_file, _loaded_keys, _env_loaded
+
+    if _env_loaded and not force:
+        return _loaded_env_file
+    _env_loaded = True
+
+    try:
+        from dotenv import dotenv_values  # type: ignore[import-not-found]
+    except ImportError:  # python-dotenv не установлен — используем свой парсер.
+        dotenv_values = None
+
+    for path in _candidate_env_files():
+        try:
+            if not path.is_file():
+                continue
+            if dotenv_values is not None:
+                values = {
+                    k: v for k, v in dotenv_values(str(path)).items() if v is not None
+                }
+            else:
+                values = parse_env_text(path.read_text(encoding="utf-8-sig"))
+        except OSError as exc:
+            log.warning("cannot read env file %s: %s", path, exc)
+            continue
+
+        applied = _apply_vars(values)
+        if applied:
+            _loaded_env_file = str(path)
+            _loaded_keys = tuple(sorted(applied))
+            return _loaded_env_file
+        # Файл найден, но все ключи уже заданы в окружении — всё равно считаем его источником.
+        _loaded_env_file = str(path)
+        return _loaded_env_file
+    return None
+
+
+def loaded_env_file() -> Optional[str]:
+    """Путь к загруженному `.env` (None, если файла нет)."""
+    return _loaded_env_file
+
+
+def loaded_env_keys() -> Tuple[str, ...]:
+    """Ключи, которые приехали из `.env` (не из окружения процесса)."""
+    return _loaded_keys
 
 
 def _int(name: str, default: int) -> int:
@@ -38,6 +207,140 @@ def _bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Значения-заглушки, которые часто оставляют в .env по привычке.
+_TOKEN_PLACEHOLDERS = {
+    "",
+    "your_token_here",
+    "your-telegram-bot-token",
+    "<token>",
+    "<telegram_token>",
+    "telegram_token",
+    "token",
+    "xxx",
+    "changeme",
+    "change_me",
+}
+
+
+# Имена переменных, из которых берётся токен (по убыванию приоритета).
+# На хостингах (Railway, Render, Heroku) переменную часто называют иначе —
+# принимаем распространённые синонимы, чтобы бот не падал из-за одного имени.
+TOKEN_ENV_NAMES: Tuple[str, ...] = (
+    "TELEGRAM_TOKEN",
+    "BOT_TOKEN",
+    "TELEGRAM_BOT_TOKEN",
+    "TG_TOKEN",
+    "BOT_API_TOKEN",
+)
+
+# Из какой переменной фактически взят токен (для логов и диагностики).
+_token_env_used: Optional[str] = None
+
+
+def token_env_name() -> Optional[str]:
+    """Имя переменной окружения, из которой взят токен."""
+    return _token_env_used
+
+
+def _tokenish_env_names() -> List[str]:
+    """
+    Имена переменных окружения, похожих на токен бота.
+
+    Только имена — значения секретов в лог не попадают.
+    """
+    markers = ("TOKEN", "TELEGRAM", "BOT", "TG_", "SECRET", "API_KEY")
+    return sorted(k for k in os.environ if any(m in k.upper() for m in markers))
+
+
+def _read_raw_token() -> Tuple[Optional[str], str]:
+    """Ищет токен по списку имён. Возвращает (имя переменной, сырое значение)."""
+    for name in TOKEN_ENV_NAMES:
+        raw = os.getenv(name)
+        if raw is not None and raw.strip() != "":
+            return name, raw
+    return None, ""
+
+
+# Формат токена Telegram: <id бота>:<ключ>. По нему находим токен в окружении
+# даже если переменная называется как угодно (Railway/Render/своя обвязка).
+_TELEGRAM_TOKEN_RE = re.compile(r"^\d{6,12}:[A-Za-z0-9_-]{25,}$")
+
+
+def _autodetect_token() -> Tuple[Optional[str], str]:
+    """
+    Ищет среди ВСЕХ переменных окружения значение, похожее на токен Telegram.
+
+    Запасной путь: на хостинге переменную могли назвать как угодно, и угадывать
+    имя бессмысленно — формат токена однозначен. Возвращает (имя, токен).
+    """
+    for name in sorted(os.environ):
+        if name in TOKEN_ENV_NAMES:
+            continue  # эти уже проверили явно
+        candidate = (os.getenv(name) or "").strip()
+        if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in ("'", '"'):
+            candidate = candidate[1:-1].strip()
+        if _TELEGRAM_TOKEN_RE.match(candidate):
+            return name, candidate
+    return None, ""
+
+
+def _clean_token() -> Tuple[str, Optional[str]]:
+    """
+    Читает токен и чистит его от типичных огрехов копипасты
+    (пробелы/переводы строк по краям, обёртка в кавычки).
+
+    Порядок: известные имена (TOKEN_ENV_NAMES) → автопоиск по формату значения.
+
+    Возвращает (токен, предупреждение).
+    """
+    global _token_env_used
+
+    name, raw = _read_raw_token()
+
+    if name is None:
+        # Ни одно известное имя не задано — ищем по формату значения.
+        detected, token = _autodetect_token()
+        _token_env_used = detected
+        if detected is None:
+            return "", None
+        return token, (
+            f"TELEGRAM_TOKEN не задан, но токен найден в переменной {detected} "
+            "(опознан по формату). Лучше переименовать её в TELEGRAM_TOKEN."
+        )
+
+    _token_env_used = name
+    token = raw.strip()
+    warning: Optional[str] = None
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
+        token = token[1:-1].strip()
+        warning = f"{name} был в кавычках — кавычки убраны"
+    elif token != raw:
+        warning = f"в {name} были лишние пробелы/переводы строк — обрезаны"
+    return token, warning
+
+
+def _token_hint() -> str:
+    """Подсказка для ошибки про отсутствующий/неверный токен."""
+    expected = ", ".join(TOKEN_ENV_NAMES)
+
+    if _loaded_env_file:
+        source = f"загружен .env: {_loaded_env_file}"
+    else:
+        source = "файл .env не найден — беру только переменные окружения процесса"
+
+    found = _tokenish_env_names()
+    if found:
+        seen = "в окружении процесса есть похожие переменные: " + ", ".join(found)
+    else:
+        seen = "в окружении процесса нет ни одной переменной, похожей на токен"
+
+    return (
+        f"ожидается одна из переменных: {expected}. Сейчас {seen} ({source}). "
+        "Токен выдаёт @BotFather. Если на хостинге переменная называется иначе — "
+        "переименуйте её в TELEGRAM_TOKEN."
+    )
+
+
 def _list(name: str, default: Optional[List[str]] = None) -> List[str]:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -45,12 +348,27 @@ def _list(name: str, default: Optional[List[str]] = None) -> List[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _token_default() -> str:
+    """Значение по умолчанию для telegram_token: .env подхватывается и тут."""
+    load_env()
+    token, warning = _clean_token()
+    if warning:
+        log.warning("%s", warning)
+    return token
+
+
+def _env_default(name: str) -> str:
+    """Строковая переменная окружения с гарантированной загрузкой .env."""
+    load_env()
+    return os.getenv(name, "").strip()
+
+
 @dataclass(frozen=True)
 class Settings:
     """Конфигурация бота Крис."""
 
     # ── Telegram ───────────────────────────────────────────────
-    telegram_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", ""))
+    telegram_token: str = field(default_factory=_token_default)
     admin_chat_ids: List[int] = field(default_factory=list)
     allowed_chat_ids: List[int] = field(default_factory=list)
     dry_run: bool = True
@@ -90,7 +408,7 @@ class Settings:
     llm_enabled: bool = False
     llm_provider: str = "openai"  # openai | anthropic | local
     llm_model: str = "gpt-4o-mini"
-    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
+    llm_api_key: str = field(default_factory=lambda: _env_default("LLM_API_KEY"))
     llm_max_tokens: int = 220
     # Если LLM недоступна — используется детерминированный шаблон.
 
@@ -101,8 +419,21 @@ class Settings:
 
     def validate(self) -> None:
         """Проверить инварианты. Бросает ValueError."""
-        if not self.telegram_token:
-            raise ValueError("TELEGRAM_TOKEN is required")
+        token = self.telegram_token
+        if not token or token.strip().lower() in _TOKEN_PLACEHOLDERS:
+            raise ValueError(f"TELEGRAM_TOKEN is required — {_token_hint()}")
+
+        if any(ch.isspace() for ch in token):
+            raise ValueError(
+                "TELEGRAM_TOKEN содержит пробел/перевод строки внутри значения — "
+                f"скопирован не весь токен или лишние символы. {_token_hint()}"
+            )
+
+        if ":" not in token:
+            raise ValueError(
+                "TELEGRAM_TOKEN похож на неверный: ожидается формат "
+                f"123456789:AAHdqTcv... (id бота, двоеточие, ключ). {_token_hint()}"
+            )
 
         if not self.exchanges:
             raise ValueError("at least one exchange is required")
@@ -126,9 +457,13 @@ class Settings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Синглтон настроек. Парсит ENV один раз."""
+    """Синглтон настроек. Подхватывает .env и парсит ENV один раз."""
+    load_env()
+    token, warning = _clean_token()
+    if warning:
+        log.warning("%s", warning)
     return Settings(
-        telegram_token=os.getenv("TELEGRAM_TOKEN", ""),
+        telegram_token=token,
         admin_chat_ids=[int(x) for x in _list("ADMIN_CHAT_IDS") if x.lstrip("-").isdigit()],
         allowed_chat_ids=[int(x) for x in _list("ALLOWED_CHAT_IDS") if x.lstrip("-").isdigit()],
         dry_run=_bool("DRY_RUN", True),
@@ -147,7 +482,14 @@ def get_settings() -> Settings:
         llm_enabled=_bool("LLM_ENABLED", False),
         llm_provider=os.getenv("LLM_PROVIDER", "openai"),
         llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+        llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
+        llm_max_tokens=_int("LLM_MAX_TOKENS", 220),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         data_dir=os.getenv("DATA_DIR", "data"),
         signals_db=os.getenv("SIGNALS_DB", "signals.db"),
     )
+
+
+def reset_settings_cache() -> None:
+    """Сбросить кеш настроек (нужно тестам и повторному перечитыванию ENV)."""
+    get_settings.cache_clear()

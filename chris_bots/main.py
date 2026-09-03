@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from contextlib import suppress
@@ -25,9 +26,14 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from .config.settings import Settings, get_settings
+from .config.settings import (
+    get_settings,
+    load_env,
+    loaded_env_file,
+    token_env_name,
+)
 from .core.events import EventBus
-from .data.exchange.gateway import ExchangeGateway, close_gateway, get_gateway
+from .data.exchange.gateway import close_gateway, get_gateway
 from .data.storage.sqlite_store import SignalStore
 from .scanner import ScannerEngine
 from .telegram.handlers import all_routers
@@ -41,16 +47,29 @@ app_state: Dict[str, Any] = {}
 
 
 async def main() -> int:
+    # Логи настраиваем ДО get_settings() и валидации: иначе и предупреждения
+    # загрузки конфига, и сообщение об ошибке уходят через logging.lastResort —
+    # без времени и уровня (именно так ошибка и выглядела в логах).
+    load_env()
+    setup_logging(os.getenv("LOG_LEVEL", "INFO"))
+
     settings = get_settings()
+    setup_logging(settings.log_level)
+
+    env_file = loaded_env_file()
+    if env_file:
+        log.info("env file: %s", env_file)
+    else:
+        log.info("env file: не найден, беру только переменные окружения процесса")
+
     try:
         settings.validate()
     except ValueError as exc:
         log.critical("settings invalid: %s", exc)
         return 2
 
-    setup_logging(settings.log_level)
-    log.info("chris_bots starting (token=%s…, dry_run=%s)",
-             settings.telegram_token[:8], settings.dry_run)
+    log.info("chris_bots starting (token из %s=%s…, dry_run=%s)",
+             token_env_name() or "—", settings.telegram_token[:8], settings.dry_run)
 
     # ── Инфраструктура ────────────────────────────────────────
     bus = EventBus()
