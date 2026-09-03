@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -260,20 +261,54 @@ def _read_raw_token() -> Tuple[Optional[str], str]:
     return None, ""
 
 
+# Формат токена Telegram: <id бота>:<ключ>. По нему находим токен в окружении
+# даже если переменная называется как угодно (Railway/Render/своя обвязка).
+_TELEGRAM_TOKEN_RE = re.compile(r"^\d{6,12}:[A-Za-z0-9_-]{25,}$")
+
+
+def _autodetect_token() -> Tuple[Optional[str], str]:
+    """
+    Ищет среди ВСЕХ переменных окружения значение, похожее на токен Telegram.
+
+    Запасной путь: на хостинге переменную могли назвать как угодно, и угадывать
+    имя бессмысленно — формат токена однозначен. Возвращает (имя, токен).
+    """
+    for name in sorted(os.environ):
+        if name in TOKEN_ENV_NAMES:
+            continue  # эти уже проверили явно
+        candidate = (os.getenv(name) or "").strip()
+        if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in ("'", '"'):
+            candidate = candidate[1:-1].strip()
+        if _TELEGRAM_TOKEN_RE.match(candidate):
+            return name, candidate
+    return None, ""
+
+
 def _clean_token() -> Tuple[str, Optional[str]]:
     """
-    Читает токен из первой подходящей переменной и чистит его от типичных
-    огрехов копипасты (пробелы/переводы строк по краям, обёртка в кавычки).
+    Читает токен и чистит его от типичных огрехов копипасты
+    (пробелы/переводы строк по краям, обёртка в кавычки).
+
+    Порядок: известные имена (TOKEN_ENV_NAMES) → автопоиск по формату значения.
 
     Возвращает (токен, предупреждение).
     """
     global _token_env_used
 
     name, raw = _read_raw_token()
-    _token_env_used = name
-    if name is None:
-        return "", None
 
+    if name is None:
+        # Ни одно известное имя не задано — ищем по формату значения.
+        detected, token = _autodetect_token()
+        _token_env_used = detected
+        if detected is None:
+            return "", None
+        return token, (
+            f"TELEGRAM_TOKEN не задан, но токен найден в переменной {detected} "
+            "(опознан по формату). Лучше переименовать её в TELEGRAM_TOKEN."
+        )
+
+    _token_env_used = name
     token = raw.strip()
     warning: Optional[str] = None
     if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):

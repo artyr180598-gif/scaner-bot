@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from contextlib import suppress
@@ -25,7 +26,12 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from .config.settings import get_settings, loaded_env_file, token_env_name
+from .config.settings import (
+    get_settings,
+    load_env,
+    loaded_env_file,
+    token_env_name,
+)
 from .core.events import EventBus
 from .data.exchange.gateway import close_gateway, get_gateway
 from .data.storage.sqlite_store import SignalStore
@@ -41,10 +47,13 @@ app_state: Dict[str, Any] = {}
 
 
 async def main() -> int:
-    settings = get_settings()
+    # Логи настраиваем ДО get_settings() и валидации: иначе и предупреждения
+    # загрузки конфига, и сообщение об ошибке уходят через logging.lastResort —
+    # без времени и уровня (именно так ошибка и выглядела в логах).
+    load_env()
+    setup_logging(os.getenv("LOG_LEVEL", "INFO"))
 
-    # Логи настраиваем ДО валидации: иначе сообщение об ошибке уходит через
-    # logging.lastResort — без времени и уровня (так и выглядело в логах).
+    settings = get_settings()
     setup_logging(settings.log_level)
 
     env_file = loaded_env_file()

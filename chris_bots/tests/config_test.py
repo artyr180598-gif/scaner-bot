@@ -308,6 +308,53 @@ def t_missing_token_lists_present_vars():
         raise AssertionError("validate() не бросил ошибку")
 
 
+def t_token_autodetected_by_format():
+    """Переменная с любым именем: токен находится по формату значения."""
+    var = "MY_RAILWAY_VARIABLE_42"
+    with _env_sandbox():
+        os.environ[var] = _TOKEN
+        try:
+            reset_settings_cache()
+            settings = get_settings()
+            assert settings.telegram_token == _TOKEN, repr(settings.telegram_token)
+            assert token_env_name() == var, token_env_name()
+            settings.validate()
+        finally:
+            os.environ.pop(var, None)
+        print(OK + f"токен найден в {var} по формату значения")
+
+
+def t_autodetect_ignores_non_token_values():
+    """Автопоиск не должен принимать за токен произвольные значения."""
+    var = "MY_RAILWAY_VARIABLE_43"
+    with _env_sandbox():
+        os.environ[var] = "some_random_api_key_not_a_bot_token"
+        try:
+            reset_settings_cache()
+            settings = get_settings()
+            assert settings.telegram_token == "", repr(settings.telegram_token)
+            assert token_env_name() is None, token_env_name()
+        finally:
+            os.environ.pop(var, None)
+        print(OK + "произвольное значение не принято за токен")
+
+
+def t_known_name_wins_over_autodetect():
+    """TELEGRAM_TOKEN важнее автопоиска по формату."""
+    var = "MY_RAILWAY_VARIABLE_44"
+    with _env_sandbox():
+        os.environ["TELEGRAM_TOKEN"] = "111111:explicit_primary_token_value"
+        os.environ[var] = _TOKEN
+        try:
+            reset_settings_cache()
+            settings = get_settings()
+            assert settings.telegram_token == "111111:explicit_primary_token_value", settings.telegram_token
+            assert token_env_name() == "TELEGRAM_TOKEN", token_env_name()
+        finally:
+            os.environ.pop(var, None)
+        print(OK + "явное имя важнее автопоиска")
+
+
 def t_valid_settings_pass():
     with _env_sandbox():
         os.environ["TELEGRAM_TOKEN"] = _TOKEN
@@ -332,6 +379,9 @@ TESTS: List = [
     t_telegram_token_wins_over_alias,
     t_empty_alias_falls_through,
     t_missing_token_lists_present_vars,
+    t_token_autodetected_by_format,
+    t_autodetect_ignores_non_token_values,
+    t_known_name_wins_over_autodetect,
     t_valid_settings_pass,
 ]
 
