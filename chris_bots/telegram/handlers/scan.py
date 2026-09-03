@@ -22,9 +22,15 @@ _SCAN_LOCK = asyncio.Lock()
 
 
 def _get_engine() -> ScannerEngine:
-    """Берём движок из workflow_data (см. main.py)."""
-    from ...main import app_state  # late import, чтобы не было цикла
-    return app_state["engine"]
+    """Берём движок из runtime-контейнера (см. chris_bots/runtime.py).
+
+    ВАЖНО: раньше импортировали `from ...main import app_state` — при запуске
+    `python -m chris_bots.main` это создавало второй экземпляр main.py с ПУСТЫМ
+    app_state, хендлер падал с KeyError до ответа пользователю, и кнопки
+    «Быстрый/Глубокий скан» молча ничего не делали.
+    """
+    from ...runtime import get_engine
+    return get_engine()
 
 
 @router.callback_query(lambda c: c.data == "scan:market")
@@ -45,15 +51,34 @@ async def scan_run(call: CallbackQuery) -> None:
     deep = call.data == "scan:deep"
     top_n = 150 if deep else 50
 
+    # Отвечаем на нажатие СРАЗУ: что бы ни случилось дальше, кнопка не будет
+    # «висеть крутящейся», а пользователь всегда увидит видимый результат.
+    await call.answer()
+
     # Лимит top_n передаём параметром (Settings frozen — его нельзя
     # мутировать на лету, поэтому проброс через параметры, а не правка .env).
-    engine: ScannerEngine = _get_engine()
+    try:
+        engine: ScannerEngine = _get_engine()
+    except RuntimeError as exc:
+        log.error("scan: engine not available: %s", exc)
+        await call.message.edit_text(
+            "❌ Движок сканера не инициализирован. Перезапусти бота "
+            "(<code>python -m chris_bots.main</code>) и попробуй ещё раз.",
+            reply_markup=back_kb(),
+        )
+        return
+
+    if _SCAN_LOCK.locked():
+        await call.message.edit_text(
+            "⏳ Предыдущий скан ещё идёт — дождись его итогов и запусти новый.",
+            reply_markup=back_kb(),
+        )
+        return
 
     await call.message.edit_text(
         f"⏳ Запускаю {'глубокий' if deep else 'быстрый'} скан рынка…\n"
         f"Топ монет: {top_n}. Это может занять 1-3 минуты.",
     )
-    await call.answer()
 
     started = time.time()
     try:

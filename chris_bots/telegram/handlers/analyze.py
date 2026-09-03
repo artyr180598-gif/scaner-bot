@@ -21,8 +21,11 @@ class AnalyzeState(StatesGroup):
 
 
 def _get_engine() -> ScannerEngine:
-    from ...main import app_state
-    return app_state["engine"]
+    # Runtime-контейнер, а не `from ...main import app_state`: main.py при
+    # `python -m` исполняется как __main__, и прямой импорт давал второй,
+    # пустой app_state (кнопки молча умирали). См. chris_bots/runtime.py.
+    from ...runtime import get_engine
+    return get_engine()
 
 
 @router.callback_query(lambda c: c.data == "analyze:prompt")
@@ -54,7 +57,17 @@ async def do_analyze(message: Message, state: FSMContext) -> None:
         )
         return
 
-    engine: ScannerEngine = _get_engine()
+    try:
+        engine: ScannerEngine = _get_engine()
+    except RuntimeError as exc:
+        log.error("analyze: engine not available: %s", exc)
+        await message.answer(
+            "❌ Движок сканера не инициализирован. Перезапусти бота "
+            "(<code>python -m chris_bots.main</code>) и попробуй ещё раз.",
+            reply_markup=back_kb(),
+        )
+        await state.clear()
+        return
     sym = ticker.symbol
     exchange = engine.gw.available()[0] if engine.gw.available() else "binance"
 

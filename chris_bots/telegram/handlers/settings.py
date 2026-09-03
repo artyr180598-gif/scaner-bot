@@ -10,8 +10,10 @@ router = Router(name="settings")
 
 
 def _get_engine():
-    from ...main import app_state
-    return app_state["engine"]
+    # Runtime-контейнер вместо `from ...main import app_state` — иначе при
+    # `python -m chris_bots.main` получали второй, пустой app_state.
+    from ...runtime import get_engine
+    return get_engine()
 
 
 @router.callback_query(lambda c: c.data == "settings:menu")
