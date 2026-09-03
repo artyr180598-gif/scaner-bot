@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     data_dir: str = Field(default="data")
     log_level: str = Field(default="INFO")
 
+    # Alerts / watchers -------------------------------------------------------------------
+    alert_check_interval_seconds: int = Field(default=60, ge=15, le=600)
+    alert_price_window_pct: float = Field(default=1.5, ge=0.1, le=25.0)
+
     # HTTP -----------------------------------------------------------------------------
     http_timeout: float = Field(default=10.0, ge=2.0, le=60.0)
     cache_ttl_seconds: int = Field(default=45, ge=5, le=600)

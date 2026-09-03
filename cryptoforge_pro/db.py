@@ -47,6 +47,19 @@ CREATE TABLE IF NOT EXISTS signals (
 
 CREATE INDEX IF NOT EXISTS idx_signals_created_at ON signals(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    target_above REAL,
+    target_below REAL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    last_checked_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_chat ON alerts(chat_id, active);
 """
 
 
@@ -175,3 +188,56 @@ class Database:
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+    # -- price alerts ---------------------------------------------------------
+    async def add_alert(
+        self,
+        chat_id: int,
+        symbol: str,
+        target_above: float | None,
+        target_below: float | None,
+    ) -> int:
+        async with self._write_lock:
+            cur = await self.conn.execute(
+                """
+                INSERT INTO alerts (
+                    chat_id, symbol, target_above, target_below,
+                    active, created_at, last_checked_at
+                ) VALUES (?, ?, ?, ?, 1, ?, 0)
+                """,
+                (chat_id, symbol.upper(), target_above, target_below, int(time.time())),
+            )
+            await self.conn.commit()
+            return int(cur.lastrowid or 0)
+
+    async def list_alerts(self, chat_id: int) -> list[dict[str, Any]]:
+        cur = await self.conn.execute(
+            "SELECT * FROM alerts WHERE chat_id = ? AND active = 1 ORDER BY created_at DESC",
+            (chat_id,),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_active_alerts(self) -> list[dict[str, Any]]:
+        cur = await self.conn.execute(
+            "SELECT * FROM alerts WHERE active = 1 ORDER BY id ASC"
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def deactivate_alert(self, alert_id: int) -> None:
+        async with self._write_lock:
+            await self.conn.execute(
+                "UPDATE alerts SET active = 0 WHERE id = ?", (alert_id,)
+            )
+            await self.conn.commit()
+
+    async def mark_alerts_checked(self, alert_ids: list[int]) -> None:
+        if not alert_ids:
+            return
+        async with self._write_lock:
+            await self.conn.execute(
+                f"UPDATE alerts SET last_checked_at = ? WHERE id IN ({','.join('?' * len(alert_ids))})",
+                (int(time.time()), *alert_ids),
+            )
+            await self.conn.commit()

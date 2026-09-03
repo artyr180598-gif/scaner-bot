@@ -11,12 +11,14 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 from loguru import logger
 
+from cryptoforge_pro.alerts import alert_loop
 from cryptoforge_pro.analysis.engine import Scanner, SignalEngine
 from cryptoforge_pro.config import Settings
 from cryptoforge_pro.data.coinglass import CoinglassProvider
 from cryptoforge_pro.data.exchanges import ExchangeRouter, build_exchange_router
 from cryptoforge_pro.data.http import HttpSession
 from cryptoforge_pro.data.news import NewsProvider
+from cryptoforge_pro.data.sentiment import FearGreedProvider
 from cryptoforge_pro.db import Database
 from cryptoforge_pro.market import MarketService
 from cryptoforge_pro.telegram import handlers
@@ -34,8 +36,9 @@ class AppContainer:
             self.http, settings.coinglass_api_key, settings.coinglass_base_url
         )
         self.news = NewsProvider(self.http, settings.cryptopanic_api_key, settings.news_language)
+        self.fear_greed = FearGreedProvider(self.http)
         self.db = Database(settings.signals_db)
-        self.market = MarketService(settings, self.exchanges, self.coinglass, self.news)
+        self.market = MarketService(settings, self.exchanges, self.coinglass, self.news, self.fear_greed)
         self.engine = SignalEngine(settings)
         self.scanner = Scanner(settings, self.market, self.engine)
         self.context = BotContext(
@@ -65,6 +68,11 @@ async def _register_commands(bot: Bot) -> None:
             BotCommand(command="scan", description="Лучшие сетапы сейчас"),
             BotCommand(command="analyze", description="Глубокий анализ монеты"),
             BotCommand(command="search", description="Поиск по монете / условию"),
+            BotCommand(command="market", description="Обзор рынка"),
+            BotCommand(command="news", description="Новости рынка"),
+            BotCommand(command="alerts", description="Ценовые алерты"),
+            BotCommand(command="history", description="История идей"),
+            BotCommand(command="risk", description="Риск-калькулятор"),
             BotCommand(command="settings", description="Настройки риска"),
         ]
     )
@@ -94,11 +102,21 @@ async def run(settings: Settings) -> None:
         me = await bot.get_me()
         logger.info("CryptoForge Pro started as @{}", me.username or "bot")
         dp = create_dispatcher(settings)
-        await dp.start_polling(
-            bot,
-            allowed_updates=["message", "callback_query", "edited_message"],
-            timeout=30,
+        watcher_task = asyncio.create_task(
+            alert_loop(bot, container.market, container.db, settings.alert_check_interval_seconds)
         )
+        try:
+            await dp.start_polling(
+                bot,
+                allowed_updates=["message", "callback_query", "edited_message"],
+                timeout=30,
+            )
+        finally:
+            watcher_task.cancel()
+            try:
+                await watcher_task
+            except asyncio.CancelledError:
+                pass
     finally:
         logger.info("Stopping CryptoForge Pro")
         await bot.session.close()

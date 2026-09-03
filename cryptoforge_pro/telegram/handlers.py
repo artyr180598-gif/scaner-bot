@@ -16,7 +16,9 @@ from cryptoforge_pro.models import MarketData
 from cryptoforge_pro.telegram import format
 from cryptoforge_pro.telegram.context import BotContext
 from cryptoforge_pro.telegram.keyboards import (
+    alerts_keyboard,
     back_menu_keyboard,
+    future_keyboard,
     help_keyboard,
     main_menu_keyboard,
     order_keyboard,
@@ -101,6 +103,11 @@ async def cmd_help(message: Message, state: FSMContext) -> None:
         "• <b>/scan</b> — лучшие сетапы\n"
         "• <b>/analyze BTC</b> — глубокий анализ монеты\n"
         "• <b>/search ETH long 1h</b> — поиск по условию\n"
+        "• <b>/market</b> — обзор рынка\n"
+        "• <b>/news</b> — новости рынка\n"
+        "• <b>/alerts</b> — ценовые алерты\n"
+        "• <b>/history</b> — история идей\n"
+        "• <b>/risk</b> — риск-калькулятор\n"
         "• <b>/settings</b> — риск-профиль и порог уверенности\n\n"
         "Команды можно вводить и обычным текстом, например:\n"
         "<code>BTC</code>, <code>долгий ETH 4h</code>, <code>short SOL 15m</code>",
@@ -172,6 +179,42 @@ async def cmd_settings(message: Message, state: FSMContext) -> None:
     )
 
 
+@router.message(Command("market"))
+async def cmd_market(message: Message) -> None:
+    if not await _authorized(message):
+        return
+    await _show_market(message)
+
+
+@router.message(Command("news"))
+async def cmd_news(message: Message) -> None:
+    if not await _authorized(message):
+        return
+    await _show_news(message)
+
+
+@router.message(Command("alerts"))
+async def cmd_alerts(message: Message, state: FSMContext) -> None:
+    if not await _authorized(message):
+        return
+    await state.clear()
+    await _show_alerts(message)
+
+
+@router.message(Command("history"))
+async def cmd_history(message: Message) -> None:
+    if not await _authorized(message):
+        return
+    await _show_history(message)
+
+
+@router.message(Command("risk"))
+async def cmd_risk(message: Message, state: FSMContext) -> None:
+    if not await _authorized(message):
+        return
+    await _start_risk(message, state)
+
+
 # ---------------------------------------------------------------------------
 # Callback
 # ---------------------------------------------------------------------------
@@ -195,6 +238,11 @@ async def cb_help(callback: CallbackQuery) -> None:
         "• <code>/scan</code> — лучшие сетапы\n"
         "• <code>/analyze BTC</code> — глубокий анализ\n"
         "• <code>/search ETH long 1h</code> — поиск по условию\n"
+        "• <code>/market</code> — обзор рынка\n"
+        "• <code>/news</code> — новости\n"
+        "• <code>/alerts</code> — ценовые алерты\n"
+        "• <code>/history</code> — история идей\n"
+        "• <code>/risk</code> — риск-калькулятор\n"
         "• <code>/settings</code> — риск-профиль\n\n"
         "Все идеи — на реальных биржевых данных, без моков.",
         reply_markup=help_keyboard(),
@@ -278,6 +326,69 @@ async def cb_settings_confidence(callback: CallbackQuery, state: FSMContext) -> 
     await callback.answer()
 
 
+@router.callback_query(F.data == "market_overview")
+async def cb_market_overview(callback: CallbackQuery) -> None:
+    if not await _authorized(callback):
+        return
+    await callback.answer()
+    await _show_market(callback.message)
+
+
+@router.callback_query(F.data == "news")
+async def cb_news(callback: CallbackQuery) -> None:
+    if not await _authorized(callback):
+        return
+    await callback.answer()
+    await _show_news(callback.message)
+
+
+@router.callback_query(F.data == "alerts")
+async def cb_alerts(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _authorized(callback):
+        return
+    await state.clear()
+    await callback.answer()
+    await _show_alerts(callback.message)
+
+
+@router.callback_query(F.data == "history")
+async def cb_history(callback: CallbackQuery) -> None:
+    if not await _authorized(callback):
+        return
+    await callback.answer()
+    await _show_history(callback.message)
+
+
+@router.callback_query(F.data == "risk_calc")
+async def cb_risk_calc(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _authorized(callback):
+        return
+    await callback.answer()
+    await _start_risk(callback.message, state)
+
+
+@router.callback_query(F.data == "alert_add")
+async def cb_alert_add(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _authorized(callback):
+        return
+    await state.set_state(NavStates.wait_alert_symbol)
+    await callback.message.edit_text(
+        "🔔 Введите тикер для ценового алерта, например <code>BTC</code> или <code>SOL</code>.",
+        reply_markup=future_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("alert_del:"))
+async def cb_alert_del(callback: CallbackQuery) -> None:
+    if not await _authorized(callback):
+        return
+    alert_id = int(callback.data.split(":", 1)[1])
+    await _ctx().db.deactivate_alert(alert_id)
+    await callback.answer("Алерт удалён ✅")
+    await _show_alerts(callback.message)
+
+
 @router.callback_query(F.data.startswith("scan_"))
 async def cb_scan(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _authorized(callback):
@@ -309,6 +420,84 @@ async def msg_wait_symbol(message: Message, state: FSMContext) -> None:
 async def msg_wait_search(message: Message, state: FSMContext) -> None:
     await state.clear()
     await _handle_search_query(message, message.text or "")
+
+
+@router.message(NavStates.wait_alert_symbol)
+async def msg_alert_symbol(message: Message, state: FSMContext) -> None:
+    symbol = _normalize_symbol(message.text or "")
+    if not symbol:
+        await message.answer("⚠️ Не смог распознать монету. Попробуйте ещё раз.")
+        return
+    await state.update_data(alert_symbol=symbol)
+    await state.set_state(NavStates.wait_alert_above)
+    await message.answer(
+        f"🔔 <b>{symbol}</b>\n\nВведите цену, <b>выше</b> которой нужно уведомить "
+        "(например <code>65000</code>). Если не нужно — напишите <code>0</code>."
+    )
+
+
+@router.message(NavStates.wait_alert_above)
+async def msg_alert_above(message: Message, state: FSMContext) -> None:
+    above = _parse_price(message.text)
+    if above is None:
+        await message.answer("⚠️ Введите число, например <code>65000</code>.")
+        return
+    await state.update_data(alert_above=above)
+    await state.set_state(NavStates.wait_alert_below)
+    await message.answer(
+        "Введите цену, <b>ниже</b> которой нужно уведомить (например <code>60000</code>). "
+        "Если не нужно — <code>0</code>."
+    )
+
+
+@router.message(NavStates.wait_alert_below)
+async def msg_alert_below(message: Message, state: FSMContext) -> None:
+    below = _parse_price(message.text)
+    if below is None:
+        await message.answer("⚠️ Введите число, например <code>60000</code>.")
+        return
+    data = await state.get_data()
+    symbol = data.get("alert_symbol") or ""
+    above = float(data.get("alert_above") or 0.0) or None
+    below = below or None
+    if above is None and below is None:
+        await message.answer("⚠️ Нужно хотя бы одно условие: выше или ниже цены.")
+        await state.clear()
+        return
+    await _ctx().db.add_alert(message.from_user.id, symbol, above, below)
+    await state.clear()
+    await message.answer(format.format_alert_saved(message.from_user.id, symbol, above, below), reply_markup=future_keyboard())
+
+
+@router.message(NavStates.wait_risk_size)
+async def msg_risk_size(message: Message, state: FSMContext) -> None:
+    try:
+        size = float(message.text.strip())
+    except ValueError:
+        await message.answer("⚠️ Введите размер в USDT, например <code>1000</code>.")
+        return
+    if size <= 0:
+        await message.answer("⚠️ Размер должен быть больше нуля.")
+        return
+    await state.update_data(risk_size=size)
+    await state.set_state(NavStates.wait_risk_stop)
+    await message.answer("Теперь введите <b>стоп-лосс в %</b> от входа, например <code>2</code> или <code>1.5</code>.")
+
+
+@router.message(NavStates.wait_risk_stop)
+async def msg_risk_stop(message: Message, state: FSMContext) -> None:
+    try:
+        stop_pct = float(message.text.strip())
+    except ValueError:
+        await message.answer("⚠️ Введите число, например <code>2</code>.")
+        return
+    if stop_pct <= 0:
+        await message.answer("⚠️ Стоп должен быть больше нуля.")
+        return
+    data = await state.get_data()
+    size = float(data.get("risk_size") or 0.0)
+    await state.clear()
+    await message.answer(format.format_risk(size, stop_pct), reply_markup=future_keyboard())
 
 
 @router.message(NavStates.settings_confidence)
@@ -377,6 +566,7 @@ async def _run_scan(message: Message, mode: str, direction: Optional[str]) -> No
         f"✅ <b>{display_mode}</b> — топ-{min(len(signals), ctx.settings.top_scans)} качественных сетапов.",
     )
     for sig in signals:
+        await _save_signal(sig)
         text = format.format_signal(sig)
         kb = order_keyboard(sig.symbol, sig.base)
         try:
@@ -426,6 +616,7 @@ async def _handle_symbol(
     except Exception:  # noqa: BLE001
         await progress.edit_text(deep)
     if signal:
+        await _save_signal(signal)
         await message.answer(format.format_signal(signal), reply_markup=back_menu_keyboard())
 
 
@@ -476,8 +667,99 @@ async def _handle_search_query(message: Message, raw: str) -> None:
         return
     await progress.edit_text("✅ Нашёл следующие идеи:")
     for sig in signals:
+        await _save_signal(sig)
         await message.answer(format.format_signal(sig), reply_markup=order_keyboard(sig.symbol, sig.base))
     await message.answer("⬇️ Продолжить:", reply_markup=main_menu_keyboard())
+
+
+async def _show_market(message: Message) -> None:
+    ctx = _ctx()
+    progress = await message.answer("📊 Загружаю обзор рынка…")
+    try:
+        overview = await ctx.market.market_overview()
+    except MarketDataUnavailable as exc:
+        await progress.edit_text(format.format_error(str(exc)))
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("market overview failed")
+        await progress.edit_text(f"⚠️ Ошибка: <code>{format_escape(str(exc))}</code>")
+        return
+    text = format.format_market_overview(overview)
+    try:
+        await progress.edit_text(text, reply_markup=future_keyboard())
+    except Exception:  # noqa: BLE001
+        await progress.edit_text(text)
+
+
+async def _show_news(message: Message) -> None:
+    ctx = _ctx()
+    progress = await message.answer("📰 Загружаю новости…")
+    try:
+        items = await ctx.market.news_headlines(limit=8)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("news failed")
+        await progress.edit_text(f"⚠️ Ошибка: <code>{format_escape(str(exc))}</code>")
+        return
+    text = format.format_news(items)
+    try:
+        await progress.edit_text(text, reply_markup=future_keyboard(), disable_web_page_preview=True)
+    except Exception:  # noqa: BLE001
+        await progress.edit_text(text)
+
+
+async def _show_alerts(message: Message) -> None:
+    ctx = _ctx()
+    alerts = await ctx.db.list_alerts(message.from_user.id)
+    if not alerts:
+        text = (
+            "🔔 <b>Ценовые алерты</b>\n\n"
+            "Алертов пока нет. Создайте алерт, и бот будет проверять "
+            "реальные цены Binance/Bybit каждые несколько секунд."
+        )
+    else:
+        lines = ["🔔 <b>Ценовые алерты</b>\n"]
+        for a in alerts:
+            conds = []
+            if a.get("target_above"):
+                conds.append(f"> {a['target_above']:,.4g}")
+            if a.get("target_below"):
+                conds.append(f"< {a['target_below']:,.4g}")
+            lines.append(f"• <code>{format_escape(a['symbol'])}</code> {' '.join(conds)}")
+        text = "\n".join(lines)
+    try:
+        await message.answer(text, reply_markup=alerts_keyboard(alerts))
+    except Exception:  # noqa: BLE001
+        await message.answer(text)
+
+
+async def _show_history(message: Message) -> None:
+    ctx = _ctx()
+    rows = await ctx.db.get_recent_signals(limit=10)
+    await message.answer(format.format_history(rows), reply_markup=future_keyboard())
+
+
+async def _start_risk(message: Message, state: FSMContext) -> None:
+    await state.set_state(NavStates.wait_risk_size)
+    await message.answer(
+        "🧮 <b>Риск-калькулятор</b>\n\n"
+        "Введите размер депозита/позиции в USDT, например <code>1000</code>.",
+        reply_markup=future_keyboard(),
+    )
+
+
+def _parse_price(text: str) -> float | None:
+    try:
+        val = float(text.strip().replace(",", "").replace("$", ""))
+        return val if val >= 0 else None
+    except ValueError:
+        return None
+
+
+async def _save_signal(signal: Signal) -> None:
+    try:
+        await _ctx().db.save_signal(signal)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("could not save signal {}: {}", signal.symbol, exc)
 
 
 def _normalize_symbol(raw: str) -> str:

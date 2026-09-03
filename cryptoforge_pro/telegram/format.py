@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+from typing import Any
 
 from cryptoforge_pro.config import Settings
 from cryptoforge_pro.models import MarketData, Signal
@@ -126,3 +127,122 @@ def format_deep_analysis(data: MarketData, settings: Settings) -> str:
 
 def format_error(message: str) -> str:
     return f"⚠️ <b>Не удалось получить рынок</b>\n\n{html.escape(message)}\n\nБот не использует заглушки: если биржа недоступна, он честно сообщает об этом."
+
+
+def format_market_overview(data: dict) -> str:
+    lines: list[str] = ["📊 <b>Обзор рынка</b>", LINE]
+    btc: Any | None = data.get("btc")
+    eth: Any | None = data.get("eth")
+
+    def coin_line(label: str, ticker: Any | None) -> str:
+        if ticker is None:
+            return f"• <b>{label}</b>: недоступно"
+        return (
+            f"• <b>{label}</b>: <code>{format_price(ticker.last_price)}</code> "
+            f"({ticker.change_24h_pct:+.2f}%) · объём ${ticker.volume_24h_quote:,.0f}"
+        )
+
+    lines.append(coin_line("BTC", btc))
+    lines.append(coin_line("ETH", eth))
+    lines.append(LINE)
+    lines.append(f"📈 Восходящих: <b>{data.get('up', 0)}</b> · 📉 Нисходящих: <b>{data.get('down', 0)}</b>")
+    lines.append(f"⚖️ Среднее изменение 24h: <b>{data.get('avg_change', 0):+.2f}%</b>")
+    lines.append(f"💧 Суммарный объём: <b>${data.get('total_volume', 0):,.0f}</b>")
+    fng: Any | None = data.get("fng")
+    if fng:
+        lines.append(f"😱/😄 Fear & Greed: <b>{fng.get('value')}</b> ({html.escape(str(fng.get('classification', '')))})")
+    lines.append(LINE)
+    lines.append("<b>🟢 Топ роста:</b>")
+    for t in data.get("gainers", []):
+        lines.append(f"• {html.escape(t.base)}: <code>{format_price(t.last_price)}</code> ({t.change_24h_pct:+.2f}%)")
+    lines.append("<b>🔴 Топ падения:</b>")
+    for t in data.get("losers", []):
+        lines.append(f"• {html.escape(t.base)}: <code>{format_price(t.last_price)}</code> ({t.change_24h_pct:+.2f}%)")
+    lines.append(LINE)
+    lines.append("<i>Данные бирж в реальном времени; F&G может быть недоступен.</i>")
+    return "\n".join(lines)
+
+
+def format_news(items: list[dict]) -> str:
+    if not items:
+        return (
+            "📰 <b>Новости</b>\n\n"
+            "Новостной поток подключён только при наличии <code>CRYPTOPANIC_API_KEY</code>.\n\n"
+            "Настройте ключ в Railway, и здесь будут свежие заголовки по рынкам."
+        )
+    lines: list[str] = ["📰 <b>Новости рынка</b>", LINE]
+    for item in items[:8]:
+        title = html.escape((item.get("title") or "")[:180])
+        url = html.escape(((item.get("url") or "").replace("<", "&lt;").replace(">", "&gt;")))
+        source = html.escape((item.get("source") or "CryptoPanic"))
+        lines.append(f"• <b>{title}</b>")
+        if url:
+            lines.append(f"  <i>{source}</i> · <a href=\"{url}\">читать</a>")
+    lines.append(LINE)
+    lines.append("<i>Источник: CryptoPanic (реальные публикации).</i>")
+    return "\n".join(lines)
+
+
+def format_history(rows: list[dict]) -> str:
+    if not rows:
+        return "📚 <b>История идей</b>\n\nПока нет сохранённых сигналов. Запустите скан или анализ — они появятся здесь."
+    lines: list[str] = ["📚 <b>История идей</b>", LINE]
+    for row in rows[:10]:
+        d = "🟢 L" if row.get("direction") == "LONG" else "🔴 S"
+        lines.append(
+            f"{d} <b>{html.escape(row.get('symbol', ''))}</b> · {row.get('timeframe', '')} · "
+            f"вход {format_price(row.get('entry_low', 0))} · стоп {format_price(row.get('stop_loss', 0))} · "
+            f"уверенность {row.get('confidence', 0)}%"
+        )
+    lines.append(LINE)
+    lines.append("<i>Последние идеи из локальной БД.</i>")
+    return "\n".join(lines)
+
+
+def format_risk(size: float, stop_pct: float) -> str:
+    risk_amount = size * stop_pct / 100.0
+    rr = [1.5, 2.5, 4.0]
+    lines: list[str] = [
+        "🧮 <b>Риск-калькулятор</b>", LINE,
+        f"💼 Размер позиции: <code>${size:,.2f}</code>",
+        f"🛑 Стоп: <code>{stop_pct:.2f}%</code>",
+        f"💰 Риск на сделку: <code>${risk_amount:,.2f}</code>",
+        LINE,
+        "🎯 Прибыль при целях:",
+    ]
+    for r in rr:
+        lines.append(f"• R:R 1:{r:.1f} → <code>${risk_amount * r:,.2f}</code>")
+    lines.append(LINE)
+    lines.append("<i>Проверяйте риск на сделку: для одного плеча обычно 1–3% депозита.</i>")
+    return "\n".join(lines)
+
+
+def format_alert_saved(chat_id: int, symbol: str, above: float | None, below: float | None) -> str:
+    conds = []
+    if above:
+        conds.append(f"выше <code>{format_price(above)}</code>")
+    if below:
+        conds.append(f"ниже <code>{format_price(below)}</code>")
+    if not conds:
+        conds = ["выше/ниже заданной цены"]
+    return (
+        f"🔔 <b>Алерт создан</b>\n\n"
+        f"Монета: <code>{html.escape(symbol)}</code>\n"
+        f"Условие: {', '.join(conds)}\n\n"
+        "Бот будет проверять цену по реальным биржам и уведомит вас, когда условие сработает."
+    )
+
+
+def format_alert_trigger(alert: dict, price: float, reason: str) -> str:
+    conds = []
+    if alert.get("target_above"):
+        conds.append(f"> {format_price(alert['target_above'])}")
+    if alert.get("target_below"):
+        conds.append(f"< {format_price(alert['target_below'])}")
+    return (
+        f"🔔 <b>Ценовой алерт сработал!</b>\n\n"
+        f"Монета: <code>{html.escape(alert.get('symbol', ''))}</code>\n"
+        f"Текущая цена: <code>{format_price(price)}</code>\n"
+        f"Условие: {', '.join(conds) or reason}\n\n"
+        "Проверьте сетап перед действием."
+    )

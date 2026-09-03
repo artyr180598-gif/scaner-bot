@@ -11,8 +11,13 @@
 - 🔥 **Лучшие сетапы** — скрининг топ-монет по реальному объёму 24h.
 - 📈 **Только Лонги** / 📉 **Только Шорты**.
 - ⚡ **Скальп** (15m–1h) и 🎯 **Свинг** (4h–D).
-- 🔍 **Поиск по монете / условию** (например `ETH long 1h`, `BTC`).
-- 📊 **Глубокий анализ монеты**: цена, ATR, RSI, EMA, OBV-вектор, funding, OI, BTC-корреляция, новости.
+- 📊 **Обзор рынка**: BTC/ETH, ширина рынка, топ роста/падения, суммарный объём, Fear & Greed.
+- 🔍 **Поиск по монете / условию** (например `ETH long 1h`, `BTC`, `volume > 100m`).
+- 📊 **Глубокий анализ монеты**: цена, ATR, RSI, EMA, объём, funding, OI, ликвидации, BTC-корреляция, новости.
+- 📰 **Новости рынка** через CryptoPanic (при наличии ключа).
+- 🔔 **Ценовые алерты**: бот в фоне проверяет реальные цены и шлёт уведомление при срабатывании.
+- 📚 **История идей**: все выданные сигналы сохраняются в SQLite.
+- 🧮 **Риск-калькулятор**: расчёт риска и потенциальной прибыли по R:R.
 - ⚙️ **Настройки риска**: консервативный / сбалансированный / агрессивный профиль, порог уверенности.
 - ℹ️ **Помощь** прямо в боте.
 - Формат сигнала строго по ТЗ: вход, стоп, TP1–TP3, R:R, уверенность, обоснование, риски, дисклеймер.
@@ -60,6 +65,11 @@ python main.py
 | `/scan` | Лучшие сетапы сейчас |
 | `/analyze BTC` | Глубокий анализ монеты |
 | `/search ETH long 1h` | Поиск по условию |
+| `/market` | Обзор рынка |
+| `/news` | Новости рынка |
+| `/alerts` | Ценовые алерты |
+| `/history` | История идей |
+| `/risk` | Риск-калькулятор |
 | `/settings` | Настройки риска |
 | `/help` | Помощь |
 
@@ -81,6 +91,7 @@ python main.py
 - `ADMIN_CHAT_IDS`, `ALLOWED_CHAT_IDS` — опционально, через запятую.
 - `EXCHANGES=binance,bybit`.
 - `COINGLASS_API_KEY`, `CRYPTOPANIC_API_KEY` — опционально.
+- `ALERT_CHECK_INTERVAL_SECONDS`, `ALERT_PRICE_WINDOW_PCT` — настройки вотчера.
 - `RISK_PROFILES`, `MIN_CONFIDENCE` — тюнинг движка.
 
 ## Деплой на Railway
@@ -104,8 +115,10 @@ cryptoforge_pro/
 │   ├── http.py            # async httpx session
 │   ├── exchanges.py       # Binance + Bybit REST
 │   ├── coinglass.py       # CoinGlass (optional)
-│   └── news.py            # CryptoPanic (optional)
+│   ├── news.py            # CryptoPanic (optional)
+│   └── sentiment.py       # Fear & Greed (alternative.me)
 ├── market.py              # агрегатор рынка, BTC-контекст
+├── alerts.py              # фоновый вотчер ценовых алертов
 ├── analysis/
 │   ├── indicators.py      # EMA, RSI, ATR, MACD, объём, структура
 │   └── engine.py          # signal score / entry / stop / TP / confidence
@@ -133,4 +146,5 @@ Self-test использует живые публичные API Binance/Bybit. 
 - Цены, свечи, объёмы — только Binance/Bybit официальные публичные REST.
 - Funding / Open Interest — Binance Futures, Bybit Linear, опционально CoinGlass.
 - News — CryptoPanic при наличии ключа.
+- Fear & Greed — alternative.me (optional noise layer, never a trading signal alone).
 - Если источник недоступен, бот сообщает об этом и не выдумывает числа.

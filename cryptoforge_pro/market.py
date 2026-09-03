@@ -11,6 +11,7 @@ from cryptoforge_pro.config import Settings
 from cryptoforge_pro.data.coinglass import CoinglassProvider
 from cryptoforge_pro.data.exchanges import ExchangeRouter, MarketDataUnavailable
 from cryptoforge_pro.data.news import NewsProvider
+from cryptoforge_pro.data.sentiment import FearGreedProvider
 from cryptoforge_pro.models import Candle, Derivatives, MarketData, TickerInfo
 from cryptoforge_pro.utils import TTLCache
 
@@ -24,11 +25,13 @@ class MarketService:
         exchanges: ExchangeRouter,
         coinglass: CoinglassProvider,
         news: NewsProvider,
+        fear_greed: FearGreedProvider | None = None,
     ) -> None:
         self.settings = settings
         self.exchanges = exchanges
         self.coinglass = coinglass
         self.news = news
+        self.fear_greed = fear_greed
         self.cache = TTLCache(ttl=settings.cache_ttl_seconds, max_size=1024)
 
     async def top_tickers(self, count: int = 150) -> list[TickerInfo]:
@@ -49,6 +52,56 @@ class MarketService:
         result = filtered[:count]
         await self.cache.set(key, result)
         return result
+
+    async def get_price(self, symbol: str) -> float:
+        """Fast single-symbol price from real exchange ticker data."""
+        symbol = symbol.upper().strip()
+        if symbol.endswith("USDT"):
+            pass
+        elif symbol.endswith("USDC"):
+            symbol = symbol[:-4] + "USDT"
+        elif symbol.endswith("USD"):
+            symbol = symbol[:-3] + "USDT"
+        else:
+            symbol = symbol + "USDT"
+        ticker = await self.exchanges.get_ticker(symbol)
+        if ticker.last_price <= 0:
+            raise MarketDataUnavailable(f"No real price for {symbol}")
+        return ticker.last_price
+
+    async def news_headlines(self, symbol: str | None = None, limit: int = 8) -> list[dict[str, Any]]:
+        return await self.news.headlines(symbol, limit=limit)
+
+    async def market_overview(self) -> dict[str, Any]:
+        """Live market snapshot for the main dashboard."""
+        tickers = await self.top_tickers(self.settings.top_n_symbols)
+        if not tickers:
+            raise MarketDataUnavailable("No live tickers for market overview")
+
+        by_symbol = {t.symbol: t for t in tickers}
+        btc, eth = by_symbol.get("BTCUSDT"), by_symbol.get("ETHUSDT")
+        active = [t for t in tickers if t.volume_24h_quote >= max(self.settings.min_volume_usd_24h, 1_000_000)]
+        gainers = sorted(active, key=lambda t: t.change_24h_pct, reverse=True)[:5]
+        losers = sorted(active, key=lambda t: t.change_24h_pct)[:5]
+        up = sum(1 for t in active if t.change_24h_pct > 0)
+        down = len(active) - up
+        avg_change = sum(t.change_24h_pct for t in active) / len(active) if active else 0.0
+        total_volume = sum(t.volume_24h_quote for t in active)
+
+        fng = await self.fear_greed.index() if self.fear_greed else None
+
+        return {
+            "btc": btc,
+            "eth": eth,
+            "gainers": gainers,
+            "losers": losers,
+            "up": up,
+            "down": down,
+            "avg_change": avg_change,
+            "total_volume": total_volume,
+            "active_count": len(active),
+            "fng": fng,
+        }
 
     async def get_market_data(
         self,
