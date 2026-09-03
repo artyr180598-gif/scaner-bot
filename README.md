@@ -77,6 +77,8 @@ crypto_advisor/
 ├── backtest/         # Честный walk-forward бэктестер
 ├── main.py           # Точка входа
 └── selftest.py       # Офлайн-проверка пайплайна
+
+chris_bots/               # алиас пакета (python -m chris_bots.main → crypto_advisor)
 ```
 
 ## Запуск
@@ -94,10 +96,33 @@ cp .env.example .env
 python -m crypto_advisor.main
 ```
 
+### Команда запуска на хостинге
+
+Пакет в репозитории называется **`crypto_advisor`**. Старое имя `chris_bots`
+оставлено как алиас, поэтому обе команды работают:
+
+```bash
+python -m crypto_advisor.main   # каноническая
+python -m chris_bots.main       # алиас (то, что прописано на хостинге)
+./start.sh                      # сам найдёт .venv и запустит
+```
+
+Важно: рабочая директория при запуске — **корень репозитория** (там, где лежит
+`requirements.txt`). Иначе Python не найдёт пакет и снова выдаст
+`ModuleNotFoundError`. Если на хостинге есть поле «команда запуска», поставьте:
+
+```
+/app/.venv/bin/python -m chris_bots.main
+```
+
+(или `... -m crypto_advisor.main`) — и убедитесь, что рабочая директория `/app`,
+а зависимости установлены: `/app/.venv/bin/pip install -r requirements.txt`.
+
 ### Офлайн self-test (без токена и сети)
 
 ```bash
 python -m crypto_advisor.selftest
+python -m chris_bots.selftest   # тот же self-test через алиас
 ```
 
 Прогоняет весь пайплайн (парсер запроса → подбор → сигнал → формат) на
@@ -111,7 +136,8 @@ python -m crypto_advisor.selftest
 python -m pytest crypto_advisor/tests -q
 ```
 
-`14 passed`: парсер запросов, индикаторы/стратегия, полный пайплайн.
+`18 passed`: парсер запросов, индикаторы/стратегия, полный пайплайн,
+точки входа (`python -m chris_bots.main` / `crypto_advisor.main` / `selftest`).
 
 ## Бэктестинг (честно)
 
