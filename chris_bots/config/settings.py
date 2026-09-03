@@ -260,12 +260,27 @@ def _list(name: str, default: Optional[List[str]] = None) -> List[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _token_default() -> str:
+    """Значение по умолчанию для telegram_token: .env подхватывается и тут."""
+    load_env()
+    token, warning = _clean_token()
+    if warning:
+        log.warning("%s", warning)
+    return token
+
+
+def _env_default(name: str) -> str:
+    """Строковая переменная окружения с гарантированной загрузкой .env."""
+    load_env()
+    return os.getenv(name, "").strip()
+
+
 @dataclass(frozen=True)
 class Settings:
     """Конфигурация бота Крис."""
 
     # ── Telegram ───────────────────────────────────────────────
-    telegram_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", ""))
+    telegram_token: str = field(default_factory=_token_default)
     admin_chat_ids: List[int] = field(default_factory=list)
     allowed_chat_ids: List[int] = field(default_factory=list)
     dry_run: bool = True
@@ -305,7 +320,7 @@ class Settings:
     llm_enabled: bool = False
     llm_provider: str = "openai"  # openai | anthropic | local
     llm_model: str = "gpt-4o-mini"
-    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
+    llm_api_key: str = field(default_factory=lambda: _env_default("LLM_API_KEY"))
     llm_max_tokens: int = 220
     # Если LLM недоступна — используется детерминированный шаблон.
 

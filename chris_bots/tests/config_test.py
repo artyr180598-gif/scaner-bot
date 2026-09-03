@@ -208,6 +208,27 @@ def t_token_whitespace_cleaned():
         print(OK + "пробелы и кавычки вокруг токена обрезаны")
 
 
+def t_settings_constructed_directly_reads_dotenv():
+    """Settings() без get_settings() тоже обязан увидеть .env."""
+    from chris_bots.config import settings as settings_mod
+
+    with _env_sandbox():
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_env(tmp, f"TELEGRAM_TOKEN={_TOKEN}\nLLM_API_KEY=sk-test\n")
+            os.environ["ENV_FILE"] = path
+            # Имитируем свежий процесс: load_env() ещё не выполнялся.
+            settings_mod._env_loaded = False
+            settings_mod._loaded_env_file = None
+            settings_mod._loaded_keys = ()
+
+            s = Settings()
+            assert s.telegram_token == _TOKEN, repr(s.telegram_token)
+            assert s.llm_api_key == "sk-test", repr(s.llm_api_key)
+            assert settings_mod.loaded_env_file() == path
+            s.validate()
+            print(OK + "Settings() напрямую тоже подхватывает .env")
+
+
 def t_valid_settings_pass():
     with _env_sandbox():
         os.environ["TELEGRAM_TOKEN"] = _TOKEN
@@ -226,6 +247,7 @@ TESTS: List = [
     t_placeholder_token_rejected,
     test_token_without_colon_rejected,
     t_token_whitespace_cleaned,
+    t_settings_constructed_directly_reads_dotenv,
     t_valid_settings_pass,
 ]
 
