@@ -21,7 +21,7 @@ def format_price(value: float, base: str | None = None) -> str:
     elif abs(value) >= 0.01:
         text = f"{value:.6f}"
     else:
-        text = f"{value:.8f}".rstrip("0").rstrip(".")
+        text = f"{value:.10f}".rstrip("0").rstrip(".")
     return f"${text}"
 
 
