@@ -88,8 +88,8 @@ def create_dispatcher(settings: Settings) -> Dispatcher:
 async def run(settings: Settings) -> None:
     if not settings.telegram_token:
         raise SystemExit(
-            "TELEGRAM_TOKEN is not configured. Set it in .env or Railway "
-            "environment variables before starting CryptoForge Pro."
+            "Telegram token is not configured. Set TELEGRAM_BOT_TOKEN (Railway) "
+            "or TELEGRAM_TOKEN (local .env) before starting CryptoForge Pro."
         )
     container = AppContainer(settings)
     await container.start()

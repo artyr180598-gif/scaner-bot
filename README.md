@@ -88,7 +88,7 @@ python main.py
 
 См. `.env.example`. Для Railway задай переменные в панели проекта:
 
-- `TELEGRAM_TOKEN` — **обязательно**.
+- **Обязательно:** `TELEGRAM_BOT_TOKEN` (имя переменной на Railway) или `TELEGRAM_TOKEN` (локальный `.env`). Бот также принимает `BOT_TOKEN`, `TG_TOKEN`, `BOT_API_TOKEN`.
 - `ADMIN_CHAT_IDS`, `ALLOWED_CHAT_IDS` — опционально, через запятую.
 - `EXCHANGES=binance,bybit`.
 - `COINGLASS_API_KEY`, `CRYPTOPANIC_API_KEY` — опционально.

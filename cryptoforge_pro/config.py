@@ -10,7 +10,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,10 +25,23 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     # Telegram -----------------------------------------------------------------
-    telegram_token: str = Field(default="", description="Bot token from @BotFather")
+    # Railway uses TELEGRAM_BOT_TOKEN; local envs often use TELEGRAM_TOKEN.
+    # All common names are accepted through an alias, so deploy works unchanged.
+    telegram_token: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "TELEGRAM_TOKEN",
+            "TELEGRAM_BOT_TOKEN",
+            "BOT_TOKEN",
+            "TG_TOKEN",
+            "BOT_API_TOKEN",
+        ),
+        description="Bot token from @BotFather",
+    )
     bot_username: str = Field(default="", description="Optional @username of the bot")
 
     # Access control ------------------------------------------------------------
