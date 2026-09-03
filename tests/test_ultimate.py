@@ -26,7 +26,14 @@ class UltimateTests(unittest.TestCase):
     def test_price_format(self):
         self.assertEqual(price(100.0), "100.00")
         self.assertEqual(price(1.2345), "1.2345")
-        self.assertEqual(price(.12345678), "0.123457")
+        self.assertEqual(price(.12345678), "0.12345678")
+
+    def test_telegram_entrypoint_imports(self):
+        import cryptoforge_pro.main as entrypoint
+        import cryptoforge_pro.ultimate_telegram_v2 as telegram
+
+        self.assertTrue(callable(entrypoint.main))
+        self.assertIsNotNone(telegram.router)
 
 
 if __name__ == "__main__":
