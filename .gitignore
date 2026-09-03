@@ -7,21 +7,28 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
 
 # Локальные секреты и окружение
 .env
 .env.local
+.env.*.local
 
 # IDE / OS
 .idea/
 .vscode/
 .DS_Store
 
-# Артефакты
+# Docker / Railway artifacts
+node_modules/
+.railway/
+*.tar
+*.zip
+
+# Данные бота (только корневая runtime-папка, НЕ пакет cryptoforge_pro/data)
+/data/
 *.log
 signals.db
 signals.db-journal
-
-# Кеш бэктестера (большие файлы исторических данных)
-backtest/cache/
-
+signals.db-wal
+signals.db-shm

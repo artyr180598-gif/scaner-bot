@@ -1,0 +1,5 @@
+[phases.setup]
+cmds = ["python -m pip install --upgrade pip", "python -m pip install -r requirements.txt"]
+
+[phases.start]
+cmd = "bash start.sh"

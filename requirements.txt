@@ -1,19 +1,7 @@
-# Telegram
 aiogram>=3.6,<4.0
-
-# Биржи (публичные эндпоинты, ключи не нужны)
-ccxt>=4.3,<5.0
-
-# Данные и индикаторы
-pandas>=2.2,<3.0
-numpy>=1.26,<3.0
-
-# Хранилище журнала сигналов
 aiosqlite>=0.20
-
-# LLM (опционально, для блока «почему»)
-openai>=1.30
-anthropic>=0.30
-
-# Конфиг
+httpx>=0.27
+pydantic>=2.7
+pydantic-settings>=2.2
+loguru>=0.7
 python-dotenv>=1.0
