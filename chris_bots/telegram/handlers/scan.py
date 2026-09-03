@@ -62,6 +62,16 @@ async def scan_run(call: CallbackQuery) -> None:
             reports = await engine.scan_all()
             _LAST_SCAN["reports"] = reports
             _LAST_SCAN["timestamp"] = time.time()
+    except Exception as exc:  # noqa: BLE001
+        # Ошибка одного запуска не должна превращаться в необработанный
+        # traceback aiogram и оставлять пользователя на экране «запускаю».
+        log.exception("market scan failed: %s", exc)
+        await call.message.edit_text(
+            "❌ Не удалось завершить сканирование. Проверь логи приложения "
+            "и доступность биржи, затем попробуй ещё раз.",
+            reply_markup=back_kb(),
+        )
+        return
     finally:
         engine.s.top_n_symbols = original  # type: ignore[misc]
 
