@@ -19,10 +19,9 @@ venv/
 
 # Артефакты
 *.log
+signals.db
+signals.db-journal
 
-# Бектест: сырые данные и крупные артефакты (отчёты .md — коммитим)
-backtest/data_cache/
-backtest/results/*.json
+# Кеш бэктестера (большие файлы исторических данных)
+backtest/cache/
 
-# Исследовательский кэш (панели данных, гигабайты) — не коммитим
-research/cache/
