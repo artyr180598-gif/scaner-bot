@@ -20,7 +20,7 @@ import os
 import signal
 import sys
 from contextlib import suppress
-from typing import Any, Dict
+from typing import Any
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -35,6 +35,7 @@ from .config.settings import (
 from .core.events import EventBus
 from .data.exchange.gateway import close_gateway, get_gateway
 from .data.storage.sqlite_store import SignalStore
+from .runtime import app_state, set_dependencies
 from .scanner import ScannerEngine
 from .telegram.handlers import all_routers
 from .telegram.middlewares import AccessControlMiddleware
@@ -42,8 +43,11 @@ from .utils.logging import setup_logging
 
 log = logging.getLogger(__name__)
 
-# ── Глобальный state для хендлеров (через app_state[...]) ────
-app_state: Dict[str, Any] = {}
+# ── Глобальный state для хендлеров ────
+# app_state теперь живёт в chris_bots/runtime.py: main.py исполняется как
+# `__main__`, и импорт `from .main import app_state` из хендлеров создавал
+# ВТОРОЙ экземпляр модуля с пустым словарём — кнопки скана молча умирали.
+# Здесь он реэкспортирован для совместимости (см. chris_bots/runtime.py).
 
 
 async def main() -> int:
@@ -95,8 +99,7 @@ async def main() -> int:
         dp.include_router(r)
 
     # Передаём движок в app_state (используется в handlers).
-    app_state.clear()
-    app_state.update(
+    set_dependencies(
         engine=engine,
         gateway=gateway,
         bus=bus,

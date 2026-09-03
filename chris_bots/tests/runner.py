@@ -31,6 +31,7 @@ def main() -> int:
     from chris_bots.tests import indicators_test
     from chris_bots.tests import scoring_test
     from chris_bots.tests import services_test
+    from chris_bots.tests import telegram_test
     from chris_bots.tests import backtest_test
 
     suites = [
@@ -39,6 +40,7 @@ def main() -> int:
         ("indicators", indicators_test.TESTS),
         ("scoring/filters/plan", scoring_test.TESTS),
         ("services", services_test.TESTS),
+        ("telegram", telegram_test.TESTS),
         ("backtest", backtest_test.TESTS),
     ]
     total_failed = 0
