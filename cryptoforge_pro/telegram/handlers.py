@@ -108,6 +108,7 @@ async def cmd_help(message: Message, state: FSMContext) -> None:
         "• <b>/alerts</b> — ценовые алерты\n"
         "• <b>/history</b> — история идей\n"
         "• <b>/risk</b> — риск-калькулятор\n"
+        "• <b>/status</b> — проверка доступа к реальным данным\n"
         "• <b>/settings</b> — риск-профиль и порог уверенности\n\n"
         "Команды можно вводить и обычным текстом, например:\n"
         "<code>BTC</code>, <code>долгий ETH 4h</code>, <code>short SOL 15m</code>",
@@ -215,6 +216,13 @@ async def cmd_risk(message: Message, state: FSMContext) -> None:
     await _start_risk(message, state)
 
 
+@router.message(Command("status"))
+async def cmd_status(message: Message) -> None:
+    if not await _authorized(message):
+        return
+    await _show_status(message)
+
+
 # ---------------------------------------------------------------------------
 # Callback
 # ---------------------------------------------------------------------------
@@ -243,6 +251,7 @@ async def cb_help(callback: CallbackQuery) -> None:
         "• <code>/alerts</code> — ценовые алерты\n"
         "• <code>/history</code> — история идей\n"
         "• <code>/risk</code> — риск-калькулятор\n"
+        "• <code>/status</code> — проверка данных\n"
         "• <code>/settings</code> — риск-профиль\n\n"
         "Все идеи — на реальных биржевых данных, без моков.",
         reply_markup=help_keyboard(),
@@ -365,6 +374,14 @@ async def cb_risk_calc(callback: CallbackQuery, state: FSMContext) -> None:
         return
     await callback.answer()
     await _start_risk(callback.message, state)
+
+
+@router.callback_query(F.data == "data_status")
+async def cb_data_status(callback: CallbackQuery) -> None:
+    if not await _authorized(callback):
+        return
+    await callback.answer()
+    await _show_status(callback.message)
 
 
 @router.callback_query(F.data == "alert_add")
@@ -670,6 +687,22 @@ async def _handle_search_query(message: Message, raw: str) -> None:
         await _save_signal(sig)
         await message.answer(format.format_signal(sig), reply_markup=order_keyboard(sig.symbol, sig.base))
     await message.answer("⬇️ Продолжить:", reply_markup=main_menu_keyboard())
+
+
+async def _show_status(message: Message) -> None:
+    ctx = _ctx()
+    progress = await message.answer("🩺 Проверяю доступ к реальным источникам данных…")
+    try:
+        status = await ctx.market.data_status()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("data status failed")
+        await progress.edit_text(f"⚠️ Ошибка проверки: <code>{format_escape(str(exc))}</code>")
+        return
+    text = format.format_data_status(status)
+    try:
+        await progress.edit_text(text, reply_markup=future_keyboard())
+    except Exception:  # noqa: BLE001
+        await progress.edit_text(text, reply_markup=future_keyboard())
 
 
 async def _show_market(message: Message) -> None:

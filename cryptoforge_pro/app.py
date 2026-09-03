@@ -73,6 +73,7 @@ async def _register_commands(bot: Bot) -> None:
             BotCommand(command="alerts", description="Ценовые алерты"),
             BotCommand(command="history", description="История идей"),
             BotCommand(command="risk", description="Риск-калькулятор"),
+            BotCommand(command="status", description="Проверка доступа к данным"),
             BotCommand(command="settings", description="Настройки риска"),
         ]
     )

@@ -103,6 +103,55 @@ class MarketService:
             "fng": fng,
         }
 
+    async def data_status(self) -> dict[str, Any]:
+        """Reachability check for every real-data provider used by the bot."""
+        out: dict[str, Any] = {"sources": {}}
+        sources = out["sources"]
+
+        try:
+            sources["exchanges"] = await self.exchanges.status()
+        except Exception as exc:  # noqa: BLE001
+            sources["exchanges"] = {"binance": {"ok": False, "detail": str(exc)}, "bybit": {"ok": False, "detail": str(exc)}}
+
+        if self.coinglass.enabled:
+            try:
+                der = await self.coinglass.derivatives_summary("BTCUSDT")
+                sources["coinglass"] = {
+                    "ok": der.available,
+                    "detail": "CoinGlass funding/OI test OK" if der.available else "CoinGlass endpoint responded but no derivatives payload",
+                }
+            except Exception as exc:  # noqa: BLE001
+                sources["coinglass"] = {"ok": False, "detail": str(exc)}
+        else:
+            sources["coinglass"] = {"ok": False, "detail": "COINGLASS_API_KEY not configured — optional"}
+
+        if self.news.enabled:
+            try:
+                items = await self.news.headlines(limit=1)
+                sources["cryptopanic"] = {
+                    "ok": bool(items),
+                    "detail": "CryptoPanic headlines OK" if items else "CryptoPanic responded but returned no items",
+                }
+            except Exception as exc:  # noqa: BLE001
+                sources["cryptopanic"] = {"ok": False, "detail": str(exc)}
+        else:
+            sources["cryptopanic"] = {"ok": False, "detail": "CRYPTOPANIC_API_KEY not configured — optional"}
+
+        if self.fear_greed:
+            try:
+                fng = await self.fear_greed.index()
+                sources["fear_greed"] = {
+                    "ok": bool(fng),
+                    "detail": f"Fear & Greed value={fng.get('value')}" if fng else "external.me unavailable",
+                }
+            except Exception as exc:  # noqa: BLE001
+                sources["fear_greed"] = {"ok": False, "detail": str(exc)}
+
+        ex_ok = [v.get("ok", False) for v in sources.get("exchanges", {}).values()]
+        out["all_exchanges_ok"] = bool(ex_ok) and all(ex_ok)
+        out["any_exchange_ok"] = bool(ex_ok) and any(ex_ok)
+        return out
+
     async def get_market_data(
         self,
         symbol: str,

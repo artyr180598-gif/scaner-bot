@@ -29,6 +29,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📚 История идей", callback_data="history")],
             [InlineKeyboardButton(text="🧮 Риск-калькулятор", callback_data="risk_calc")],
             [InlineKeyboardButton(text="⚙️ Настройки риска", callback_data="settings")],
+            [InlineKeyboardButton(text="🩺 Проверка данных", callback_data="data_status")],
             [InlineKeyboardButton(text="ℹ️ Помощь", callback_data="help")],
         ]
     )

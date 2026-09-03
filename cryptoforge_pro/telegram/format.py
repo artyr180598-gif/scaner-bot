@@ -233,6 +233,43 @@ def format_alert_saved(chat_id: int, symbol: str, above: float | None, below: fl
     )
 
 
+def format_data_status(status: dict) -> str:
+    lines: list[str] = ["🩺 <b>Доступ к реальным данным</b>"]
+    sources: dict[str, Any] = status.get("sources", {})
+    lines.append(LINE)
+    lines.append("<b>Биржи (основной источник):</b>")
+    exchanges = sources.get("exchanges", {})
+    for name, st in exchanges.items() if isinstance(exchanges, dict) else []:
+        ok = bool(st.get("ok", False))
+        marks = "🟢" if ok else "🔴"
+        detail = html.escape(str(st.get("detail", ""))[:180])
+        lines.append(f"{marks} <b>{name}</b>: {'доступно' if ok else 'недоступно'} · {detail}")
+
+    lines.append(LINE)
+    lines.append("<b>Опциональные источники:</b>")
+    for key in ("coinglass", "cryptopanic", "fear_greed"):
+        st = sources.get(key)
+        if not isinstance(st, dict):
+            continue
+        ok = bool(st.get("ok", False))
+        marks = "🟢" if ok else "🟡"
+        detail = html.escape(str(st.get("detail", ""))[:120])
+        lines.append(f"{marks} <b>{key}</b>: {'доступен' if ok else 'выключен/недоступен'} · {detail}")
+
+    lines.append(LINE)
+    any_ok = bool(status.get("any_exchange_ok"))
+    all_ok = bool(status.get("all_exchanges_ok"))
+    if all_ok:
+        lines.append("✅ <b>Все биржи доступны</b> — бот работает на реальных котировках.")
+    elif any_ok:
+        lines.append("⚠️ <b>Часть бирж доступна</b> — бот будет использовать доступный источник.")
+    else:
+        lines.append("🔴 <b>Биржи недоступны</b> — проверьте исходящий интернет/домены на Railway.")
+    lines.append(LINE)
+    lines.append("<i>Это live-проверка и она не использует mock-данные.</i>")
+    return "\n".join(lines)
+
+
 def format_alert_trigger(alert: dict, price: float, reason: str) -> str:
     conds = []
     if alert.get("target_above"):
