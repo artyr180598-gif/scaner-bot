@@ -268,6 +268,9 @@ def early_radar_research(
     min_breakout_volume_z: float = -10.0,
     target_atr: float = 1.5,
     stop_atr: float = 1.0,
+    min_structural_score: float = 0.0,
+    min_structural_adx: float = 0.0,
+    require_btc_alignment: bool = False,
 ) -> dict:
     """Test pre-breakout observations separately from post-trigger outcomes."""
     prepared = _PREPARED_CACHE.get((id(candles_15m), id(benchmark_15m)))
@@ -352,6 +355,16 @@ def early_radar_research(
             continue
         long = votes >= 2
         readiness += min(10, abs(votes) * 2)
+        structural_score = f4h.score[index_4h]
+        structural_filter_enabled = min_structural_score > 0 or min_structural_adx > 0
+        if structural_filter_enabled and (
+            abs(structural_score) < min_structural_score
+            or f4h.adx14[index_4h] < min_structural_adx
+            or (long and structural_score <= 0)
+            or (not long and structural_score >= 0)
+        ):
+            index += 1
+            continue
 
         benchmark_score = f_benchmark.score[benchmark_index]
         if f_benchmark.adx14[benchmark_index] < 16:
@@ -365,6 +378,9 @@ def early_radar_research(
         if (long and regime == "BULL") or (not long and regime == "BEAR"):
             readiness += 5
         elif (long and regime == "BEAR") or (not long and regime == "BULL"):
+            if require_btc_alignment:
+                index += 1
+                continue
             readiness -= 8
         if symbol != "BTCUSDT":
             relative_edge = (
