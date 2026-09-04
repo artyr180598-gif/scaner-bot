@@ -1,165 +1,115 @@
-# 🔥 CryptoForge Pro
+# CryptoPilot 2.0
 
-Профессиональный Telegram-бот крипто-помощник. Работает **только на реальных
-данных** с официальных API Binance и Bybit (опционально CoinGlass / CryptoPanic).
-Никаких заглушек и mock-данных: если биржа недоступна — бот честно пишет об этом.
+Telegram‑помощник для анализа ликвидных бессрочных USDT‑фьючерсов Bybit или Binance.
+Система не открывает позиции и не имеет модуля исполнения ордеров: она собирает публичные
+рыночные данные, отбрасывает слабые ситуации и формирует объяснимый план `LONG`, `SHORT`
+или `NO TRADE`.
 
-> ⚠️ Бот выдаёт аналитические идеи и **не является финансовой рекомендацией**. Торговля криптовалютами связана с высоким риском.
+## Что делает бот
 
-## Возможности
+- автоматически проверяет рынок с заданным интервалом;
+- сначала фильтрует торгуемые USDT perpetual по обороту и bid/ask‑спреду;
+- делает быстрый отбор universe, затем углублённо анализирует shortlist;
+- использует только закрытые свечи и три таймфрейма (по умолчанию 15m/1h/4h);
+- учитывает EMA 20/50/200, RSI, ATR, ADX, MACD, Bollinger position, объём, пробой структуры,
+  funding и рыночный режим BTC;
+- отправляет автоматический сигнал только выше строгого порога уверенности;
+- выдаёт зону входа, технический стоп, TP1/TP2/TP3, срок действия, отмену сценария,
+  размер позиции по заданному риску, причины и риски;
+- хранит историю в SQLite и не повторяет одинаковый алерт до окончания cooldown;
+- выполняет консервативный walk‑forward backtest без утечки будущих свечей;
+- имеет `/healthz`, `/readyz` и `/metrics` для Railway.
 
-- 🔥 **Лучшие сетапы** — скрининг топ-монет по реальному объёму 24h.
-- 📈 **Только Лонги** / 📉 **Только Шорты**.
-- ⚡ **Скальп** (15m–1h) и 🎯 **Свинг** (4h–D).
-- 📊 **Обзор рынка**: BTC/ETH, ширина рынка, топ роста/падения, суммарный объём, Fear & Greed.
-- 🔍 **Поиск по монете / условию** (например `ETH long 1h`, `BTC`, `volume > 100m`).
-- 📊 **Глубокий анализ монеты**: цена, ATR, RSI, EMA, объём, funding, OI, ликвидации, BTC-корреляция, новости.
-- 📰 **Новости рынка** через CryptoPanic (при наличии ключа).
-- 🔔 **Ценовые алерты**: бот в фоне проверяет реальные цены и шлёт уведомление при срабатывании.
-- 📚 **История идей**: все выданные сигналы сохраняются в SQLite.
-- 🧮 **Риск-калькулятор**: расчёт риска и потенциальной прибыли по R:R.
-- ⚙️ **Настройки риска**: консервативный / сбалансированный / агрессивный профиль, порог уверенности.
-- ℹ️ **Помощь** прямо в боте.
-- Формат сигнала строго по ТЗ: вход, стоп, TP1–TP3, R:R, уверенность, обоснование, риски, дисклеймер.
+Уверенность в сообщении — **внутренний рейтинг согласованности модели**, а не обещание
+процента выигрышных сделок. Значение намеренно ограничено 89%. Если данных или edge
+недостаточно, правильный результат — `NO TRADE`.
 
-## Стек
+## Telegram
 
-| Слой | Технология |
-| --- | --- |
-| Python | 3.11+ |
-| Telegram | aiogram 3.x (последняя стабильная), полностью async |
-| Хранилище | SQLite (`aiosqlite`) с простой миграцией на Postgres |
-| Состояние | aiogram FSM |
-| Биржи | Binance REST, Bybit REST |
-| Производные | CoinGlass (optional, `COINGLASS_API_KEY`) |
-| Новости | CryptoPanic (optional, `CRYPTOPANIC_API_KEY`) |
-| Конфиг | pydantic-settings + `.env` |
-| Логи | loguru |
-| Деплой | Railway (Nixpacks + `railway.json` + `Procfile`) |
+Кнопки и команды:
 
-## Быстрый старт
+- `🔎 Сканировать рынок` / `/scan` — ручной полный скан;
+- `🪙 Анализ монеты` / `/analyze BTC` — подробный разбор одной монеты;
+- `⭐ Лучшие сигналы` / `/best` — последние сохранённые планы;
+- `📊 Бэктест` / `/backtest ETH` — walk‑forward тест на 1h;
+- `⚙️ Статус` / `/status` — Telegram, API и автомониторинг;
+- `❓ Помощь` / `/help` — правила использования.
+
+Доступ разрешён только ID из `TELEGRAM_CHAT_ID`. Это обязательный защитный барьер.
+
+## Railway
+
+1. Подключите репозиторий как Railway service.
+2. Добавьте Variables:
+   - `TELEGRAM_BOT_TOKEN` — токен BotFather;
+   - `TELEGRAM_CHAT_ID` — ваш numeric ID; несколько ID можно указать через запятую;
+   - `EXCHANGE=bybit` либо `EXCHANGE=binance`.
+3. При необходимости измените параметры из `.env.example`.
+4. Railway автоматически использует `Dockerfile`, запускает `python -m cryptopilot` и
+   проверяет `/healthz`.
+5. Для постоянной истории подключите Railway Volume и задайте `DATA_DIR=/data`.
+
+Старые имена переменных `TELEGRAM_TOKEN`, `BOT_TOKEN`, `TELEGRAM_USER_ID`,
+`ALLOWED_CHAT_IDS` и `ADMIN_ID` поддерживаются, чтобы существующий деплой не сломался.
+Ключи Bybit/Binance для анализа не нужны: используются публичные market-data endpoints.
+
+## Основные настройки
+
+| Variable | Default | Назначение |
+|---|---:|---|
+| `SCAN_INTERVAL_SECONDS` | `900` | Период автоматического скана, минимум 300 сек |
+| `MIN_VOLUME_USDT` | `20000000` | Минимальный суточный оборот |
+| `MAX_SPREAD_BPS` | `12` | Максимальный bid/ask spread |
+| `UNIVERSE_SIZE` | `80` | Сколько ликвидных рынков быстро проверить |
+| `SHORTLIST_SIZE` | `12` | Сколько кандидатов разобрать глубоко |
+| `MIN_AUTO_CONFIDENCE` | `78` | Порог автоматического алерта |
+| `ALERT_COOLDOWN_MINUTES` | `180` | Защита от повторов |
+| `ACCOUNT_EQUITY_USDT` | `1000` | База для иллюстрации риска |
+| `RISK_PER_TRADE_PCT` | `0.5` | Максимальный риск по стопу |
+| `MAX_POSITION_PCT` | `25` | Ограничение расчётного notional |
+
+## Логика решения
+
+```text
+active USDT perpetuals
+  → liquidity/spread filter
+  → top universe by turnover
+  → quick 1h directional score
+  → full 15m + 1h + 4h analysis
+  → BTC regime + funding + data-quality gates
+  → risk plan or NO TRADE
+  → confidence threshold + deduplication
+  → Telegram
+```
+
+Автоматический порог должен быть не ниже ручного. LONG блокируется против сильного
+медвежьего режима BTC, SHORT — против сильного бычьего. Также блокируются устаревшие
+данные, слабая ликвидность, широкий спред, конфликт старших таймфреймов, экстремальный
+funding, слишком низкая/высокая волатильность и вход после чрезмерного удаления от EMA20.
+
+## Локальная проверка
 
 ```bash
-# 1. Python 3.11+
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# 2. Токен
-cp .env.example .env
-# заполни TELEGRAM_TOKEN (от @BotFather)
-
-# 3. Запуск
-python -m cryptoforge_pro.main
-# или
-./start.sh
-# или
-python main.py
+pip install pytest ruff
+ruff check .
+pytest
+TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... python -m cryptopilot
 ```
 
-## Команды Telegram
+## Источники market API
 
-| Команда | Что делает |
-| --- | --- |
-| `/start` | Главное меню |
-| `/scan` | Лучшие сетапы сейчас |
-| `/analyze BTC` | Глубокий анализ монеты |
-| `/search ETH long 1h` | Поиск по условию |
-| `/market` | Обзор рынка |
-| `/news` | Новости рынка |
-| `/alerts` | Ценовые алерты |
-| `/history` | История идей |
-| `/risk` | Риск-калькулятор |
-| `/status` | Проверка доступа к реальным данным |
-| `/settings` | Настройки риска |
-| `/help` | Помощь |
+- [Bybit V5 Get Kline](https://bybit-exchange.github.io/docs/v5/market/kline)
+- [Bybit V5 Get Tickers](https://bybit-exchange.github.io/docs/v5/market/tickers)
+- [Bybit V5 Instruments Info](https://bybit-exchange.github.io/docs/v5/market/instrument)
+- [Binance USDⓈ‑M Futures Market Data](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/market-data/rest-api/Kline-Candlestick-Data)
 
-## Настройки риска
+## Важное ограничение
 
-Профиль задаёт минимальный порог уверенности:
+Фьючерсы высокорискованны. Backtest и рейтинг уверенности не гарантируют будущую
+доходность. Перед реальными деньгами используйте paper trading, ограничивайте риск и
+проверяйте цену/спред непосредственно на бирже. Бот специально не содержит автоторговлю,
+martingale и скрытое увеличение позиции.
 
-- 🛡️ **Консервативный** — 58%
-- ⚖️ **Сбалансированный** — 62%
-- 🚀 **Агрессивный** — 67%
-
-Порог можно изменить вручную от 40 до 95 через меню.
-
-## Переменные окружения
-
-См. `.env.example`. Для Railway задай переменные в панели проекта:
-
-- **Обязательно:** `TELEGRAM_BOT_TOKEN` (имя переменной на Railway) или `TELEGRAM_TOKEN` (локальный `.env`). Бот также принимает `BOT_TOKEN`, `TG_TOKEN`, `BOT_API_TOKEN`.
-- `CHAT_ID` — **рекомендованный вариант в Railway**: одиночный ID, который может обращаться к боту. Если заданы `ALLOWED_CHAT_IDS` / `ADMIN_CHAT_IDS`, они имеют приоритет.
-- `ADMIN_CHAT_IDS`, `ALLOWED_CHAT_IDS` — опционально, через запятую.
-- `EXCHANGES=binance,bybit`.
-- `COINGLASS_API_KEY`, `CRYPTOPANIC_API_KEY` — опционально.
-- `ALERT_CHECK_INTERVAL_SECONDS`, `ALERT_PRICE_WINDOW_PCT` — настройки вотчера.
-- `RISK_PROFILES`, `MIN_CONFIDENCE` — тюнинг движка.
-
-## Деплой на Railway
-
-1. Загрузи репозиторий в GitHub.
-2. В Railway: New Project → Deploy from GitHub → выбери репозиторий.
-3. Добавь переменную `TELEGRAM_TOKEN`.
-4. Railway сам увидит `railway.json` / `nixpacks.toml` и запустит `python -m cryptoforge_pro.main`.
-
-`Procfile` также поддерживает режим worker.
-
-## Архитектура
-
-```
-cryptoforge_pro/
-├── config.py              # pydantic-settings + .env
-├── models.py              # Candle, Ticker, Derivatives, MarketData, Signal
-├── db.py                  # aiosqlite, users + signals
-├── text_parse.py          # детерминированный парсер запросов
-├── data/
-│   ├── http.py            # async httpx session
-│   ├── exchanges.py       # Binance + Bybit REST
-│   ├── coinglass.py       # CoinGlass (optional)
-│   ├── news.py            # CryptoPanic (optional)
-│   └── sentiment.py       # Fear & Greed (alternative.me)
-├── market.py              # агрегатор рынка, BTC-контекст
-├── alerts.py              # фоновый вотчер ценовых алертов
-├── analysis/
-│   ├── indicators.py      # EMA, RSI, ATR, MACD, объём, структура
-│   └── engine.py          # signal score / entry / stop / TP / confidence
-├── telegram/
-│   ├── handlers.py        # aiogram handlers (menu, scan, analyze, settings)
-│   ├── keyboards.py       # inline-клавиатуры
-│   ├── format.py          # HTML-формат сигнала и разбора
-│   ├── context.py         # DI-контекст
-│   └── states.py          # FSM
-├── app.py                 # bootstrap
-├── main.py                # точка входа
-└── selftest.py            # live self-test (реальные API)
-```
-
-## Проверка без токена
-
-```bash
-python -m cryptoforge_pro.selftest
-```
-
-Self-test использует живые публичные API Binance/Bybit. Если сеть до биржи недоступна — тест завершится ошибкой, а не подставит синтетику.
-
-## Как проверить живые данные
-
-В меню нажмите **🩺 Проверка данных** или отправьте `/status`.
-Бот выполнит live-проверку:
-- `binance` / `bybit` — доступность публичного REST;
-- `coinglass` — активен только при `COINGLASS_API_KEY`;
-- `cryptopanic` — активен только при `CRYPTOPANIC_API_KEY`;
-- `fear_greed` — external.me (опционально).
-
-Команда честно покажет зелёный/жёлтый/красный статус для каждого источника.
-Если на Railway виден красный — проверьте исходящий интернет и DNS/домены
-`api.binance.com`, `api.bybit.com`.
-
-## Честность данных
-
-- Цены, свечи, объёмы — только Binance/Bybit официальные публичные REST.
-- Funding / Open Interest — Binance Futures, Bybit Linear, опционально CoinGlass.
-- News — CryptoPanic при наличии ключа.
-- Fear & Greed — alternative.me (optional noise layer, never a trading signal alone).
-- Если источник недоступен, бот сообщает об этом и не выдумывает числа.

@@ -1,34 +1,16 @@
-# Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-.venv/
-venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.hypothesis/
-
-# Локальные секреты и окружение
+*.sqlite3
+*.db
 .env
-.env.local
-.env.*.local
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+data/
+dist/
+build/
+*.egg-info/
 
-# IDE / OS
-.idea/
-.vscode/
-.DS_Store
-
-# Docker / Railway artifacts
-node_modules/
-.railway/
-*.tar
-*.zip
-
-# Данные бота (только корневая runtime-папка, НЕ пакет cryptoforge_pro/data)
-/data/
-*.log
-signals.db
-signals.db-journal
-signals.db-wal
-signals.db-shm
