@@ -300,13 +300,34 @@ def early_radar_research(
             continue
 
         readiness = 32
-        readiness += 18 if f1h.bb_width_regime_ratio[index] <= 0.75 else 10
-        readiness += 14 if f1h.atr_regime_ratio[index] <= 0.8 else 8
-        readiness += 12 if f1h.ema_gap_atr[index] <= 0.25 else 6
+        if f1h.bb_width_regime_ratio[index] <= 0.75:
+            readiness += 18
+        elif f1h.bb_width_regime_ratio[index] <= 0.9:
+            readiness += 10
+        if f1h.atr_regime_ratio[index] <= 0.8:
+            readiness += 14
+        elif f1h.atr_regime_ratio[index] <= 0.9:
+            readiness += 8
+        if f1h.ema_gap_atr[index] <= 0.25:
+            readiness += 12
+        elif f1h.ema_gap_atr[index] <= 0.4:
+            readiness += 6
         readiness += 5 if f1h.adx14[index] <= 24 else 0
         votes = 0
-        votes += 1 if f1h.ema20_slope_pct[index] > 0.02 else -1
-        votes += 1 if f1h.dmi_spread[index] > 3 else -1 if f1h.dmi_spread[index] < -3 else 0
+        votes += (
+            1
+            if f1h.ema20_slope_pct[index] > 0.02
+            else -1
+            if f1h.ema20_slope_pct[index] < -0.02
+            else 0
+        )
+        votes += (
+            1
+            if f1h.dmi_spread[index] > 3
+            else -1
+            if f1h.dmi_spread[index] < -3
+            else 0
+        )
         votes += 1 if f1h.macd_hist[index] > 0 else -1
         votes += (
             1
