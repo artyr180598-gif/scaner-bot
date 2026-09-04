@@ -31,6 +31,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - run: pip install --no-deps -e .
       - name: Run multi-year walk-forward backtest
         env:
           START_MONTH: ${{ inputs.start || '2022-01' }}
@@ -50,4 +51,3 @@ jobs:
           path: reports/
           if-no-files-found: error
           retention-days: 30
-
