@@ -102,7 +102,8 @@ async def run() -> None:
             if not task.cancelled() and task.exception():
                 raise task.exception()
         stop_event.set()
-        await dispatcher.stop_polling()
+        with suppress(RuntimeError):
+            await dispatcher.stop_polling()
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
