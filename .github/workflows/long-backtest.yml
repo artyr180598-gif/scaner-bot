@@ -11,7 +11,7 @@ on:
         description: Last month (YYYY-MM)
         required: true
         default: "2026-08"
-  push:
+  pull_request:
     paths:
       - ".github/workflows/long-backtest.yml"
       - "scripts/long_backtest.py"
