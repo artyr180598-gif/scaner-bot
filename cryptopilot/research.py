@@ -263,16 +263,26 @@ def early_radar_research(
     *,
     min_readiness: int = 68,
     one_way_cost_bps: float = 6.0,
+    trigger_buffer_atr: float = 0.0,
+    min_breakout_score: float = 0.0,
+    min_breakout_volume_z: float = -10.0,
+    target_atr: float = 1.5,
+    stop_atr: float = 1.0,
 ) -> dict:
     """Test pre-breakout observations separately from post-trigger outcomes."""
-    candles_1h = aggregate_candles(candles_15m, 60)
-    candles_4h = aggregate_candles(candles_15m, 240)
-    benchmark_4h = aggregate_candles(benchmark_15m, 240)
-    f1h = feature_arrays(candles_1h)
-    f4h = feature_arrays(candles_4h)
-    f_benchmark = feature_arrays(benchmark_4h)
-    close_4h = [item.open_time_ms + 14_400_000 for item in candles_4h]
-    close_benchmark = [item.open_time_ms + 14_400_000 for item in benchmark_4h]
+    prepared = _PREPARED_CACHE.get((id(candles_15m), id(benchmark_15m)))
+    if prepared is None:
+        MultiTimeframeResearchBacktester().run(
+            symbol, candles_15m, benchmark_15m
+        )
+        prepared = _PREPARED_CACHE[(id(candles_15m), id(benchmark_15m))]
+    candles_1h = prepared.candles_1h
+    f1h = prepared.f1h
+    f15 = prepared.f15
+    f4h = prepared.f4h
+    f_benchmark = prepared.f_benchmark
+    close_4h = prepared.close_4h
+    close_benchmark = prepared.close_benchmark
     opens_15m = [item.open_time_ms for item in candles_15m]
     cost_fraction = one_way_cost_bps / 10_000
     records: list[dict] = []
@@ -376,7 +386,24 @@ def early_radar_research(
         activation_index: int | None = None
         for cursor in range(activation_start, activation_end):
             close = candles_15m[cursor].close
-            if (long and close > trigger) or (not long and close < trigger):
+            buffered_trigger = (
+                trigger + trigger_buffer_atr * f1h.atr14[index]
+                if long
+                else trigger - trigger_buffer_atr * f1h.atr14[index]
+            )
+            score_confirmed = (
+                f15.score[cursor] >= min_breakout_score
+                if long
+                else f15.score[cursor] <= -min_breakout_score
+            )
+            triggered = (
+                close > buffered_trigger if long else close < buffered_trigger
+            )
+            if (
+                triggered
+                and score_confirmed
+                and f15.volume_z[cursor] >= min_breakout_volume_z
+            ):
                 activation_index = cursor + 1
                 break
         record = {
@@ -389,9 +416,10 @@ def early_radar_research(
         }
         if activation_index is not None:
             entry = candles_15m[activation_index].open
-            risk = f1h.atr14[index]
+            risk = f1h.atr14[index] * stop_atr
             stop = entry - risk if long else entry + risk
-            target = entry + 1.5 * risk if long else entry - 1.5 * risk
+            target_distance = f1h.atr14[index] * target_atr
+            target = entry + target_distance if long else entry - target_distance
             result_r = 0.0
             exit_price = candles_15m[min(activation_index + 48, len(candles_15m) - 1)].close
             for cursor in range(
@@ -421,11 +449,14 @@ def early_radar_research(
     by_year: dict[str, dict[str, float]] = {}
     for item in records:
         year = str(item["setup_time"].year)
-        bucket = by_year.setdefault(year, {"setups": 0, "activated": 0, "net_r": 0.0})
+        bucket = by_year.setdefault(
+            year, {"setups": 0, "activated": 0, "wins": 0, "net_r": 0.0}
+        )
         bucket["setups"] += 1
         if item["activated"]:
             bucket["activated"] += 1
             bucket["net_r"] += float(item["result_r"])
+            bucket["wins"] += int(float(item["result_r"]) > 0)
     return {
         "symbol": symbol,
         "setups": len(records),

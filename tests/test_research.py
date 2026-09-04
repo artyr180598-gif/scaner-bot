@@ -23,6 +23,11 @@ def test_feature_series_matches_live_score_at_last_bar(candle_factory) -> None:
     assert series.ema_gap_atr[-1] == pytest.approx(live_features.ema_gap_atr)
     assert series.atr_regime_ratio[-1] == pytest.approx(live_features.atr_regime_ratio)
     assert series.dmi_spread[-1] == pytest.approx(live_features.dmi_spread)
+    assert series.bb_width_pct[-1] == pytest.approx(live_features.bb_width_pct)
+    assert series.bb_width_regime_ratio[-1] == pytest.approx(
+        live_features.bb_width_regime_ratio
+    )
+    assert series.range_position20[-1] == pytest.approx(live_features.range_position20)
 
 
 def test_aggregation_ignores_incomplete_higher_timeframe(candle_factory) -> None:

@@ -508,20 +508,109 @@ def run_early_radar_test(
     symbols: list[str],
     data: dict[str, list[Candle]],
 ) -> None:
-    results = [
-        early_radar_research(
-            symbol,
-            data[symbol],
-            data["BTCUSDT"],
-            min_readiness=68,
-            one_way_cost_bps=args.cost_bps,
-        )
-        for symbol in symbols
+    profiles = [
+        {"name": "radar_base", "min_readiness": 68},
+        {"name": "radar_quality_75", "min_readiness": 75},
+        {"name": "radar_quality_80", "min_readiness": 80},
+        {
+            "name": "confirmed_75",
+            "min_readiness": 75,
+            "trigger_buffer_atr": 0.05,
+            "min_breakout_score": 15,
+            "min_breakout_volume_z": 0.0,
+        },
+        {
+            "name": "confirmed_80",
+            "min_readiness": 80,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.5,
+        },
+        {
+            "name": "confirmed_80_rr125",
+            "min_readiness": 80,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.5,
+            "target_atr": 1.25,
+        },
+        {
+            "name": "confirmed_85_rr125",
+            "min_readiness": 85,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.5,
+            "target_atr": 1.25,
+        },
     ]
-    setups = sum(item["setups"] for item in results)
-    activated = sum(item["activated"] for item in results)
-    wins = sum(item["post_trigger_wins"] for item in results)
-    net_r = sum(item["net_r"] for item in results)
+    summaries: list[dict] = []
+    for profile in profiles:
+        results = [
+            early_radar_research(
+                symbol,
+                data[symbol],
+                data["BTCUSDT"],
+                one_way_cost_bps=args.cost_bps,
+                **{key: value for key, value in profile.items() if key != "name"},
+            )
+            for symbol in symbols
+        ]
+        setups = sum(item["setups"] for item in results)
+        activated = sum(item["activated"] for item in results)
+        wins = sum(item["post_trigger_wins"] for item in results)
+        net_r = sum(item["net_r"] for item in results)
+        train = [
+            bucket
+            for item in results
+            for year, bucket in item["yearly"].items()
+            if year in {"2022", "2023", "2024"}
+        ]
+        validation = [
+            bucket
+            for item in results
+            for year, bucket in item["yearly"].items()
+            if year in {"2025", "2026"}
+        ]
+        train_activated = int(sum(item["activated"] for item in train))
+        train_net_r = sum(item["net_r"] for item in train)
+        validation_activated = int(sum(item["activated"] for item in validation))
+        validation_net_r = sum(item["net_r"] for item in validation)
+        summary = {
+            "name": profile["name"],
+            "policy": profile,
+            "setups": setups,
+            "activated": activated,
+            "activation_rate": activated / setups * 100 if setups else 0.0,
+            "wins": wins,
+            "win_rate": wins / activated * 100 if activated else 0.0,
+            "net_r": net_r,
+            "expectancy_r": net_r / activated if activated else 0.0,
+            "train_activated": train_activated,
+            "train_net_r": train_net_r,
+            "train_expectancy_r": (
+                train_net_r / train_activated if train_activated else 0.0
+            ),
+            "validation_activated": validation_activated,
+            "validation_net_r": validation_net_r,
+            "validation_expectancy_r": (
+                validation_net_r / validation_activated
+                if validation_activated
+                else 0.0
+            ),
+            "symbols": results,
+        }
+        summaries.append(summary)
+        print(
+            f"EARLY LAB {profile['name']}: train {train_net_r:+.2f}R/"
+            f"{train_activated}, validation {validation_net_r:+.2f}R/"
+            f"{validation_activated}",
+            flush=True,
+        )
+    eligible = [item for item in summaries if item["train_activated"] >= 150]
+    selected = max(
+        eligible or summaries,
+        key=lambda item: (item["train_expectancy_r"], item["train_net_r"]),
+    )
     payload = {
         "research_version": RESEARCH_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -530,42 +619,33 @@ def run_early_radar_test(
             "Observation requires volatility compression and directional pressure; "
             "entry is evaluated only after a later range-break close."
         ),
-        "combined": {
-            "setups": setups,
-            "activated": activated,
-            "activation_rate": activated / setups * 100 if setups else 0.0,
-            "post_trigger_wins": wins,
-            "post_trigger_win_rate": wins / activated * 100 if activated else 0.0,
-            "net_r": net_r,
-            "expectancy_r": net_r / activated if activated else 0.0,
-        },
-        "symbols": results,
+        "selected_on_train": selected["name"],
+        "profiles": summaries,
         "limitations": [
             "Historical open interest and funding are unavailable in kline archives.",
-            "Post-trigger test uses 1.5 ATR target, 1 ATR stop and stop-first ordering.",
+            "Profiles vary readiness, breakout confirmation and target distance.",
             "Radar output is an observation, not an instruction to enter before trigger.",
         ],
     }
     lines = [
         "# CryptoPilot early-radar research",
         "",
-        "| Symbol | Setups | Activated | Activation | Post-trigger win | Exp. R |",
-        "|---|---:|---:|---:|---:|---:|",
+        "| Profile | Activated | Exp. R | Train N | Train R | Train Exp. | "
+        "Validation N | Validation R | Validation Exp. |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for item in results:
+    for item in summaries:
         lines.append(
-            f"| {item['symbol']} | {item['setups']} | {item['activated']} | "
-            f"{item['activation_rate']:.1f}% | {item['post_trigger_win_rate']:.1f}% | "
-            f"{item['expectancy_r']:+.3f} |"
+            f"| {item['name']} | {item['activated']} | {item['expectancy_r']:+.3f} | "
+            f"{item['train_activated']} | {item['train_net_r']:+.2f} | "
+            f"{item['train_expectancy_r']:+.3f} | {item['validation_activated']} | "
+            f"{item['validation_net_r']:+.2f} | "
+            f"{item['validation_expectancy_r']:+.3f} |"
         )
-    overall = payload["combined"]
     lines.extend(
         [
             "",
-            f"Combined: {setups} observations; {activated} activated "
-            f"({overall['activation_rate']:.1f}%); post-trigger win rate "
-            f"{overall['post_trigger_win_rate']:.1f}%; expectancy "
-            f"{overall['expectancy_r']:+.3f}R.",
+            f"Training-only selection: **{selected['name']}**.",
             "",
             "The radar is not evaluated as an immediate entry. Historical open interest "
             "and funding are not present in the kline archive.",
