@@ -500,12 +500,14 @@ class SignalEngine:
             risks.append("Импульс не поддержан текущим объёмом")
         if ticker.open_interest <= 0:
             risks.append("Open interest недоступен и не участвует в подтверждении")
-        elif ticker.open_interest_change_pct is not None:
-            if ticker.open_interest_change_pct <= -5:
-                risks.append(
-                    f"Open interest снизился на {abs(ticker.open_interest_change_pct):.1f}%: "
-                    "движение может быть закрытием позиций"
-                )
+        elif (
+            ticker.open_interest_change_pct is not None
+            and ticker.open_interest_change_pct <= -5
+        ):
+            risks.append(
+                f"Open interest снизился на {abs(ticker.open_interest_change_pct):.1f}%: "
+                "движение может быть закрытием позиций"
+            )
         return risks
 
     def _build_plan(
