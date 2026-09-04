@@ -15,10 +15,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from cryptopilot.models import Candle
-from cryptopilot.research import MultiTimeframeResearchBacktester, SymbolResearchResult
+from cryptopilot.research import (
+    MultiTimeframeResearchBacktester,
+    SymbolResearchResult,
+    early_radar_research,
+)
 
 BASE_URL = "https://data.binance.vision/data/futures/um/monthly/klines"
-RESEARCH_VERSION = "2.0.1"
+RESEARCH_VERSION = "3.0.0"
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,9 +33,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("reports"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".research-cache"))
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--confidence", type=int, default=78)
+    parser.add_argument("--confidence", type=int, default=84, help="LONG quality threshold")
+    parser.add_argument("--short-confidence", type=int, default=86)
     parser.add_argument("--risk-pct", type=float, default=0.5)
     parser.add_argument("--cost-bps", type=float, default=6.0, help="One-way fees + slippage")
+    parser.add_argument("--min-adx", type=float, default=18.0)
+    parser.add_argument("--min-efficiency", type=float, default=0.14)
+    parser.add_argument("--min-ema-gap-atr", type=float, default=0.08)
+    parser.add_argument("--max-atr-regime", type=float, default=2.8)
+    parser.add_argument("--disable-relative-strength", action="store_true")
+    parser.add_argument("--max-portfolio-risk-pct", type=float, default=1.0)
+    parser.add_argument("--max-same-side", type=int, default=1)
+    parser.add_argument(
+        "--strategy-lab",
+        action="store_true",
+        help="Compare conservative profiles and report train/validation stability",
+    )
+    parser.add_argument(
+        "--early-radar-test",
+        action="store_true",
+        help="Test pre-breakout discovery and post-trigger outcomes separately",
+    )
     return parser.parse_args()
 
 
@@ -55,7 +77,7 @@ def download_month(symbol: str, month: str, cache_dir: Path) -> bytes | None:
     if target.exists():
         return target.read_bytes()
     url = f"{BASE_URL}/{symbol}/15m/{symbol}-15m-{month}.zip"
-    request = urllib.request.Request(url, headers={"User-Agent": "CryptoPilot-Research/2.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "CryptoPilot-Research/3.0"})
     for attempt in range(3):
         try:
             with urllib.request.urlopen(request, timeout=45) as response:
@@ -127,11 +149,33 @@ def finite(value: float) -> float | None:
     return value if math.isfinite(value) else None
 
 
-def portfolio_summary(results: list[SymbolResearchResult], risk_pct: float) -> dict:
-    records = sorted(
+def portfolio_summary(
+    results: list[SymbolResearchResult],
+    risk_pct: float,
+    max_portfolio_risk_pct: float,
+    max_same_side: int,
+) -> dict:
+    candidates = sorted(
         (record for result in results for record in result.records),
-        key=lambda item: item.entry_time,
+        key=lambda item: (
+            item.entry_time,
+            -item.confidence,
+            -abs(item.score),
+            item.symbol,
+        ),
     )
+    max_positions = max(1, int(max_portfolio_risk_pct / risk_pct))
+    records = []
+    active = []
+    rejected_for_risk = 0
+    for candidate in candidates:
+        active = [item for item in active if item.exit_time > candidate.entry_time]
+        same_side = sum(item.side == candidate.side for item in active)
+        if len(active) >= max_positions or same_side >= max_same_side:
+            rejected_for_risk += 1
+            continue
+        records.append(candidate)
+        active.append(candidate)
     equity = 1000.0
     peak = equity
     max_drawdown = 0.0
@@ -158,7 +202,10 @@ def portfolio_summary(results: list[SymbolResearchResult], risk_pct: float) -> d
         "return_pct": (equity / 1000 - 1) * 100,
         "max_drawdown_pct": max_drawdown,
         "yearly_r": {key: round(value, 3) for key, value in sorted(yearly.items())},
-        "note": "Combined sequence does not cap simultaneous positions across symbols.",
+        "rejected_for_portfolio_risk": rejected_for_risk,
+        "max_simultaneous_positions": max_positions,
+        "max_same_side_positions": max_same_side,
+        "note": "Combined sequence applies chronological portfolio and same-side risk caps.",
     }
 
 
@@ -171,8 +218,15 @@ def markdown_report(payload: dict) -> str:
         f"Generated: {payload['generated_at']}",
         f"Source: {payload['source']}",
         f"Requested period: {config['start']} through {config['end']}",
-        f"Automatic confidence threshold: {config['confidence']}%",
+        f"Automatic quality threshold: LONG {config['confidence']}/100; "
+        f"SHORT {config['short_confidence']}/100",
+        f"Adaptive gates: ADX ≥ {config['min_adx']}, efficiency ≥ "
+        f"{config['min_efficiency']}, EMA gap/ATR ≥ {config['min_ema_gap_atr']}, "
+        f"ATR shock ≤ {config['max_atr_regime']}x, relative strength "
+        f"{'on' if config['relative_strength_filter'] else 'off'}",
         f"Risk per trade: {config['risk_pct']}%; one-way costs: {config['cost_bps']} bps",
+        f"Portfolio cap: {config['max_portfolio_risk_pct']}% total risk; "
+        f"max {config['max_same_side']} same-side position(s)",
         "",
         "## Results by symbol",
         "",
@@ -202,6 +256,8 @@ def markdown_report(payload: dict) -> str:
             f"- Profit factor: {overall['profit_factor'] or 0:.2f}",
             f"- Illustrative return: {overall['return_pct']:+.2f}%",
             f"- Maximum drawdown: {overall['max_drawdown_pct']:.2f}%",
+            f"- Candidates rejected by portfolio cap: "
+            f"{overall['rejected_for_portfolio_risk']}",
             "",
             "### Yearly net R",
             "",
@@ -224,13 +280,429 @@ def markdown_report(payload: dict) -> str:
             "- Public kline archives do not contain historical bid/ask spread, funding, "
             "open interest or the full cross-sectional shortlist. Those production "
             "filters are omitted.",
-            "- The combined sequence does not limit simultaneous positions and is not "
-            "a claim of realizable portfolio return.",
+            "- The combined sequence limits concurrent risk and same-side exposure, but remains "
+            "an execution approximation rather than a claim of realizable return.",
             "- Historical results do not guarantee future performance.",
             "",
         ]
     )
     return "\n".join(lines)
+
+
+def strategy_profiles() -> list[dict]:
+    return [
+        {
+            "name": "baseline_84",
+            "auto_confidence": 84,
+            "short_confidence": 84,
+            "min_primary_adx": 0.0,
+            "min_efficiency_ratio": 0.0,
+            "min_ema_gap_atr": 0.0,
+            "max_countertrend_dmi": 100.0,
+            "max_atr_regime_ratio": 10.0,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 0,
+        },
+        {
+            "name": "split_84_86",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 0.0,
+            "min_efficiency_ratio": 0.0,
+            "min_ema_gap_atr": 0.0,
+            "max_countertrend_dmi": 100.0,
+            "max_atr_regime_ratio": 10.0,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 0,
+        },
+        {
+            "name": "split_plus_regime",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 0.0,
+            "min_efficiency_ratio": 0.0,
+            "min_ema_gap_atr": 0.0,
+            "max_countertrend_dmi": 100.0,
+            "max_atr_regime_ratio": 10.0,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "quality_no_relative",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "balanced_v3",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "strict_trend",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 22.0,
+            "min_efficiency_ratio": 0.20,
+            "min_ema_gap_atr": 0.12,
+            "max_countertrend_dmi": 3.0,
+            "max_atr_regime_ratio": 2.3,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "strict_short_87",
+            "auto_confidence": 84,
+            "short_confidence": 87,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "clean_momentum",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 20.0,
+            "min_efficiency_ratio": 0.22,
+            "min_ema_gap_atr": 0.15,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.5,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "selective_85_87",
+            "auto_confidence": 85,
+            "short_confidence": 87,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+    ]
+
+
+def lab_markdown(payload: dict) -> str:
+    lines = [
+        "# CryptoPilot strategy laboratory",
+        "",
+        f"Generated: {payload['generated_at']}",
+        f"Train window: {', '.join(payload['train_years'])}",
+        f"Untouched validation window: {', '.join(payload['validation_years'])}",
+        "",
+        "| Profile | Trades | Net R | Exp. R | PF | Max DD | Positive years | "
+        "Train R | Train worst | Validation R | Validation worst |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for item in payload["profiles"]:
+        lines.append(
+            f"| {item['name']} | {item['trades']} | {item['net_r']:+.2f} | "
+            f"{item['expectancy_r']:+.3f} | {item['profit_factor'] or 0:.2f} | "
+            f"{item['max_drawdown_pct']:.2f}% | {item['positive_years']}/"
+            f"{item['total_years']} | {item['train_net_r']:+.2f} | "
+            f"{item['train_worst_year_r']:+.2f} | {item['validation_net_r']:+.2f} | "
+            f"{item['validation_worst_year_r']:+.2f} |"
+        )
+    lines.extend(
+        [
+            "",
+            f"Training-only selection: **{payload['selected_on_train']}**.",
+            "",
+            "The validation columns were not used by the selection score. This is still a "
+            "research comparison, not a future-performance guarantee.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def run_strategy_lab(
+    args: argparse.Namespace,
+    symbols: list[str],
+    data: dict[str, list[Candle]],
+) -> None:
+    train_years = ["2022", "2023", "2024"]
+    validation_years = ["2025", "2026"]
+    summaries: list[dict] = []
+    for policy in strategy_profiles():
+        tester = MultiTimeframeResearchBacktester(
+            risk_per_trade_pct=args.risk_pct,
+            one_way_cost_bps=args.cost_bps,
+            **{key: value for key, value in policy.items() if key != "name"},
+        )
+        results = [tester.run(symbol, data[symbol], data["BTCUSDT"]) for symbol in symbols]
+        combined = portfolio_summary(
+            results,
+            args.risk_pct,
+            args.max_portfolio_risk_pct,
+            args.max_same_side,
+        )
+        yearly = combined["yearly_r"]
+        train_values = [float(yearly.get(year, 0.0)) for year in train_years]
+        validation_values = [float(yearly.get(year, 0.0)) for year in validation_years]
+        summary = {
+            "name": policy["name"],
+            "policy": policy,
+            **combined,
+            "positive_years": sum(value > 0 for value in yearly.values()),
+            "total_years": len(yearly),
+            "train_net_r": sum(train_values),
+            "train_worst_year_r": min(train_values),
+            "validation_net_r": sum(validation_values),
+            "validation_worst_year_r": min(validation_values),
+        }
+        # Selection deliberately sees training years only. Penalize a bad training year heavily.
+        summary["training_score"] = (
+            summary["train_net_r"]
+            + 2 * min(0.0, summary["train_worst_year_r"])
+            + min(20.0, max(-20.0, ((summary["profit_factor"] or 0.0) - 1) * 20))
+        )
+        summaries.append(summary)
+        print(
+            f"LAB {policy['name']}: {combined['trades']} trades, "
+            f"{combined['net_r']:+.2f}R, PF {combined['profit_factor'] or 0:.2f}, "
+            f"validation {summary['validation_net_r']:+.2f}R",
+            flush=True,
+        )
+    selected = max(summaries, key=lambda item: item["training_score"])
+    payload = {
+        "research_version": RESEARCH_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "source": "Binance Public Data (USD-M futures, 15m monthly klines)",
+        "train_years": train_years,
+        "validation_years": validation_years,
+        "selected_on_train": selected["name"],
+        "profiles": summaries,
+    }
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "strategy_lab.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    markdown = lab_markdown(payload)
+    (args.output_dir / "strategy_lab.md").write_text(markdown, encoding="utf-8")
+    print("\n" + markdown, flush=True)
+
+
+def run_early_radar_test(
+    args: argparse.Namespace,
+    symbols: list[str],
+    data: dict[str, list[Candle]],
+) -> None:
+    profiles = [
+        {"name": "radar_base", "min_readiness": 68},
+        {"name": "radar_quality_75", "min_readiness": 75},
+        {"name": "radar_quality_80", "min_readiness": 80},
+        {
+            "name": "confirmed_75",
+            "min_readiness": 75,
+            "trigger_buffer_atr": 0.05,
+            "min_breakout_score": 15,
+            "min_breakout_volume_z": 0.0,
+        },
+        {
+            "name": "confirmed_80",
+            "min_readiness": 80,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.5,
+        },
+        {
+            "name": "confirmed_80_rr125",
+            "min_readiness": 80,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.5,
+            "target_atr": 1.25,
+        },
+        {
+            "name": "confirmed_85_rr125",
+            "min_readiness": 85,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.5,
+            "target_atr": 1.25,
+        },
+        {
+            "name": "trend_squeeze_75",
+            "min_readiness": 75,
+            "min_structural_score": 25,
+            "min_structural_adx": 18,
+        },
+        {
+            "name": "trend_confirmed_75",
+            "min_readiness": 75,
+            "trigger_buffer_atr": 0.05,
+            "min_breakout_score": 15,
+            "min_breakout_volume_z": 0.0,
+            "min_structural_score": 25,
+            "min_structural_adx": 18,
+        },
+        {
+            "name": "trend_confirmed_80",
+            "min_readiness": 80,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.0,
+            "min_structural_score": 35,
+            "min_structural_adx": 20,
+        },
+        {
+            "name": "trend_btc_75",
+            "min_readiness": 75,
+            "trigger_buffer_atr": 0.05,
+            "min_breakout_score": 15,
+            "min_breakout_volume_z": 0.0,
+            "min_structural_score": 25,
+            "min_structural_adx": 18,
+            "require_btc_alignment": True,
+        },
+        {
+            "name": "trend_btc_80",
+            "min_readiness": 80,
+            "trigger_buffer_atr": 0.10,
+            "min_breakout_score": 20,
+            "min_breakout_volume_z": 0.5,
+            "min_structural_score": 35,
+            "min_structural_adx": 20,
+            "require_btc_alignment": True,
+        },
+    ]
+    summaries: list[dict] = []
+    for profile in profiles:
+        results = [
+            early_radar_research(
+                symbol,
+                data[symbol],
+                data["BTCUSDT"],
+                one_way_cost_bps=args.cost_bps,
+                **{key: value for key, value in profile.items() if key != "name"},
+            )
+            for symbol in symbols
+        ]
+        setups = sum(item["setups"] for item in results)
+        activated = sum(item["activated"] for item in results)
+        wins = sum(item["post_trigger_wins"] for item in results)
+        net_r = sum(item["net_r"] for item in results)
+        train = [
+            bucket
+            for item in results
+            for year, bucket in item["yearly"].items()
+            if year in {"2022", "2023", "2024"}
+        ]
+        validation = [
+            bucket
+            for item in results
+            for year, bucket in item["yearly"].items()
+            if year in {"2025", "2026"}
+        ]
+        train_activated = int(sum(item["activated"] for item in train))
+        train_net_r = sum(item["net_r"] for item in train)
+        validation_activated = int(sum(item["activated"] for item in validation))
+        validation_net_r = sum(item["net_r"] for item in validation)
+        summary = {
+            "name": profile["name"],
+            "policy": profile,
+            "setups": setups,
+            "activated": activated,
+            "activation_rate": activated / setups * 100 if setups else 0.0,
+            "wins": wins,
+            "win_rate": wins / activated * 100 if activated else 0.0,
+            "net_r": net_r,
+            "expectancy_r": net_r / activated if activated else 0.0,
+            "train_activated": train_activated,
+            "train_net_r": train_net_r,
+            "train_expectancy_r": (
+                train_net_r / train_activated if train_activated else 0.0
+            ),
+            "validation_activated": validation_activated,
+            "validation_net_r": validation_net_r,
+            "validation_expectancy_r": (
+                validation_net_r / validation_activated
+                if validation_activated
+                else 0.0
+            ),
+            "symbols": results,
+        }
+        summaries.append(summary)
+        print(
+            f"EARLY LAB {profile['name']}: train {train_net_r:+.2f}R/"
+            f"{train_activated}, validation {validation_net_r:+.2f}R/"
+            f"{validation_activated}",
+            flush=True,
+        )
+    eligible = [item for item in summaries if item["train_activated"] >= 150]
+    selected = max(
+        eligible or summaries,
+        key=lambda item: (item["train_expectancy_r"], item["train_net_r"]),
+    )
+    payload = {
+        "research_version": RESEARCH_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "source": "Binance Public Data (USD-M futures, 15m monthly klines)",
+        "definition": (
+            "Observation requires volatility compression and directional pressure; "
+            "entry is evaluated only after a later range-break close."
+        ),
+        "selected_on_train": selected["name"],
+        "profiles": summaries,
+        "limitations": [
+            "Historical open interest and funding are unavailable in kline archives.",
+            "Profiles vary readiness, breakout confirmation and target distance.",
+            "Radar output is an observation, not an instruction to enter before trigger.",
+        ],
+    }
+    lines = [
+        "# CryptoPilot early-radar research",
+        "",
+        "| Profile | Activated | Exp. R | Train N | Train R | Train Exp. | "
+        "Validation N | Validation R | Validation Exp. |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for item in summaries:
+        lines.append(
+            f"| {item['name']} | {item['activated']} | {item['expectancy_r']:+.3f} | "
+            f"{item['train_activated']} | {item['train_net_r']:+.2f} | "
+            f"{item['train_expectancy_r']:+.3f} | {item['validation_activated']} | "
+            f"{item['validation_net_r']:+.2f} | "
+            f"{item['validation_expectancy_r']:+.3f} |"
+        )
+    lines.extend(
+        [
+            "",
+            f"Training-only selection: **{selected['name']}**.",
+            "",
+            "The radar is not evaluated as an immediate entry. Historical open interest "
+            "and funding are not present in the kline archive.",
+            "",
+        ]
+    )
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "early_radar.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
+    markdown = "\n".join(lines)
+    (args.output_dir / "early_radar.md").write_text(markdown, encoding="utf-8")
+    print("\n" + markdown, flush=True)
 
 
 def main() -> None:
@@ -251,10 +723,23 @@ def main() -> None:
         if len(data[symbol]) < 4000:
             raise RuntimeError(f"Not enough history for {symbol}")
 
+    if args.strategy_lab:
+        run_strategy_lab(args, symbols, data)
+    if args.early_radar_test:
+        run_early_radar_test(args, symbols, data)
+    if args.strategy_lab or args.early_radar_test:
+        return
+
     tester = MultiTimeframeResearchBacktester(
         auto_confidence=args.confidence,
+        short_confidence=args.short_confidence,
         risk_per_trade_pct=args.risk_pct,
         one_way_cost_bps=args.cost_bps,
+        min_primary_adx=args.min_adx,
+        min_efficiency_ratio=args.min_efficiency,
+        min_ema_gap_atr=args.min_ema_gap_atr,
+        max_atr_regime_ratio=args.max_atr_regime,
+        relative_strength_filter=not args.disable_relative_strength,
     )
     results: list[SymbolResearchResult] = []
     for symbol in symbols:
@@ -275,16 +760,29 @@ def main() -> None:
             "start": args.start,
             "end": args.end,
             "confidence": args.confidence,
+            "short_confidence": args.short_confidence,
             "risk_pct": args.risk_pct,
             "cost_bps": args.cost_bps,
+            "min_adx": args.min_adx,
+            "min_efficiency": args.min_efficiency,
+            "min_ema_gap_atr": args.min_ema_gap_atr,
+            "max_atr_regime": args.max_atr_regime,
+            "relative_strength_filter": not args.disable_relative_strength,
+            "max_portfolio_risk_pct": args.max_portfolio_risk_pct,
+            "max_same_side": args.max_same_side,
         },
         "missing_months": missing,
         "symbols": [result.to_dict(include_records=False) for result in results],
-        "combined": portfolio_summary(results, args.risk_pct),
+        "combined": portfolio_summary(
+            results,
+            args.risk_pct,
+            args.max_portfolio_risk_pct,
+            args.max_same_side,
+        ),
         "trades": [record.to_dict() for result in results for record in result.records],
         "limitations": [
             "No historical spread, funding, open-interest or cross-sectional shortlist filter.",
-            "Combined return does not cap concurrent positions.",
+            "Combined return uses portfolio caps but remains an execution approximation.",
             "No future performance guarantee.",
         ],
     }

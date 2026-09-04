@@ -11,7 +11,7 @@ on:
         description: Last month (YYYY-MM)
         required: true
         default: "2026-08"
-  push:
+  pull_request:
     paths:
       - ".github/workflows/long-backtest.yml"
       - "scripts/long_backtest.py"
@@ -42,7 +42,12 @@ jobs:
             --start "$START_MONTH" \
             --end "$END_MONTH" \
             --confidence 84 \
+            --short-confidence 86 \
             --risk-pct 0.5 \
+            --max-portfolio-risk-pct 1.0 \
+            --max-same-side 1 \
+            --strategy-lab \
+            --early-radar-test \
             --cost-bps 6
       - uses: actions/upload-artifact@v4
         if: always()

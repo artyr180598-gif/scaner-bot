@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Any
 
 import aiohttp
@@ -41,7 +42,7 @@ class JsonClient:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
                 timeout=self.timeout,
-                headers={"User-Agent": "CryptoPilot/2.0 market-intelligence"},
+                headers={"User-Agent": "CryptoPilot/3.0 market-intelligence"},
             )
 
     async def close(self) -> None:
@@ -80,6 +81,10 @@ class ExchangeClient(ABC):
 
     @abstractmethod
     async def candles(self, symbol: str, interval: str, limit: int = 260) -> list[Candle]: ...
+
+    async def enrich_ticker(self, ticker: Ticker) -> Ticker:
+        """Attach optional derivatives context without making core market data fragile."""
+        return ticker
 
     @abstractmethod
     async def ping(self) -> bool: ...
@@ -177,6 +182,31 @@ class BybitClient(ExchangeClient):
             if int(row[0]) + duration <= now_ms
         ]
 
+    async def enrich_ticker(self, ticker: Ticker) -> Ticker:
+        try:
+            result = self._result(
+                await self.http.get(
+                    "/v5/market/open-interest",
+                    {
+                        "category": "linear",
+                        "symbol": ticker.symbol,
+                        "intervalTime": "1h",
+                        "limit": 6,
+                    },
+                )
+            )
+            rows = sorted(result.get("list", []), key=lambda item: int(item["timestamp"]))
+            values = [float(item["openInterest"]) for item in rows]
+            change = _percentage_change(values[0], values[-1]) if len(values) >= 2 else None
+            return replace(
+                ticker,
+                open_interest=values[-1] if values else ticker.open_interest,
+                open_interest_change_pct=change,
+            )
+        except (KeyError, TypeError, ValueError, MarketDataError, aiohttp.ClientError) as exc:
+            log.debug("Bybit open-interest context unavailable for %s: %s", ticker.symbol, exc)
+            return ticker
+
     async def ping(self) -> bool:
         return self._result(await self.http.get("/v5/market/time")) is not None
 
@@ -266,6 +296,25 @@ class BinanceClient(ExchangeClient):
             if int(row[6]) < now_ms
         ]
 
+    async def enrich_ticker(self, ticker: Ticker) -> Ticker:
+        try:
+            rows = await self.http.get(
+                "/futures/data/openInterestHist",
+                {"symbol": ticker.symbol, "period": "1h", "limit": 6},
+            )
+            ordered = sorted(rows, key=lambda item: int(item["timestamp"]))
+            values = [float(item.get("sumOpenInterestValue") or 0) for item in ordered]
+            values = [value for value in values if value > 0]
+            change = _percentage_change(values[0], values[-1]) if len(values) >= 2 else None
+            return replace(
+                ticker,
+                open_interest=values[-1] if values else ticker.open_interest,
+                open_interest_change_pct=change,
+            )
+        except (KeyError, TypeError, ValueError, MarketDataError, aiohttp.ClientError) as exc:
+            log.debug("Binance open-interest context unavailable for %s: %s", ticker.symbol, exc)
+            return ticker
+
     async def ping(self) -> bool:
         await self.http.get("/fapi/v1/ping")
         return True
@@ -282,3 +331,9 @@ def build_exchange(
     if name == "binance":
         return BinanceClient(binance_url, timeout_seconds, concurrency)
     raise ValueError(f"Unsupported exchange: {name}")
+
+
+def _percentage_change(first: float, last: float) -> float | None:
+    if first <= 0:
+        return None
+    return (last / first - 1) * 100

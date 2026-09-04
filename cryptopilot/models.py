@@ -33,6 +33,7 @@ class Ticker:
     volume_24h: float
     funding_rate: float = 0.0
     open_interest: float = 0.0
+    open_interest_change_pct: float | None = None
 
     @property
     def spread_bps(self) -> float:
@@ -51,11 +52,22 @@ class FeatureSet:
     atr14: float
     atr_pct: float
     adx14: float
+    plus_di14: float
+    minus_di14: float
+    dmi_spread: float
     macd_hist: float
     bb_position: float
+    bb_width_pct: float
+    bb_width_regime_ratio: float
     volume_z: float
+    efficiency_ratio20: float
+    ema_gap_atr: float
+    atr_regime_ratio: float
     breakout_up: bool
     breakout_down: bool
+    range_high20: float
+    range_low20: float
+    range_position20: float
     return_20_pct: float
 
 
@@ -91,6 +103,13 @@ class Signal:
     features: dict[str, FeatureSet] = field(default_factory=dict)
     plan: TradePlan | None = None
     data_age_seconds: int = 0
+    required_confidence: int = 0
+    estimated_success_pct: float | None = None
+    success_interval_low: float | None = None
+    success_interval_high: float | None = None
+    calibration_samples: int = 0
+    recent_expectancy_r: float | None = None
+    strategy_version: str = "3.0"
 
     @property
     def actionable(self) -> bool:
@@ -120,6 +139,42 @@ class ScanReport:
     errors: tuple[str, ...] = ()
 
 
+@dataclass(slots=True)
+class EarlySetup:
+    symbol: str
+    exchange: str
+    bias: Side
+    readiness: int
+    price: float
+    trigger_price: float
+    invalidation_price: float
+    regime: str
+    created_at: datetime
+    expires_at: datetime
+    reasons: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+
+    @property
+    def actionable(self) -> bool:
+        return self.bias is not Side.NO_TRADE and not self.blockers
+
+    @property
+    def fingerprint(self) -> str:
+        return f"EARLY:{self.exchange}:{self.symbol}:{self.bias.value}"
+
+
+@dataclass(frozen=True, slots=True)
+class EarlyScanReport:
+    exchange: str
+    started_at: datetime
+    finished_at: datetime
+    universe_count: int
+    analyzed_count: int
+    setups: tuple[EarlySetup, ...]
+    errors: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class BacktestResult:
     symbol: str
@@ -134,3 +189,35 @@ class BacktestResult:
     max_drawdown_r: float
     started_at: datetime
     finished_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PaperTrade:
+    id: int
+    symbol: str
+    exchange: str
+    side: Side
+    confidence: int
+    regime: str
+    created_at: datetime
+    entry_expires_at: datetime
+    exit_expires_at: datetime
+    entry_low: float
+    entry_high: float
+    stop_loss: float
+    take_profit: float
+    status: str
+    entry_price: float | None = None
+    entry_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationStats:
+    sample_size: int
+    wins: int
+    losses: int
+    win_rate: float
+    interval_low: float
+    interval_high: float
+    expectancy_r: float
+    profit_factor: float
