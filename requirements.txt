@@ -1,8 +1,0 @@
-aiogram>=3.13,<4
-aiohttp>=3.10,<4
-aiosqlite>=0.20,<1
-numpy>=2.0,<3
-pydantic>=2.8,<3
-pydantic-settings>=2.4,<3
-tenacity>=9,<10
-
