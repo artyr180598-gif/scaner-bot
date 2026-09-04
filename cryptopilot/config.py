@@ -58,6 +58,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("UNIVERSE_SIZE", "TOP_N_SYMBOLS"),
     )
     shortlist_size: int = Field(default=12, ge=3, le=40)
+    early_shortlist_size: int = Field(default=10, ge=3, le=40)
     request_concurrency: int = Field(default=8, ge=1, le=20)
     timeframes: str = "15,60,240"
     min_auto_confidence: int = Field(default=84, ge=55, le=95)
@@ -73,6 +74,7 @@ class Settings(BaseSettings):
     min_primary_adx: float = Field(default=18.0, ge=0, le=60)
     min_efficiency_ratio: float = Field(default=0.14, ge=0, le=1)
     min_ema_gap_atr: float = Field(default=0.08, ge=0, le=5)
+    max_countertrend_dmi: float = Field(default=5.0, ge=0, le=100)
     max_atr_regime_ratio: float = Field(default=2.8, ge=1, le=10)
     relative_strength_filter: bool = True
     neutral_regime_confidence_penalty: int = Field(default=2, ge=0, le=10)
@@ -83,6 +85,13 @@ class Settings(BaseSettings):
     calibration_min_samples: int = Field(default=30, ge=10, le=500)
     calibration_lookback: int = Field(default=100, ge=20, le=1000)
     weak_edge_confidence_penalty: int = Field(default=2, ge=0, le=10)
+
+    early_radar_enabled: bool = True
+    early_auto_alerts: bool = True
+    min_early_readiness: int = Field(default=68, ge=50, le=95)
+    min_early_auto_readiness: int = Field(default=80, ge=55, le=95)
+    early_alert_cooldown_minutes: int = Field(default=360, ge=30, le=10_080)
+    early_setup_expiry_minutes: int = Field(default=720, ge=60, le=2_880)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
@@ -113,6 +122,8 @@ class Settings(BaseSettings):
     def validate_thresholds(self) -> Settings:
         if self.shortlist_size > self.universe_size:
             raise ValueError("SHORTLIST_SIZE cannot exceed UNIVERSE_SIZE")
+        if self.early_shortlist_size > self.universe_size:
+            raise ValueError("EARLY_SHORTLIST_SIZE cannot exceed UNIVERSE_SIZE")
         if self.min_auto_confidence < self.min_manual_confidence:
             raise ValueError("MIN_AUTO_CONFIDENCE must be >= MIN_MANUAL_CONFIDENCE")
         if self.min_auto_confidence_short < self.min_manual_confidence:
@@ -123,6 +134,10 @@ class Settings(BaseSettings):
             )
         if self.max_portfolio_risk_pct < self.risk_per_trade_pct:
             raise ValueError("MAX_PORTFOLIO_RISK_PCT must be >= RISK_PER_TRADE_PCT")
+        if self.min_early_auto_readiness < self.min_early_readiness:
+            raise ValueError(
+                "MIN_EARLY_AUTO_READINESS must be >= MIN_EARLY_READINESS"
+            )
         return self
 
     @property

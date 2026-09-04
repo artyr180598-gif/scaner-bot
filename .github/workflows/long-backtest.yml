@@ -44,6 +44,10 @@ jobs:
             --confidence 84 \
             --short-confidence 86 \
             --risk-pct 0.5 \
+            --max-portfolio-risk-pct 1.0 \
+            --max-same-side 1 \
+            --strategy-lab \
+            --early-radar-test \
             --cost-bps 6
       - uses: actions/upload-artifact@v4
         if: always()

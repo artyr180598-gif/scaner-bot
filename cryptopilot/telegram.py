@@ -16,12 +16,21 @@ from cryptopilot.backtest import WalkForwardBacktester
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.health import RuntimeHealth
-from cryptopilot.models import BacktestResult, CalibrationStats, ScanReport, Side, Signal
+from cryptopilot.models import (
+    BacktestResult,
+    CalibrationStats,
+    EarlyScanReport,
+    EarlySetup,
+    ScanReport,
+    Side,
+    Signal,
+)
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.storage import SignalStore
 
 SCAN = "🔎 Сканировать рынок"
 ANALYZE = "🪙 Анализ монеты"
+EARLY = "⚡ До импульса"
 BEST = "⭐ Лучшие сигналы"
 BACKTEST = "📊 Бэктест"
 STATUS = "⚙️ Статус"
@@ -64,9 +73,9 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=SCAN), KeyboardButton(text=ANALYZE)],
-            [KeyboardButton(text=BEST), KeyboardButton(text=BACKTEST)],
-            [KeyboardButton(text=PERFORMANCE), KeyboardButton(text=STATUS)],
-            [KeyboardButton(text=HELP)],
+            [KeyboardButton(text=EARLY), KeyboardButton(text=BEST)],
+            [KeyboardButton(text=BACKTEST), KeyboardButton(text=PERFORMANCE)],
+            [KeyboardButton(text=STATUS), KeyboardButton(text=HELP)],
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие",
@@ -87,7 +96,7 @@ def build_router(
     async def start(message: Message, state: FSMContext) -> None:
         await state.clear()
         await message.answer(
-            "<b>CryptoPilot 2.0</b>\n\n"
+            "<b>CryptoPilot 3.0</b>\n\n"
             "Я сканирую ликвидные USDT‑фьючерсы, подтверждаю идею на нескольких "
             "таймфреймах и показываю только планы с контролируемым риском. "
             "Автоторговли нет: ордера я не размещаю.\n\n"
@@ -110,6 +119,24 @@ def build_router(
         except Exception as exc:
             health.last_error = str(exc)
             await progress.edit_text(f"⚠️ Сканирование не завершено: {html.escape(str(exc))}")
+
+    @router.message(Command("early"))
+    @router.message(F.text == EARLY)
+    async def early(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        progress = await message.answer(
+            "⏳ Ищу сжатие волатильности до выхода цены из диапазона…"
+        )
+        try:
+            report = await scanner.scan_early_moves()
+            await progress.edit_text(format_early_scan(report))
+            for setup in report.setups[:3]:
+                await message.answer(format_early_setup(setup))
+        except Exception as exc:
+            health.last_error = str(exc)
+            await progress.edit_text(
+                f"⚠️ Ранний радар не завершён: {html.escape(str(exc))}"
+            )
 
     @router.message(Command("analyze"))
     async def analyze_command(message: Message, state: FSMContext) -> None:
@@ -216,7 +243,7 @@ def build_router(
             "• Вход действителен только внутри указанной зоны и до срока истечения.\n"
             "• Стоп нельзя отодвигать после входа. Размер позиции уже ограничен заданным риском.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
-            "Команды: /scan, /analyze BTC, /backtest BTC, /best, "
+            "Команды: /scan, /early, /analyze BTC, /backtest BTC, /best, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
@@ -339,6 +366,45 @@ def format_scan(report: ScanReport, manual_threshold: int) -> str:
             if qualified
             else "Сейчас чистых сетапов нет — NO TRADE."
         )
+    )
+
+
+def format_early_scan(report: EarlyScanReport) -> str:
+    duration = (report.finished_at - report.started_at).total_seconds()
+    return (
+        "<b>Ранний радар завершён</b>\n"
+        f"Биржа: {report.exchange}\n"
+        f"Ликвидный universe: {report.universe_count}\n"
+        f"Глубоко проверено: {report.analyzed_count}\n"
+        f"Сетапов до пробоя: {len(report.setups)}\n"
+        f"Время: {duration:.1f} сек\n\n"
+        + (
+            "Ниже — лучшие сценарии наблюдения. Вход только после триггера."
+            if report.setups
+            else "Сейчас подтверждённого предимпульсного сжатия нет."
+        )
+    )
+
+
+def format_early_setup(setup: EarlySetup) -> str:
+    icon = "🟢" if setup.bias is Side.LONG else "🔴"
+    reasons = "\n".join(f"• {html.escape(item)}" for item in setup.reasons)
+    risks = (
+        "\n".join(f"• {html.escape(item)}" for item in setup.risks)
+        or "• Дополнительных рисков радар не выделил"
+    )
+    return (
+        f"⚡ {icon} <b>{html.escape(setup.symbol)} — ДО ИМПУЛЬСА</b>\n"
+        f"Предполагаемое направление: <b>{setup.bias.value}</b>\n"
+        f"Готовность: <b>{setup.readiness}/100</b> · BTC regime: {setup.regime}\n"
+        f"Текущая цена: <code>{price(setup.price)}</code>\n\n"
+        "<b>Это наблюдение, а не команда на вход</b>\n"
+        f"Активация после закрытия за уровнем: <code>{price(setup.trigger_price)}</code>\n"
+        f"Сценарий сломан около: <code>{price(setup.invalidation_price)}</code>\n"
+        f"Истекает: {setup.expires_at:%d.%m %H:%M} UTC\n\n"
+        f"<b>Почему движение может готовиться</b>\n{reasons}\n\n"
+        f"<b>Что может отменить сценарий</b>\n{risks}\n\n"
+        "⚠️ До подтверждения границы диапазона позицию не открывать."
     )
 
 

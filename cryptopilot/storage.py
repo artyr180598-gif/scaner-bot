@@ -103,19 +103,39 @@ class SignalStore:
             return int(cursor.lastrowid or 0)
 
     async def should_alert(self, signal: Signal, cooldown_minutes: int) -> bool:
+        return await self.should_alert_event(
+            signal.fingerprint, signal.price, cooldown_minutes
+        )
+
+    async def should_alert_event(
+        self, fingerprint: str, price: float, cooldown_minutes: int
+    ) -> bool:
         threshold = datetime.now(UTC) - timedelta(minutes=cooldown_minutes)
         async with aiosqlite.connect(self.path) as db:
             row = await (
                 await db.execute(
-                    "SELECT sent_at, price FROM alerts WHERE fingerprint = ?", (signal.fingerprint,)
+                    "SELECT sent_at, price FROM alerts WHERE fingerprint = ?", (fingerprint,)
                 )
             ).fetchone()
         if row is None:
             return True
         sent_at = datetime.fromisoformat(row[0])
         previous_price = float(row[1])
-        moved = abs(signal.price - previous_price) / max(previous_price, 1e-12) >= 0.01
+        moved = abs(price - previous_price) / max(previous_price, 1e-12) >= 0.01
         return sent_at < threshold or moved
+
+    async def mark_event_alerted(self, fingerprint: str, price: float) -> None:
+        now = datetime.now(UTC).isoformat()
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """
+                INSERT INTO alerts (fingerprint, sent_at, price) VALUES (?, ?, ?)
+                ON CONFLICT(fingerprint) DO UPDATE
+                    SET sent_at=excluded.sent_at, price=excluded.price
+                """,
+                (fingerprint, now, price),
+            )
+            await db.commit()
 
     async def mark_alerted(
         self,

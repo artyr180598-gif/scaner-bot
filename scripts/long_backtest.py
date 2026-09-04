@@ -15,7 +15,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from cryptopilot.models import Candle
-from cryptopilot.research import MultiTimeframeResearchBacktester, SymbolResearchResult
+from cryptopilot.research import (
+    MultiTimeframeResearchBacktester,
+    SymbolResearchResult,
+    early_radar_research,
+)
 
 BASE_URL = "https://data.binance.vision/data/futures/um/monthly/klines"
 RESEARCH_VERSION = "3.0.0"
@@ -40,6 +44,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disable-relative-strength", action="store_true")
     parser.add_argument("--max-portfolio-risk-pct", type=float, default=1.0)
     parser.add_argument("--max-same-side", type=int, default=1)
+    parser.add_argument(
+        "--strategy-lab",
+        action="store_true",
+        help="Compare conservative profiles and report train/validation stability",
+    )
+    parser.add_argument(
+        "--early-radar-test",
+        action="store_true",
+        help="Test pre-breakout discovery and post-trigger outcomes separately",
+    )
     return parser.parse_args()
 
 
@@ -63,7 +77,7 @@ def download_month(symbol: str, month: str, cache_dir: Path) -> bytes | None:
     if target.exists():
         return target.read_bytes()
     url = f"{BASE_URL}/{symbol}/15m/{symbol}-15m-{month}.zip"
-    request = urllib.request.Request(url, headers={"User-Agent": "CryptoPilot-Research/2.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "CryptoPilot-Research/3.0"})
     for attempt in range(3):
         try:
             with urllib.request.urlopen(request, timeout=45) as response:
@@ -275,6 +289,298 @@ def markdown_report(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def strategy_profiles() -> list[dict]:
+    return [
+        {
+            "name": "baseline_84",
+            "auto_confidence": 84,
+            "short_confidence": 84,
+            "min_primary_adx": 0.0,
+            "min_efficiency_ratio": 0.0,
+            "min_ema_gap_atr": 0.0,
+            "max_countertrend_dmi": 100.0,
+            "max_atr_regime_ratio": 10.0,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 0,
+        },
+        {
+            "name": "split_84_86",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 0.0,
+            "min_efficiency_ratio": 0.0,
+            "min_ema_gap_atr": 0.0,
+            "max_countertrend_dmi": 100.0,
+            "max_atr_regime_ratio": 10.0,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 0,
+        },
+        {
+            "name": "split_plus_regime",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 0.0,
+            "min_efficiency_ratio": 0.0,
+            "min_ema_gap_atr": 0.0,
+            "max_countertrend_dmi": 100.0,
+            "max_atr_regime_ratio": 10.0,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "quality_no_relative",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "balanced_v3",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "strict_trend",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 22.0,
+            "min_efficiency_ratio": 0.20,
+            "min_ema_gap_atr": 0.12,
+            "max_countertrend_dmi": 3.0,
+            "max_atr_regime_ratio": 2.3,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "strict_short_87",
+            "auto_confidence": 84,
+            "short_confidence": 87,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "clean_momentum",
+            "auto_confidence": 84,
+            "short_confidence": 86,
+            "min_primary_adx": 20.0,
+            "min_efficiency_ratio": 0.22,
+            "min_ema_gap_atr": 0.15,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.5,
+            "relative_strength_filter": False,
+            "neutral_regime_confidence_penalty": 2,
+        },
+        {
+            "name": "selective_85_87",
+            "auto_confidence": 85,
+            "short_confidence": 87,
+            "min_primary_adx": 18.0,
+            "min_efficiency_ratio": 0.14,
+            "min_ema_gap_atr": 0.08,
+            "max_countertrend_dmi": 5.0,
+            "max_atr_regime_ratio": 2.8,
+            "relative_strength_filter": True,
+            "neutral_regime_confidence_penalty": 2,
+        },
+    ]
+
+
+def lab_markdown(payload: dict) -> str:
+    lines = [
+        "# CryptoPilot strategy laboratory",
+        "",
+        f"Generated: {payload['generated_at']}",
+        f"Train window: {', '.join(payload['train_years'])}",
+        f"Untouched validation window: {', '.join(payload['validation_years'])}",
+        "",
+        "| Profile | Trades | Net R | Exp. R | PF | Max DD | Positive years | "
+        "Train R | Train worst | Validation R | Validation worst |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for item in payload["profiles"]:
+        lines.append(
+            f"| {item['name']} | {item['trades']} | {item['net_r']:+.2f} | "
+            f"{item['expectancy_r']:+.3f} | {item['profit_factor'] or 0:.2f} | "
+            f"{item['max_drawdown_pct']:.2f}% | {item['positive_years']}/"
+            f"{item['total_years']} | {item['train_net_r']:+.2f} | "
+            f"{item['train_worst_year_r']:+.2f} | {item['validation_net_r']:+.2f} | "
+            f"{item['validation_worst_year_r']:+.2f} |"
+        )
+    lines.extend(
+        [
+            "",
+            f"Training-only selection: **{payload['selected_on_train']}**.",
+            "",
+            "The validation columns were not used by the selection score. This is still a "
+            "research comparison, not a future-performance guarantee.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def run_strategy_lab(
+    args: argparse.Namespace,
+    symbols: list[str],
+    data: dict[str, list[Candle]],
+) -> None:
+    train_years = ["2022", "2023", "2024"]
+    validation_years = ["2025", "2026"]
+    summaries: list[dict] = []
+    for policy in strategy_profiles():
+        tester = MultiTimeframeResearchBacktester(
+            risk_per_trade_pct=args.risk_pct,
+            one_way_cost_bps=args.cost_bps,
+            **{key: value for key, value in policy.items() if key != "name"},
+        )
+        results = [tester.run(symbol, data[symbol], data["BTCUSDT"]) for symbol in symbols]
+        combined = portfolio_summary(
+            results,
+            args.risk_pct,
+            args.max_portfolio_risk_pct,
+            args.max_same_side,
+        )
+        yearly = combined["yearly_r"]
+        train_values = [float(yearly.get(year, 0.0)) for year in train_years]
+        validation_values = [float(yearly.get(year, 0.0)) for year in validation_years]
+        summary = {
+            "name": policy["name"],
+            "policy": policy,
+            **combined,
+            "positive_years": sum(value > 0 for value in yearly.values()),
+            "total_years": len(yearly),
+            "train_net_r": sum(train_values),
+            "train_worst_year_r": min(train_values),
+            "validation_net_r": sum(validation_values),
+            "validation_worst_year_r": min(validation_values),
+        }
+        # Selection deliberately sees training years only. Penalize a bad training year heavily.
+        summary["training_score"] = (
+            summary["train_net_r"]
+            + 2 * min(0.0, summary["train_worst_year_r"])
+            + min(20.0, max(-20.0, ((summary["profit_factor"] or 0.0) - 1) * 20))
+        )
+        summaries.append(summary)
+        print(
+            f"LAB {policy['name']}: {combined['trades']} trades, "
+            f"{combined['net_r']:+.2f}R, PF {combined['profit_factor'] or 0:.2f}, "
+            f"validation {summary['validation_net_r']:+.2f}R",
+            flush=True,
+        )
+    selected = max(summaries, key=lambda item: item["training_score"])
+    payload = {
+        "research_version": RESEARCH_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "source": "Binance Public Data (USD-M futures, 15m monthly klines)",
+        "train_years": train_years,
+        "validation_years": validation_years,
+        "selected_on_train": selected["name"],
+        "profiles": summaries,
+    }
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "strategy_lab.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    markdown = lab_markdown(payload)
+    (args.output_dir / "strategy_lab.md").write_text(markdown, encoding="utf-8")
+    print("\n" + markdown, flush=True)
+
+
+def run_early_radar_test(
+    args: argparse.Namespace,
+    symbols: list[str],
+    data: dict[str, list[Candle]],
+) -> None:
+    results = [
+        early_radar_research(
+            symbol,
+            data[symbol],
+            data["BTCUSDT"],
+            min_readiness=68,
+            one_way_cost_bps=args.cost_bps,
+        )
+        for symbol in symbols
+    ]
+    setups = sum(item["setups"] for item in results)
+    activated = sum(item["activated"] for item in results)
+    wins = sum(item["post_trigger_wins"] for item in results)
+    net_r = sum(item["net_r"] for item in results)
+    payload = {
+        "research_version": RESEARCH_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "source": "Binance Public Data (USD-M futures, 15m monthly klines)",
+        "definition": (
+            "Observation requires volatility compression and directional pressure; "
+            "entry is evaluated only after a later range-break close."
+        ),
+        "combined": {
+            "setups": setups,
+            "activated": activated,
+            "activation_rate": activated / setups * 100 if setups else 0.0,
+            "post_trigger_wins": wins,
+            "post_trigger_win_rate": wins / activated * 100 if activated else 0.0,
+            "net_r": net_r,
+            "expectancy_r": net_r / activated if activated else 0.0,
+        },
+        "symbols": results,
+        "limitations": [
+            "Historical open interest and funding are unavailable in kline archives.",
+            "Post-trigger test uses 1.5 ATR target, 1 ATR stop and stop-first ordering.",
+            "Radar output is an observation, not an instruction to enter before trigger.",
+        ],
+    }
+    lines = [
+        "# CryptoPilot early-radar research",
+        "",
+        "| Symbol | Setups | Activated | Activation | Post-trigger win | Exp. R |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for item in results:
+        lines.append(
+            f"| {item['symbol']} | {item['setups']} | {item['activated']} | "
+            f"{item['activation_rate']:.1f}% | {item['post_trigger_win_rate']:.1f}% | "
+            f"{item['expectancy_r']:+.3f} |"
+        )
+    overall = payload["combined"]
+    lines.extend(
+        [
+            "",
+            f"Combined: {setups} observations; {activated} activated "
+            f"({overall['activation_rate']:.1f}%); post-trigger win rate "
+            f"{overall['post_trigger_win_rate']:.1f}%; expectancy "
+            f"{overall['expectancy_r']:+.3f}R.",
+            "",
+            "The radar is not evaluated as an immediate entry. Historical open interest "
+            "and funding are not present in the kline archive.",
+            "",
+        ]
+    )
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "early_radar.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
+    markdown = "\n".join(lines)
+    (args.output_dir / "early_radar.md").write_text(markdown, encoding="utf-8")
+    print("\n" + markdown, flush=True)
+
+
 def main() -> None:
     args = parse_args()
     months = months_between(args.start, args.end)
@@ -292,6 +598,13 @@ def main() -> None:
         )
         if len(data[symbol]) < 4000:
             raise RuntimeError(f"Not enough history for {symbol}")
+
+    if args.strategy_lab:
+        run_strategy_lab(args, symbols, data)
+    if args.early_radar_test:
+        run_early_radar_test(args, symbols, data)
+    if args.strategy_lab or args.early_radar_test:
+        return
 
     tester = MultiTimeframeResearchBacktester(
         auto_confidence=args.confidence,

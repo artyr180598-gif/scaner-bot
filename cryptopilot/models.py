@@ -57,12 +57,17 @@ class FeatureSet:
     dmi_spread: float
     macd_hist: float
     bb_position: float
+    bb_width_pct: float
+    bb_width_regime_ratio: float
     volume_z: float
     efficiency_ratio20: float
     ema_gap_atr: float
     atr_regime_ratio: float
     breakout_up: bool
     breakout_down: bool
+    range_high20: float
+    range_low20: float
+    range_position20: float
     return_20_pct: float
 
 
@@ -131,6 +136,42 @@ class ScanReport:
     universe_count: int
     analyzed_count: int
     signals: tuple[Signal, ...]
+    errors: tuple[str, ...] = ()
+
+
+@dataclass(slots=True)
+class EarlySetup:
+    symbol: str
+    exchange: str
+    bias: Side
+    readiness: int
+    price: float
+    trigger_price: float
+    invalidation_price: float
+    regime: str
+    created_at: datetime
+    expires_at: datetime
+    reasons: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+
+    @property
+    def actionable(self) -> bool:
+        return self.bias is not Side.NO_TRADE and not self.blockers
+
+    @property
+    def fingerprint(self) -> str:
+        return f"EARLY:{self.exchange}:{self.symbol}:{self.bias.value}"
+
+
+@dataclass(frozen=True, slots=True)
+class EarlyScanReport:
+    exchange: str
+    started_at: datetime
+    finished_at: datetime
+    universe_count: int
+    analyzed_count: int
+    setups: tuple[EarlySetup, ...]
     errors: tuple[str, ...] = ()
 
 

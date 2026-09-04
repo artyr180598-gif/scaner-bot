@@ -10,12 +10,13 @@ import aiohttp
 from cryptopilot.config import Settings
 from cryptopilot.engine import SignalEngine
 from cryptopilot.exchange import ExchangeClient, MarketDataError
-from cryptopilot.models import Candle, ScanReport, Signal, Ticker
+from cryptopilot.models import Candle, EarlyScanReport, EarlySetup, ScanReport, Signal, Ticker
 from cryptopilot.paper import PaperTracker
 from cryptopilot.storage import SignalStore
 
 log = logging.getLogger(__name__)
 AlertCallback = Callable[[Signal], Awaitable[None]]
+EarlyAlertCallback = Callable[[EarlySetup], Awaitable[None]]
 
 
 class MarketScanner:
@@ -32,6 +33,7 @@ class MarketScanner:
         self.settings = settings
         self.scan_lock = asyncio.Lock()
         self.last_report: ScanReport | None = None
+        self.last_early_report: EarlyScanReport | None = None
         self.last_error: str | None = None
         self.paper = PaperTracker(exchange, store, settings)
 
@@ -102,6 +104,70 @@ class MarketScanner:
             await self.store.set_runtime("last_scan", report.finished_at.isoformat())
             return report
 
+    async def scan_early_moves(self) -> EarlyScanReport:
+        """Find compressed markets before a breakout; this is a watchlist, not an entry."""
+        async with self.scan_lock:
+            started = datetime.now(UTC)
+            errors: list[str] = []
+            tickers = await self.exchange.tickers()
+            universe = self._universe(tickers)
+            ticker_map = {item.symbol: item for item in universe}
+            quick_tf = self.settings.timeframe_list[1]
+            quick_results = await asyncio.gather(
+                *(self._quick_early(item.symbol, quick_tf) for item in universe),
+                return_exceptions=True,
+            )
+            ranked: list[tuple[float, str, list[Candle]]] = []
+            for ticker, result in zip(universe, quick_results, strict=True):
+                if isinstance(result, BaseException):
+                    errors.append(f"{ticker.symbol}: {type(result).__name__}")
+                    continue
+                score, series = result
+                if score > 0:
+                    ranked.append((score, ticker.symbol, series))
+            ranked.sort(reverse=True)
+            candidates = ranked[: self.settings.early_shortlist_size]
+
+            try:
+                benchmark = await self.exchange.candles(
+                    "BTCUSDT", self.settings.timeframe_list[-1], 260
+                )
+            except Exception as exc:
+                log.warning("BTC benchmark unavailable for early radar: %s", exc)
+                benchmark = []
+                errors.append("BTC benchmark unavailable")
+
+            analyses = await asyncio.gather(
+                *(
+                    self._analyze_early_with_cached(
+                        symbol, ticker_map[symbol], quick_tf, cached, benchmark
+                    )
+                    for _, symbol, cached in candidates
+                ),
+                return_exceptions=True,
+            )
+            setups: list[EarlySetup] = []
+            for candidate, result in zip(candidates, analyses, strict=True):
+                symbol = candidate[1]
+                if isinstance(result, BaseException):
+                    errors.append(f"{symbol}: {type(result).__name__}")
+                    log.warning("Early analysis failed for %s: %s", symbol, result)
+                elif result.actionable:
+                    setups.append(result)
+            setups.sort(key=lambda item: item.readiness, reverse=True)
+            report = EarlyScanReport(
+                exchange=self.exchange.name,
+                started_at=started,
+                finished_at=datetime.now(UTC),
+                universe_count=len(universe),
+                analyzed_count=len(candidates),
+                setups=tuple(setups),
+                errors=tuple(errors[:12]),
+            )
+            self.last_early_report = report
+            await self.store.set_runtime("last_early_scan", report.finished_at.isoformat())
+            return report
+
     async def analyze_symbol(self, symbol: str) -> Signal:
         normalized = symbol.upper().replace("/", "").replace("-", "")
         if not normalized.endswith("USDT"):
@@ -132,11 +198,12 @@ class MarketScanner:
     async def auto_candidates(self) -> list[Signal]:
         report = await self.scan_market()
         selected: list[Signal] = []
-        active = (
-            await self.store.active_paper_count()
+        open_paper = (
+            await self.store.open_paper_trades()
             if self.settings.paper_tracking_enabled
-            else 0
+            else []
         )
+        active = len(open_paper)
         risk_slots = max(
             0,
             int(self.settings.max_portfolio_risk_pct / self.settings.risk_per_trade_pct)
@@ -144,6 +211,8 @@ class MarketScanner:
         )
         limit = min(self.settings.max_auto_signals_per_scan, risk_slots)
         side_counts: dict[str, int] = {}
+        for trade in open_paper:
+            side_counts[trade.side.value] = side_counts.get(trade.side.value, 0) + 1
         for signal in report.signals:
             if len(selected) >= limit:
                 break
@@ -159,18 +228,41 @@ class MarketScanner:
                 side_counts[side_key] = side_counts.get(side_key, 0) + 1
         return selected
 
-    async def monitor(self, callback: AlertCallback, stop_event: asyncio.Event) -> None:
+    async def auto_early_candidates(self) -> list[EarlySetup]:
+        report = await self.scan_early_moves()
+        selected: list[EarlySetup] = []
+        for setup in report.setups:
+            if len(selected) >= self.settings.max_auto_signals_per_scan:
+                break
+            if setup.readiness < self.settings.min_early_auto_readiness:
+                continue
+            if await self.store.should_alert_event(
+                setup.fingerprint,
+                setup.price,
+                self.settings.early_alert_cooldown_minutes,
+            ):
+                selected.append(setup)
+        return selected
+
+    async def monitor(
+        self,
+        callback: AlertCallback,
+        early_callback: EarlyAlertCallback,
+        stop_event: asyncio.Event,
+    ) -> None:
         if self.settings.run_scan_on_startup:
-            await self._monitor_once(callback)
+            await self._monitor_once(callback, early_callback)
         while not stop_event.is_set():
             try:
                 await asyncio.wait_for(
                     stop_event.wait(), timeout=self.settings.scan_interval_seconds
                 )
             except TimeoutError:
-                await self._monitor_once(callback)
+                await self._monitor_once(callback, early_callback)
 
-    async def _monitor_once(self, callback: AlertCallback) -> None:
+    async def _monitor_once(
+        self, callback: AlertCallback, early_callback: EarlyAlertCallback
+    ) -> None:
         try:
             refresh = await self.paper.refresh()
             if refresh.closed or refresh.expired:
@@ -189,6 +281,10 @@ class MarketScanner:
                     track_paper=self.settings.paper_tracking_enabled,
                     max_holding_hours=self.settings.paper_max_holding_hours,
                 )
+            if self.settings.early_radar_enabled and self.settings.early_auto_alerts:
+                for setup in await self.auto_early_candidates():
+                    await early_callback(setup)
+                    await self.store.mark_event_alerted(setup.fingerprint, setup.price)
         except (MarketDataError, aiohttp.ClientError) as exc:
             self.last_error = str(exc)
             log.exception("Automatic market scan failed")
@@ -214,6 +310,12 @@ class MarketScanner:
         series = await self.exchange.candles(symbol, timeframe, 240)
         return self.engine.quick_score(series), series
 
+    async def _quick_early(
+        self, symbol: str, timeframe: str
+    ) -> tuple[float, list[Candle]]:
+        series = await self.exchange.candles(symbol, timeframe, 240)
+        return self.engine.quick_early_score(series), series
+
     async def _analyze_with_cached(
         self,
         symbol: str,
@@ -230,6 +332,25 @@ class MarketScanner:
         all_series = {cached_tf: cached}
         all_series.update(dict(zip(missing, fetched, strict=True)))
         return self.engine.analyze(
+            symbol, self.exchange.name, enriched, all_series, benchmark or None
+        )
+
+    async def _analyze_early_with_cached(
+        self,
+        symbol: str,
+        ticker: Ticker,
+        cached_tf: str,
+        cached: list[Candle],
+        benchmark: list[Candle],
+    ) -> EarlySetup:
+        missing = [tf for tf in self.settings.timeframe_list if tf != cached_tf]
+        enriched, *fetched = await asyncio.gather(
+            self.exchange.enrich_ticker(ticker),
+            *(self.exchange.candles(symbol, timeframe, 260) for timeframe in missing),
+        )
+        all_series = {cached_tf: cached}
+        all_series.update(dict(zip(missing, fetched, strict=True)))
+        return self.engine.analyze_early_setup(
             symbol, self.exchange.name, enriched, all_series, benchmark or None
         )
 

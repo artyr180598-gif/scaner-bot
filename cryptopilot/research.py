@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from cryptopilot.indicators import atr, dmi, ema, rsi
+from cryptopilot.indicators import atr, bollinger_widths, dmi, ema, rsi
 from cryptopilot.models import Candle
 
 
@@ -73,6 +73,7 @@ class FeatureArrays:
     ema20: np.ndarray
     ema50: np.ndarray
     ema200: np.ndarray
+    ema20_slope_pct: np.ndarray
     rsi14: np.ndarray
     atr14: np.ndarray
     atr_pct: np.ndarray
@@ -80,11 +81,35 @@ class FeatureArrays:
     plus_di14: np.ndarray
     minus_di14: np.ndarray
     dmi_spread: np.ndarray
+    macd_hist: np.ndarray
+    bb_width_pct: np.ndarray
+    bb_width_regime_ratio: np.ndarray
     volume_z: np.ndarray
     efficiency_ratio20: np.ndarray
     ema_gap_atr: np.ndarray
     atr_regime_ratio: np.ndarray
+    range_high20: np.ndarray
+    range_low20: np.ndarray
+    range_position20: np.ndarray
     return_20_pct: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedResearchData:
+    candles_15m: list[Candle]
+    candles_1h: list[Candle]
+    candles_4h: list[Candle]
+    benchmark_4h: list[Candle]
+    f15: FeatureArrays
+    f1h: FeatureArrays
+    f4h: FeatureArrays
+    f_benchmark: FeatureArrays
+    close_1h: list[int]
+    close_4h: list[int]
+    close_benchmark: list[int]
+
+
+_PREPARED_CACHE: dict[tuple[int, int], PreparedResearchData] = {}
 
 
 def aggregate_candles(candles: list[Candle], minutes: int) -> list[Candle]:
@@ -153,11 +178,21 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
         np.abs(ema20 - ema50), atr14, out=np.zeros_like(close), where=atr14 > 1e-12
     )
     atr_regime_ratio = rolling_median_ratio(atr14, 100)
+    bb_width_pct = bollinger_widths(close, 20)
+    bb_width_regime_ratio = rolling_median_ratio(bb_width_pct, 100)
     breakout_up = np.zeros(len(close), dtype=bool)
     breakout_down = np.zeros(len(close), dtype=bool)
+    range_high20 = np.zeros_like(close)
+    range_low20 = np.zeros_like(close)
+    range_position20 = np.full_like(close, 0.5)
     for index in range(20, len(close)):
-        breakout_up[index] = close[index] > np.max(high[index - 20 : index])
-        breakout_down[index] = close[index] < np.min(low[index - 20 : index])
+        range_high20[index] = np.max(high[index - 20 : index])
+        range_low20[index] = np.min(low[index - 20 : index])
+        breakout_up[index] = close[index] > range_high20[index]
+        breakout_down[index] = close[index] < range_low20[index]
+        width = range_high20[index] - range_low20[index]
+        if width > 1e-12:
+            range_position20[index] = (close[index] - range_low20[index]) / width
 
     score = np.where(
         (close > ema20) & (ema20 > ema50) & (ema50 > ema200),
@@ -193,6 +228,7 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
         ema20=ema20,
         ema50=ema50,
         ema200=ema200,
+        ema20_slope_pct=slope,
         rsi14=rsi14,
         atr14=atr14,
         atr_pct=np.divide(atr14, close, out=np.zeros_like(close), where=close > 0) * 100,
@@ -206,12 +242,180 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
             where=(plus_di14 + minus_di14) > 1e-12,
         )
         * 100,
+        macd_hist=macd_hist,
+        bb_width_pct=bb_width_pct,
+        bb_width_regime_ratio=bb_width_regime_ratio,
         volume_z=volume_z,
         efficiency_ratio20=efficiency_ratio20,
         ema_gap_atr=ema_gap_atr,
         atr_regime_ratio=atr_regime_ratio,
+        range_high20=range_high20,
+        range_low20=range_low20,
+        range_position20=range_position20,
         return_20_pct=return20,
     )
+
+
+def early_radar_research(
+    symbol: str,
+    candles_15m: list[Candle],
+    benchmark_15m: list[Candle],
+    *,
+    min_readiness: int = 68,
+    one_way_cost_bps: float = 6.0,
+) -> dict:
+    """Test pre-breakout observations separately from post-trigger outcomes."""
+    candles_1h = aggregate_candles(candles_15m, 60)
+    candles_4h = aggregate_candles(candles_15m, 240)
+    benchmark_4h = aggregate_candles(benchmark_15m, 240)
+    f1h = feature_arrays(candles_1h)
+    f4h = feature_arrays(candles_4h)
+    f_benchmark = feature_arrays(benchmark_4h)
+    close_4h = [item.open_time_ms + 14_400_000 for item in candles_4h]
+    close_benchmark = [item.open_time_ms + 14_400_000 for item in benchmark_4h]
+    opens_15m = [item.open_time_ms for item in candles_15m]
+    cost_fraction = one_way_cost_bps / 10_000
+    records: list[dict] = []
+    index = 209
+    while index < len(candles_1h) - 14:
+        decision_time = candles_1h[index].open_time_ms + 3_600_000
+        index_4h = bisect.bisect_right(close_4h, decision_time) - 1
+        benchmark_index = bisect.bisect_right(close_benchmark, decision_time) - 1
+        if min(index_4h, benchmark_index) < 209:
+            index += 1
+            continue
+        compression = sum(
+            (
+                f1h.bb_width_regime_ratio[index] <= 0.9,
+                f1h.atr_regime_ratio[index] <= 0.9,
+                f1h.ema_gap_atr[index] <= 0.4,
+            )
+        )
+        already_broken = (
+            candles_1h[index].close > f1h.range_high20[index]
+            or candles_1h[index].close < f1h.range_low20[index]
+        )
+        if compression < 2 or already_broken:
+            index += 1
+            continue
+
+        readiness = 32
+        readiness += 18 if f1h.bb_width_regime_ratio[index] <= 0.75 else 10
+        readiness += 14 if f1h.atr_regime_ratio[index] <= 0.8 else 8
+        readiness += 12 if f1h.ema_gap_atr[index] <= 0.25 else 6
+        readiness += 5 if f1h.adx14[index] <= 24 else 0
+        votes = 0
+        votes += 1 if f1h.ema20_slope_pct[index] > 0.02 else -1
+        votes += 1 if f1h.dmi_spread[index] > 3 else -1 if f1h.dmi_spread[index] < -3 else 0
+        votes += 1 if f1h.macd_hist[index] > 0 else -1
+        votes += (
+            1
+            if f1h.range_position20[index] >= 0.58
+            else -1
+            if f1h.range_position20[index] <= 0.42
+            else 0
+        )
+        votes += 1 if candles_1h[index].close >= f1h.ema20[index] else -1
+        if -2 < votes < 2:
+            index += 1
+            continue
+        long = votes >= 2
+        readiness += min(10, abs(votes) * 2)
+
+        benchmark_score = f_benchmark.score[benchmark_index]
+        if f_benchmark.adx14[benchmark_index] < 16:
+            regime = "RANGE"
+        elif benchmark_score >= 25:
+            regime = "BULL"
+        elif benchmark_score <= -25:
+            regime = "BEAR"
+        else:
+            regime = "TRANSITION"
+        if (long and regime == "BULL") or (not long and regime == "BEAR"):
+            readiness += 5
+        elif (long and regime == "BEAR") or (not long and regime == "BULL"):
+            readiness -= 8
+        if symbol != "BTCUSDT":
+            relative_edge = (
+                f4h.return_20_pct[index_4h]
+                - f_benchmark.return_20_pct[benchmark_index]
+            )
+            if (long and relative_edge > 0) or (not long and relative_edge < 0):
+                readiness += 5
+        readiness = min(95, max(0, readiness))
+        if readiness < min_readiness:
+            index += 1
+            continue
+
+        trigger = (
+            f1h.range_high20[index] if long else f1h.range_low20[index]
+        )
+        activation_start = bisect.bisect_left(opens_15m, decision_time)
+        activation_end = min(activation_start + 48, len(candles_15m) - 2)
+        activation_index: int | None = None
+        for cursor in range(activation_start, activation_end):
+            close = candles_15m[cursor].close
+            if (long and close > trigger) or (not long and close < trigger):
+                activation_index = cursor + 1
+                break
+        record = {
+            "symbol": symbol,
+            "setup_time": datetime.fromtimestamp(decision_time / 1000, UTC),
+            "side": "LONG" if long else "SHORT",
+            "readiness": readiness,
+            "activated": activation_index is not None,
+            "result_r": None,
+        }
+        if activation_index is not None:
+            entry = candles_15m[activation_index].open
+            risk = f1h.atr14[index]
+            stop = entry - risk if long else entry + risk
+            target = entry + 1.5 * risk if long else entry - 1.5 * risk
+            result_r = 0.0
+            exit_price = candles_15m[min(activation_index + 48, len(candles_15m) - 1)].close
+            for cursor in range(
+                activation_index,
+                min(activation_index + 48, len(candles_15m) - 1) + 1,
+            ):
+                bar = candles_15m[cursor]
+                if (long and bar.low <= stop) or (not long and bar.high >= stop):
+                    exit_price = stop
+                    break
+                if (long and bar.high >= target) or (not long and bar.low <= target):
+                    exit_price = target
+                    break
+            result_r = (
+                (exit_price - entry) / risk
+                if long
+                else (entry - exit_price) / risk
+            )
+            result_r -= (entry + exit_price) * cost_fraction / risk
+            record["result_r"] = float(result_r)
+        records.append(record)
+        index += 12
+
+    activated = [item for item in records if item["activated"]]
+    wins = [item for item in activated if float(item["result_r"]) > 0]
+    net_r = sum(float(item["result_r"]) for item in activated)
+    by_year: dict[str, dict[str, float]] = {}
+    for item in records:
+        year = str(item["setup_time"].year)
+        bucket = by_year.setdefault(year, {"setups": 0, "activated": 0, "net_r": 0.0})
+        bucket["setups"] += 1
+        if item["activated"]:
+            bucket["activated"] += 1
+            bucket["net_r"] += float(item["result_r"])
+    return {
+        "symbol": symbol,
+        "setups": len(records),
+        "activated": len(activated),
+        "activation_rate": len(activated) / len(records) * 100 if records else 0.0,
+        "post_trigger_wins": len(wins),
+        "post_trigger_win_rate": len(wins) / len(activated) * 100 if activated else 0.0,
+        "net_r": net_r,
+        "expectancy_r": net_r / len(activated) if activated else 0.0,
+        "yearly": by_year,
+    }
 
 
 def rolling_zscore(values: np.ndarray, period: int) -> np.ndarray:
@@ -267,6 +471,7 @@ class MultiTimeframeResearchBacktester:
         min_primary_adx: float = 18.0,
         min_efficiency_ratio: float = 0.14,
         min_ema_gap_atr: float = 0.08,
+        max_countertrend_dmi: float = 5.0,
         max_atr_regime_ratio: float = 2.8,
         relative_strength_filter: bool = True,
         neutral_regime_confidence_penalty: int = 2,
@@ -281,6 +486,7 @@ class MultiTimeframeResearchBacktester:
         self.min_primary_adx = min_primary_adx
         self.min_efficiency_ratio = min_efficiency_ratio
         self.min_ema_gap_atr = min_ema_gap_atr
+        self.max_countertrend_dmi = max_countertrend_dmi
         self.max_atr_regime_ratio = max_atr_regime_ratio
         self.relative_strength_filter = relative_strength_filter
         self.neutral_regime_confidence_penalty = neutral_regime_confidence_penalty
@@ -290,17 +496,35 @@ class MultiTimeframeResearchBacktester:
     ) -> SymbolResearchResult:
         if len(candles_15m) < 4000 or len(benchmark_15m) < 4000:
             raise ValueError("Long research needs at least ~42 days of 15m history")
-        candles_1h = aggregate_candles(candles_15m, 60)
-        candles_4h = aggregate_candles(candles_15m, 240)
-        benchmark_4h = aggregate_candles(benchmark_15m, 240)
-        f15 = feature_arrays(candles_15m)
-        f1h = feature_arrays(candles_1h)
-        f4h = feature_arrays(candles_4h)
-        f_benchmark = feature_arrays(benchmark_4h)
-
-        close_1h = [item.open_time_ms + 3_600_000 for item in candles_1h]
-        close_4h = [item.open_time_ms + 14_400_000 for item in candles_4h]
-        close_benchmark = [item.open_time_ms + 14_400_000 for item in benchmark_4h]
+        cache_key = (id(candles_15m), id(benchmark_15m))
+        prepared = _PREPARED_CACHE.get(cache_key)
+        if prepared is None:
+            candles_1h = aggregate_candles(candles_15m, 60)
+            candles_4h = aggregate_candles(candles_15m, 240)
+            benchmark_4h = aggregate_candles(benchmark_15m, 240)
+            prepared = PreparedResearchData(
+                candles_15m=candles_15m,
+                candles_1h=candles_1h,
+                candles_4h=candles_4h,
+                benchmark_4h=benchmark_4h,
+                f15=feature_arrays(candles_15m),
+                f1h=feature_arrays(candles_1h),
+                f4h=feature_arrays(candles_4h),
+                f_benchmark=feature_arrays(benchmark_4h),
+                close_1h=[item.open_time_ms + 3_600_000 for item in candles_1h],
+                close_4h=[item.open_time_ms + 14_400_000 for item in candles_4h],
+                close_benchmark=[
+                    item.open_time_ms + 14_400_000 for item in benchmark_4h
+                ],
+            )
+            _PREPARED_CACHE[cache_key] = prepared
+        f15 = prepared.f15
+        f1h = prepared.f1h
+        f4h = prepared.f4h
+        f_benchmark = prepared.f_benchmark
+        close_1h = prepared.close_1h
+        close_4h = prepared.close_4h
+        close_benchmark = prepared.close_benchmark
         records: list[TradeRecord] = []
         index = 210
 
@@ -347,10 +571,10 @@ class MultiTimeframeResearchBacktester:
             if f1h.atr_regime_ratio[index_1h] > self.max_atr_regime_ratio:
                 index += 1
                 continue
-            if long and f1h.dmi_spread[index_1h] < -5:
+            if long and f1h.dmi_spread[index_1h] < -self.max_countertrend_dmi:
                 index += 1
                 continue
-            if not long and f1h.dmi_spread[index_1h] > 5:
+            if not long and f1h.dmi_spread[index_1h] > self.max_countertrend_dmi:
                 index += 1
                 continue
             if long and regime == "BEAR" and benchmark_score < -45:

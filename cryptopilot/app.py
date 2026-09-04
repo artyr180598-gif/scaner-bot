@@ -15,10 +15,10 @@ from cryptopilot.config import get_settings
 from cryptopilot.engine import SignalEngine
 from cryptopilot.exchange import build_exchange
 from cryptopilot.health import RuntimeHealth, start_health_server
-from cryptopilot.models import Signal
+from cryptopilot.models import EarlySetup, Signal
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.storage import SignalStore
-from cryptopilot.telegram import build_router, format_signal
+from cryptopilot.telegram import build_router, format_early_setup, format_signal
 
 log = logging.getLogger(__name__)
 
@@ -88,11 +88,27 @@ async def run() -> None:
                 raise RuntimeError("No configured Telegram chat accepted the alert")
             health.alerts_total += 1
 
+        async def send_early_alert(setup: EarlySetup) -> None:
+            successes = 0
+            for chat_id in settings.allowed_chat_ids:
+                try:
+                    await bot.send_message(
+                        chat_id, "⚡ <b>Ранний радар: движение ещё не началось</b>"
+                    )
+                    await bot.send_message(chat_id, format_early_setup(setup))
+                    successes += 1
+                except Exception:
+                    log.exception("Failed to deliver early alert to an authorized chat")
+            if successes == 0:
+                raise RuntimeError("No configured Telegram chat accepted the early alert")
+            health.alerts_total += 1
+
         polling = asyncio.create_task(
             dispatcher.start_polling(bot, handle_signals=False), name="telegram-polling"
         )
         monitoring = asyncio.create_task(
-            scanner.monitor(send_alert, stop_event), name="market-monitor"
+            scanner.monitor(send_alert, send_early_alert, stop_event),
+            name="market-monitor",
         )
         stopper = asyncio.create_task(stop_event.wait(), name="shutdown-signal")
         done, pending = await asyncio.wait(

@@ -94,6 +94,17 @@ def efficiency_ratio_last(values: np.ndarray, period: int = 20) -> float:
     return direction / noise if noise > 1e-12 else 0.0
 
 
+def bollinger_widths(values: np.ndarray, period: int = 20) -> np.ndarray:
+    if len(values) < period:
+        raise InsufficientData(f"Bollinger width needs at least {period} values")
+    result = np.zeros_like(values, dtype=float)
+    for index in range(period - 1, len(values)):
+        window = values[index + 1 - period : index + 1]
+        middle = float(np.mean(window))
+        result[index] = 4 * float(np.std(window)) / middle * 100 if middle else 0.0
+    return result
+
+
 def compute_features(candles: Sequence[Candle]) -> FeatureSet:
     if len(candles) < 210:
         raise InsufficientData("At least 210 closed candles are required")
@@ -118,6 +129,11 @@ def compute_features(candles: Sequence[Candle]) -> FeatureSet:
     current_atr = float(atr14[-1])
     current_close = float(close[-1])
     dmi_total = float(plus_di14[-1] + minus_di14[-1])
+    bb_width_series = bollinger_widths(close, 20)
+    current_bb_width = float(bb_width_series[-1])
+    previous_high = float(np.max(high[-21:-1]))
+    previous_low = float(np.min(low[-21:-1]))
+    range_width = previous_high - previous_low
 
     values = FeatureSet(
         close=current_close,
@@ -136,12 +152,20 @@ def compute_features(candles: Sequence[Candle]) -> FeatureSet:
         else 0.0,
         macd_hist=float(macd_hist[-1]),
         bb_position=float(bb_position),
+        bb_width_pct=current_bb_width,
+        bb_width_regime_ratio=current_bb_width
+        / max(float(np.median(bb_width_series[-100:])), 1e-12),
         volume_z=zscore_last(volume, 30),
         efficiency_ratio20=efficiency_ratio_last(close, 20),
         ema_gap_atr=abs(float(ema20[-1] - ema50[-1])) / max(current_atr, 1e-12),
         atr_regime_ratio=current_atr / max(float(np.median(atr14[-100:])), 1e-12),
         breakout_up=current_close > float(np.max(high[-21:-1])),
         breakout_down=current_close < float(np.min(low[-21:-1])),
+        range_high20=previous_high,
+        range_low20=previous_low,
+        range_position20=(current_close - previous_low) / range_width
+        if range_width > 1e-12
+        else 0.5,
         return_20_pct=float((close[-1] / close[-21] - 1) * 100),
     )
     numeric = (
@@ -159,10 +183,15 @@ def compute_features(candles: Sequence[Candle]) -> FeatureSet:
         values.dmi_spread,
         values.macd_hist,
         values.bb_position,
+        values.bb_width_pct,
+        values.bb_width_regime_ratio,
         values.volume_z,
         values.efficiency_ratio20,
         values.ema_gap_atr,
         values.atr_regime_ratio,
+        values.range_high20,
+        values.range_low20,
+        values.range_position20,
         values.return_20_pct,
     )
     if not all(math.isfinite(value) for value in numeric):
