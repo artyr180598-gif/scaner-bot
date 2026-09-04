@@ -49,8 +49,10 @@ Telegram‑помощник для анализа ликвидных бесср�
    проверяет `/healthz`.
 5. Для постоянной истории подключите Railway Volume и задайте `DATA_DIR=/data`.
 
-Старые имена переменных `TELEGRAM_TOKEN`, `BOT_TOKEN`, `TELEGRAM_USER_ID`,
-`ALLOWED_CHAT_IDS` и `ADMIN_ID` поддерживаются, чтобы существующий деплой не сломался.
+Старые имена переменных `TELEGRAM_TOKEN`, `BOT_TOKEN`, `TG_TOKEN`, `BOT_API_TOKEN`,
+`TELEGRAM_USER_ID`, `CHAT_ID`, `ALLOWED_CHAT_IDS`, `ADMIN_CHAT_IDS` и `ADMIN_ID`
+поддерживаются, чтобы существующий деплой не сломался. Также сохранена совместимость с
+`MIN_VOLUME_USD_24H`, `TOP_N_SYMBOLS` и `HTTP_TIMEOUT`.
 Ключи Bybit/Binance для анализа не нужны: используются публичные market-data endpoints.
 
 ## Основные настройки
@@ -112,4 +114,3 @@ TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... python -m cryptopilot
 доходность. Перед реальными деньгами используйте paper trading, ограничивайте риск и
 проверяйте цену/спред непосредственно на бирже. Бот специально не содержит автоторговлю,
 martingale и скрытое увеличение позиции.
-

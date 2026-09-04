@@ -13,17 +13,30 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        env_ignore_empty=True,
+        populate_by_name=True,
         extra="ignore",
     )
 
     telegram_bot_token: str = Field(
         default="",
-        validation_alias=AliasChoices("TELEGRAM_BOT_TOKEN", "TELEGRAM_TOKEN", "BOT_TOKEN"),
+        validation_alias=AliasChoices(
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_TOKEN",
+            "BOT_TOKEN",
+            "TG_TOKEN",
+            "BOT_API_TOKEN",
+        ),
     )
     telegram_chat_id: str = Field(
         default="",
         validation_alias=AliasChoices(
-            "TELEGRAM_CHAT_ID", "TELEGRAM_USER_ID", "ALLOWED_CHAT_IDS", "ADMIN_ID"
+            "TELEGRAM_CHAT_ID",
+            "TELEGRAM_USER_ID",
+            "ALLOWED_CHAT_IDS",
+            "ADMIN_CHAT_IDS",
+            "CHAT_ID",
+            "ADMIN_ID",
         ),
     )
     exchange: Literal["bybit", "binance"] = "bybit"
@@ -32,9 +45,18 @@ class Settings(BaseSettings):
 
     scan_interval_seconds: int = Field(default=900, ge=300, le=86_400)
     run_scan_on_startup: bool = True
-    min_volume_usdt: float = Field(default=20_000_000, ge=0)
+    min_volume_usdt: float = Field(
+        default=20_000_000,
+        ge=0,
+        validation_alias=AliasChoices("MIN_VOLUME_USDT", "MIN_VOLUME_USD_24H"),
+    )
     max_spread_bps: float = Field(default=12, gt=0, le=100)
-    universe_size: int = Field(default=80, ge=10, le=250)
+    universe_size: int = Field(
+        default=80,
+        ge=10,
+        le=250,
+        validation_alias=AliasChoices("UNIVERSE_SIZE", "TOP_N_SYMBOLS"),
+    )
     shortlist_size: int = Field(default=12, ge=3, le=40)
     request_concurrency: int = Field(default=8, ge=1, le=20)
     timeframes: str = "15,60,240"
@@ -52,7 +74,12 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     log_level: str = "INFO"
     port: int = Field(default=8080, ge=1, le=65_535)
-    http_timeout_seconds: float = Field(default=15, ge=3, le=60)
+    http_timeout_seconds: float = Field(
+        default=15,
+        ge=3,
+        le=60,
+        validation_alias=AliasChoices("HTTP_TIMEOUT_SECONDS", "HTTP_TIMEOUT"),
+    )
 
     @field_validator("exchange", mode="before")
     @classmethod
