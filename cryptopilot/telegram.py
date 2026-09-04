@@ -228,6 +228,7 @@ def build_router(
             f"Автомониторинг: ✅ каждые {settings.scan_interval_seconds // 60} мин\n"
             f"Автопорог: LONG {settings.min_auto_confidence}/100 · "
             f"SHORT {settings.min_auto_confidence_short}/100\n"
+            f"Ранний радар: {'авто' if settings.early_auto_alerts else 'только вручную'}\n"
             f"Активных paper-планов: {active_paper}\n"
             f"Последний скан: {last_scan}\n"
             f"Последняя ошибка: {html.escape(health.last_error or scanner.last_error or 'нет')}"

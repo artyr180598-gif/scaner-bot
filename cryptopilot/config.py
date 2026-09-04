@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     weak_edge_confidence_penalty: int = Field(default=2, ge=0, le=10)
 
     early_radar_enabled: bool = True
-    early_auto_alerts: bool = True
+    early_auto_alerts: bool = False
     min_early_readiness: int = Field(default=68, ge=50, le=95)
     min_early_auto_readiness: int = Field(default=80, ge=55, le=95)
     early_alert_cooldown_minutes: int = Field(default=360, ge=30, le=10_080)

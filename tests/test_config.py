@@ -34,3 +34,4 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.max_same_side_auto_signals <= config.max_auto_signals_per_scan
     assert config.min_early_auto_readiness >= config.min_early_readiness
     assert config.early_radar_enabled
+    assert not config.early_auto_alerts

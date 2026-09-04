@@ -76,6 +76,13 @@ class SignalEngine:
         bias, readiness, reasons = self._early_base(primary)
         if bias is Side.NO_TRADE:
             blockers.append("Направление будущего выхода из диапазона пока не подтверждено")
+        structural_score = directional_score(structural)
+        if structural.adx14 < 18:
+            blockers.append("На 4h нет устойчивого тренда для направленного раннего сценария")
+        elif (bias is Side.LONG and structural_score < 25) or (
+            bias is Side.SHORT and structural_score > -25
+        ):
+            blockers.append("Давление на 1h не согласовано с направлением тренда 4h")
         compression_votes = sum(
             (
                 primary.bb_width_regime_ratio <= 0.9,
