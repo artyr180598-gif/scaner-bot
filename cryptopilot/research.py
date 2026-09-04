@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from cryptopilot.indicators import adx, atr, ema, rsi
+from cryptopilot.indicators import atr, dmi, ema, rsi
 from cryptopilot.models import Candle
 
 
@@ -18,7 +18,9 @@ class TradeRecord:
     exit_time: datetime
     side: str
     confidence: int
+    required_confidence: int
     score: float
+    regime: str
     entry: float
     exit: float
     stop: float
@@ -75,7 +77,14 @@ class FeatureArrays:
     atr14: np.ndarray
     atr_pct: np.ndarray
     adx14: np.ndarray
+    plus_di14: np.ndarray
+    minus_di14: np.ndarray
+    dmi_spread: np.ndarray
     volume_z: np.ndarray
+    efficiency_ratio20: np.ndarray
+    ema_gap_atr: np.ndarray
+    atr_regime_ratio: np.ndarray
+    return_20_pct: np.ndarray
 
 
 def aggregate_candles(candles: list[Candle], minutes: int) -> list[Candle]:
@@ -130,7 +139,7 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
     ema200 = ema(close, 200)
     rsi14 = rsi(close, 14)
     atr14 = atr(high, low, close, 14)
-    adx14 = adx(high, low, close, 14)
+    plus_di14, minus_di14, adx14 = dmi(high, low, close, 14)
     macd = ema(close, 12) - ema(close, 26)
     macd_hist = macd - ema(macd, 9)
 
@@ -139,6 +148,11 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
     return20 = np.zeros_like(close)
     return20[20:] = (close[20:] / close[:-20] - 1) * 100
     volume_z = rolling_zscore(volume, 30)
+    efficiency_ratio20 = rolling_efficiency_ratio(close, 20)
+    ema_gap_atr = np.divide(
+        np.abs(ema20 - ema50), atr14, out=np.zeros_like(close), where=atr14 > 1e-12
+    )
+    atr_regime_ratio = rolling_median_ratio(atr14, 100)
     breakout_up = np.zeros(len(close), dtype=bool)
     breakout_down = np.zeros(len(close), dtype=bool)
     for index in range(20, len(close)):
@@ -183,7 +197,20 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
         atr14=atr14,
         atr_pct=np.divide(atr14, close, out=np.zeros_like(close), where=close > 0) * 100,
         adx14=adx14,
+        plus_di14=plus_di14,
+        minus_di14=minus_di14,
+        dmi_spread=np.divide(
+            plus_di14 - minus_di14,
+            plus_di14 + minus_di14,
+            out=np.zeros_like(close),
+            where=(plus_di14 + minus_di14) > 1e-12,
+        )
+        * 100,
         volume_z=volume_z,
+        efficiency_ratio20=efficiency_ratio20,
+        ema_gap_atr=ema_gap_atr,
+        atr_regime_ratio=atr_regime_ratio,
+        return_20_pct=return20,
     )
 
 
@@ -200,6 +227,25 @@ def rolling_zscore(values: np.ndarray, period: int) -> np.ndarray:
     return result
 
 
+def rolling_efficiency_ratio(values: np.ndarray, period: int) -> np.ndarray:
+    result = np.zeros_like(values, dtype=float)
+    movement = np.abs(np.diff(values, prepend=values[0]))
+    cumulative = np.concatenate(([0.0], np.cumsum(movement)))
+    for index in range(period, len(values)):
+        noise = cumulative[index + 1] - cumulative[index + 1 - period]
+        direction = abs(values[index] - values[index - period])
+        result[index] = direction / noise if noise > 1e-12 else 0.0
+    return result
+
+
+def rolling_median_ratio(values: np.ndarray, period: int) -> np.ndarray:
+    result = np.ones_like(values, dtype=float)
+    for index in range(period - 1, len(values)):
+        median = float(np.median(values[index + 1 - period : index + 1]))
+        result[index] = values[index] / median if median > 1e-12 else 1.0
+    return result
+
+
 class MultiTimeframeResearchBacktester:
     """Historical approximation of the production 15m/1h/4h signal engine.
 
@@ -211,19 +257,33 @@ class MultiTimeframeResearchBacktester:
 
     def __init__(
         self,
-        auto_confidence: int = 78,
+        auto_confidence: int = 84,
+        short_confidence: int = 86,
         risk_per_trade_pct: float = 0.5,
         one_way_cost_bps: float = 6.0,
         cooldown_bars: int = 12,
         max_holding_bars: int = 672,
         starting_equity: float = 1000.0,
+        min_primary_adx: float = 18.0,
+        min_efficiency_ratio: float = 0.14,
+        min_ema_gap_atr: float = 0.08,
+        max_atr_regime_ratio: float = 2.8,
+        relative_strength_filter: bool = True,
+        neutral_regime_confidence_penalty: int = 2,
     ) -> None:
         self.auto_confidence = auto_confidence
+        self.short_confidence = short_confidence
         self.risk_fraction = risk_per_trade_pct / 100
         self.cost_fraction = one_way_cost_bps / 10_000
         self.cooldown_bars = cooldown_bars
         self.max_holding_bars = max_holding_bars
         self.starting_equity = starting_equity
+        self.min_primary_adx = min_primary_adx
+        self.min_efficiency_ratio = min_efficiency_ratio
+        self.min_ema_gap_atr = min_ema_gap_atr
+        self.max_atr_regime_ratio = max_atr_regime_ratio
+        self.relative_strength_filter = relative_strength_filter
+        self.neutral_regime_confidence_penalty = neutral_regime_confidence_penalty
 
     def run(
         self, symbol: str, candles_15m: list[Candle], benchmark_15m: list[Candle]
@@ -260,9 +320,14 @@ class MultiTimeframeResearchBacktester:
             score = scores[0] * 0.25 + scores[1] * 0.35 + scores[2] * 0.40
             long = score > 0
             benchmark_score = f_benchmark.score[benchmark_index]
-            regime = (
-                "BULL" if benchmark_score >= 25 else "BEAR" if benchmark_score <= -25 else "NEUTRAL"
-            )
+            if f_benchmark.adx14[benchmark_index] < 16:
+                regime = "RANGE"
+            elif benchmark_score >= 25:
+                regime = "BULL"
+            elif benchmark_score <= -25:
+                regime = "BEAR"
+            else:
+                regime = "TRANSITION"
 
             if not higher_aligned or abs(score) < 45:
                 index += 1
@@ -270,9 +335,39 @@ class MultiTimeframeResearchBacktester:
             if not 0.22 <= f1h.atr_pct[index_1h] <= 7.5:
                 index += 1
                 continue
+            if f1h.adx14[index_1h] < self.min_primary_adx:
+                index += 1
+                continue
+            if f1h.efficiency_ratio20[index_1h] < self.min_efficiency_ratio:
+                index += 1
+                continue
+            if f1h.ema_gap_atr[index_1h] < self.min_ema_gap_atr:
+                index += 1
+                continue
+            if f1h.atr_regime_ratio[index_1h] > self.max_atr_regime_ratio:
+                index += 1
+                continue
+            if long and f1h.dmi_spread[index_1h] < -5:
+                index += 1
+                continue
+            if not long and f1h.dmi_spread[index_1h] > 5:
+                index += 1
+                continue
             if long and regime == "BEAR" and benchmark_score < -45:
                 index += 1
                 continue
+
+            if self.relative_strength_filter and symbol != "BTCUSDT":
+                relative_edge = (
+                    f4h.return_20_pct[index_4h]
+                    - f_benchmark.return_20_pct[benchmark_index]
+                )
+                tolerance = max(1.0, f_benchmark.atr_pct[benchmark_index] * 1.5)
+                if (long and relative_edge < -tolerance) or (
+                    not long and relative_edge > tolerance
+                ):
+                    index += 1
+                    continue
             if not long and regime == "BULL" and benchmark_score > 45:
                 index += 1
                 continue
@@ -298,7 +393,10 @@ class MultiTimeframeResearchBacktester:
             confidence += 2  # Selected symbols are high-liquidity majors.
             confidence -= min(8, risks * 2)
             confidence = int(np.clip(round(confidence), 50, 89))
-            if confidence < self.auto_confidence:
+            required_confidence = self.auto_confidence if long else self.short_confidence
+            if regime in {"RANGE", "TRANSITION"}:
+                required_confidence += self.neutral_regime_confidence_penalty
+            if confidence < required_confidence:
                 index += 1
                 continue
 
@@ -360,7 +458,9 @@ class MultiTimeframeResearchBacktester:
                     ),
                     side="LONG" if long else "SHORT",
                     confidence=confidence,
+                    required_confidence=required_confidence,
                     score=float(round(score, 2)),
+                    regime=regime,
                     entry=float(entry),
                     exit=float(exit_price),
                     stop=float(stop),

@@ -4,15 +4,25 @@ import pytest
 
 from cryptopilot.indicators import compute_features, directional_score
 from cryptopilot.models import Candle
-from cryptopilot.research import aggregate_candles, feature_arrays, rolling_zscore
+from cryptopilot.research import (
+    aggregate_candles,
+    feature_arrays,
+    rolling_efficiency_ratio,
+    rolling_zscore,
+)
 
 
 def test_feature_series_matches_live_score_at_last_bar(candle_factory) -> None:
     candles = candle_factory(interval="15", count=400, direction=1)
     series = feature_arrays(candles)
-    live = directional_score(compute_features(candles))
+    live_features = compute_features(candles)
+    live = directional_score(live_features)
 
     assert series.score[-1] == pytest.approx(live)
+    assert series.efficiency_ratio20[-1] == pytest.approx(live_features.efficiency_ratio20)
+    assert series.ema_gap_atr[-1] == pytest.approx(live_features.ema_gap_atr)
+    assert series.atr_regime_ratio[-1] == pytest.approx(live_features.atr_regime_ratio)
+    assert series.dmi_spread[-1] == pytest.approx(live_features.dmi_spread)
 
 
 def test_aggregation_ignores_incomplete_higher_timeframe(candle_factory) -> None:
@@ -48,3 +58,15 @@ def test_rolling_zscore_uses_only_trailing_window() -> None:
 
     assert actual[2] == pytest.approx((3 - 2) / (2 / 3) ** 0.5)
     assert actual[3] > 1
+
+
+def test_efficiency_ratio_distinguishes_trend_from_noise() -> None:
+    import numpy as np
+
+    trend = rolling_efficiency_ratio(np.arange(30, dtype=float), 20)
+    noise = rolling_efficiency_ratio(
+        np.asarray([0, 1] * 15, dtype=float), 20
+    )
+
+    assert trend[-1] == pytest.approx(1)
+    assert noise[-1] < 0.1

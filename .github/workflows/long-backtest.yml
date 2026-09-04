@@ -42,6 +42,7 @@ jobs:
             --start "$START_MONTH" \
             --end "$END_MONTH" \
             --confidence 84 \
+            --short-confidence 86 \
             --risk-pct 0.5 \
             --cost-bps 6
       - uses: actions/upload-artifact@v4

@@ -33,6 +33,7 @@ class Ticker:
     volume_24h: float
     funding_rate: float = 0.0
     open_interest: float = 0.0
+    open_interest_change_pct: float | None = None
 
     @property
     def spread_bps(self) -> float:
@@ -51,9 +52,15 @@ class FeatureSet:
     atr14: float
     atr_pct: float
     adx14: float
+    plus_di14: float
+    minus_di14: float
+    dmi_spread: float
     macd_hist: float
     bb_position: float
     volume_z: float
+    efficiency_ratio20: float
+    ema_gap_atr: float
+    atr_regime_ratio: float
     breakout_up: bool
     breakout_down: bool
     return_20_pct: float
@@ -91,6 +98,13 @@ class Signal:
     features: dict[str, FeatureSet] = field(default_factory=dict)
     plan: TradePlan | None = None
     data_age_seconds: int = 0
+    required_confidence: int = 0
+    estimated_success_pct: float | None = None
+    success_interval_low: float | None = None
+    success_interval_high: float | None = None
+    calibration_samples: int = 0
+    recent_expectancy_r: float | None = None
+    strategy_version: str = "3.0"
 
     @property
     def actionable(self) -> bool:
@@ -134,3 +148,35 @@ class BacktestResult:
     max_drawdown_r: float
     started_at: datetime
     finished_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PaperTrade:
+    id: int
+    symbol: str
+    exchange: str
+    side: Side
+    confidence: int
+    regime: str
+    created_at: datetime
+    entry_expires_at: datetime
+    exit_expires_at: datetime
+    entry_low: float
+    entry_high: float
+    stop_loss: float
+    take_profit: float
+    status: str
+    entry_price: float | None = None
+    entry_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationStats:
+    sample_size: int
+    wins: int
+    losses: int
+    win_rate: float
+    interval_low: float
+    interval_high: float
+    expectancy_r: float
+    profit_factor: float

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
 
-from cryptopilot.models import Signal
+from cryptopilot.models import CalibrationStats, PaperTrade, Side, Signal
 
 
 class SignalStore:
@@ -45,6 +46,33 @@ class SignalStore:
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS paper_trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    exchange TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    confidence INTEGER NOT NULL,
+                    regime TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    entry_expires_at TEXT NOT NULL,
+                    exit_expires_at TEXT NOT NULL,
+                    entry_low REAL NOT NULL,
+                    entry_high REAL NOT NULL,
+                    stop_loss REAL NOT NULL,
+                    take_profit REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    entry_price REAL,
+                    entry_at TEXT,
+                    exit_price REAL,
+                    closed_at TEXT,
+                    result_r REAL,
+                    outcome TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_paper_open
+                    ON paper_trades(status, exchange, symbol);
+                CREATE INDEX IF NOT EXISTS idx_paper_calibration
+                    ON paper_trades(symbol, side, id DESC);
                 """
             )
             await db.commit()
@@ -89,7 +117,13 @@ class SignalStore:
         moved = abs(signal.price - previous_price) / max(previous_price, 1e-12) >= 0.01
         return sent_at < threshold or moved
 
-    async def mark_alerted(self, signal: Signal) -> None:
+    async def mark_alerted(
+        self,
+        signal: Signal,
+        *,
+        track_paper: bool = True,
+        max_holding_hours: int = 72,
+    ) -> None:
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self.path) as db:
             await db.execute(
@@ -100,7 +134,146 @@ class SignalStore:
                 """,
                 (signal.fingerprint, now, signal.price),
             )
+            if track_paper and signal.plan is not None:
+                exit_expires = signal.created_at + timedelta(hours=max_holding_hours)
+                await db.execute(
+                    """
+                    INSERT INTO paper_trades
+                        (symbol, exchange, side, confidence, regime, strategy_version,
+                         created_at, entry_expires_at, exit_expires_at, entry_low,
+                         entry_high, stop_loss, take_profit, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'WAITING')
+                    """,
+                    (
+                        signal.symbol,
+                        signal.exchange,
+                        signal.side.value,
+                        signal.confidence,
+                        signal.regime,
+                        signal.strategy_version,
+                        signal.created_at.astimezone(UTC).isoformat(),
+                        signal.plan.expires_at.astimezone(UTC).isoformat(),
+                        exit_expires.astimezone(UTC).isoformat(),
+                        signal.plan.entry_low,
+                        signal.plan.entry_high,
+                        signal.plan.stop_loss,
+                        signal.plan.take_profit_2,
+                    ),
+                )
             await db.commit()
+
+    async def open_paper_trades(self) -> list[PaperTrade]:
+        async with aiosqlite.connect(self.path) as db:
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT id, symbol, exchange, side, confidence, regime, created_at,
+                           entry_expires_at, exit_expires_at, entry_low, entry_high,
+                           stop_loss, take_profit, status, entry_price, entry_at
+                    FROM paper_trades
+                    WHERE status IN ('WAITING', 'OPEN')
+                    ORDER BY id
+                    """
+                )
+            ).fetchall()
+        return [
+            PaperTrade(
+                id=int(row[0]),
+                symbol=str(row[1]),
+                exchange=str(row[2]),
+                side=Side(str(row[3])),
+                confidence=int(row[4]),
+                regime=str(row[5]),
+                created_at=datetime.fromisoformat(row[6]),
+                entry_expires_at=datetime.fromisoformat(row[7]),
+                exit_expires_at=datetime.fromisoformat(row[8]),
+                entry_low=float(row[9]),
+                entry_high=float(row[10]),
+                stop_loss=float(row[11]),
+                take_profit=float(row[12]),
+                status=str(row[13]),
+                entry_price=float(row[14]) if row[14] is not None else None,
+                entry_at=datetime.fromisoformat(row[15]) if row[15] else None,
+            )
+            for row in rows
+        ]
+
+    async def mark_paper_entry(
+        self, trade_id: int, entry_price: float, entered_at: datetime
+    ) -> None:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """
+                UPDATE paper_trades
+                SET status='OPEN', entry_price=?, entry_at=?
+                WHERE id=? AND status='WAITING'
+                """,
+                (entry_price, entered_at.astimezone(UTC).isoformat(), trade_id),
+            )
+            await db.commit()
+
+    async def close_paper_trade(
+        self,
+        trade_id: int,
+        *,
+        outcome: str,
+        result_r: float | None,
+        exit_price: float | None,
+        closed_at: datetime,
+        status: str = "CLOSED",
+    ) -> None:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """
+                UPDATE paper_trades
+                SET status=?, outcome=?, result_r=?, exit_price=?, closed_at=?
+                WHERE id=? AND status IN ('WAITING', 'OPEN')
+                """,
+                (
+                    status,
+                    outcome,
+                    result_r,
+                    exit_price,
+                    closed_at.astimezone(UTC).isoformat(),
+                    trade_id,
+                ),
+            )
+            await db.commit()
+
+    async def active_paper_count(self) -> int:
+        async with aiosqlite.connect(self.path) as db:
+            row = await (
+                await db.execute(
+                    "SELECT COUNT(*) FROM paper_trades WHERE status IN ('WAITING', 'OPEN')"
+                )
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    async def calibration(
+        self,
+        *,
+        symbol: str | None = None,
+        side: Side | None = None,
+        limit: int = 100,
+    ) -> CalibrationStats:
+        clauses = ["status='CLOSED'", "result_r IS NOT NULL"]
+        parameters: list[object] = []
+        if symbol:
+            clauses.append("symbol=?")
+            parameters.append(symbol)
+        if side:
+            clauses.append("side=?")
+            parameters.append(side.value)
+        parameters.append(min(max(limit, 1), 1000))
+        query = f"""
+            SELECT result_r FROM paper_trades
+            WHERE {' AND '.join(clauses)}
+            ORDER BY id DESC LIMIT ?
+        """
+        async with aiosqlite.connect(self.path) as db:
+            rows = await (await db.execute(query, parameters)).fetchall()
+        values = [float(row[0]) for row in rows]
+        return _calibration_stats(values)
 
     async def recent(self, limit: int = 10, actionable_only: bool = True) -> list[dict]:
         where = "WHERE actionable = 1" if actionable_only else ""
@@ -131,3 +304,39 @@ class SignalStore:
                 await db.execute("SELECT value, updated_at FROM runtime WHERE key = ?", (key,))
             ).fetchone()
         return (str(row[0]), str(row[1])) if row else None
+
+
+def _calibration_stats(values: list[float]) -> CalibrationStats:
+    sample_size = len(values)
+    wins = sum(value > 0 for value in values)
+    losses = sample_size - wins
+    win_rate = wins / sample_size if sample_size else 0.0
+    low, high = _wilson_interval(wins, sample_size)
+    gross_profit = sum(value for value in values if value > 0)
+    gross_loss = abs(sum(value for value in values if value <= 0))
+    return CalibrationStats(
+        sample_size=sample_size,
+        wins=wins,
+        losses=losses,
+        win_rate=win_rate * 100,
+        interval_low=low * 100,
+        interval_high=high * 100,
+        expectancy_r=sum(values) / sample_size if sample_size else 0.0,
+        profit_factor=(
+            gross_profit / gross_loss if gross_loss else math.inf if gross_profit else 0.0
+        ),
+    )
+
+
+def _wilson_interval(wins: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    if total <= 0:
+        return 0.0, 1.0
+    probability = wins / total
+    denominator = 1 + z * z / total
+    centre = probability + z * z / (2 * total)
+    margin = z * math.sqrt(
+        probability * (1 - probability) / total + z * z / (4 * total * total)
+    )
+    return max(0.0, (centre - margin) / denominator), min(
+        1.0, (centre + margin) / denominator
+    )

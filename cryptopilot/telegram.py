@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import math
 from collections.abc import Awaitable, Callable
@@ -15,7 +16,7 @@ from cryptopilot.backtest import WalkForwardBacktester
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.health import RuntimeHealth
-from cryptopilot.models import BacktestResult, ScanReport, Side, Signal
+from cryptopilot.models import BacktestResult, CalibrationStats, ScanReport, Side, Signal
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.storage import SignalStore
 
@@ -24,6 +25,7 @@ ANALYZE = "🪙 Анализ монеты"
 BEST = "⭐ Лучшие сигналы"
 BACKTEST = "📊 Бэктест"
 STATUS = "⚙️ Статус"
+PERFORMANCE = "📈 Результаты"
 HELP = "❓ Помощь"
 
 
@@ -63,7 +65,8 @@ def main_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=SCAN), KeyboardButton(text=ANALYZE)],
             [KeyboardButton(text=BEST), KeyboardButton(text=BACKTEST)],
-            [KeyboardButton(text=STATUS), KeyboardButton(text=HELP)],
+            [KeyboardButton(text=PERFORMANCE), KeyboardButton(text=STATUS)],
+            [KeyboardButton(text=HELP)],
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие",
@@ -163,9 +166,22 @@ def build_router(
             created = datetime.fromisoformat(row["created_at"]).astimezone(UTC)
             lines.append(
                 f"{icon} <b>{html.escape(row['symbol'])}</b> {row['side']} · "
-                f"{row['confidence']}% · {created:%d.%m %H:%M} UTC"
+                f"{row['confidence']}/100 · {created:%d.%m %H:%M} UTC"
             )
         await message.answer("\n".join(lines))
+
+    @router.message(Command("performance"))
+    @router.message(F.text == PERFORMANCE)
+    async def performance(message: Message) -> None:
+        overall, longs, shorts, active = await asyncio.gather(
+            store.calibration(limit=settings.calibration_lookback),
+            store.calibration(side=Side.LONG, limit=settings.calibration_lookback),
+            store.calibration(side=Side.SHORT, limit=settings.calibration_lookback),
+            store.active_paper_count(),
+        )
+        await message.answer(
+            format_performance(overall, longs, shorts, active, settings.calibration_min_samples)
+        )
 
     @router.message(Command("status"))
     @router.message(F.text == STATUS)
@@ -177,12 +193,15 @@ def build_router(
             health.last_error = str(exc)
         last = scanner.last_report
         last_scan = last.finished_at.strftime("%d.%m.%Y %H:%M UTC") if last else "ещё не было"
+        active_paper = await store.active_paper_count()
         await message.answer(
             "<b>Состояние системы</b>\n"
             f"Telegram: ✅ @{html.escape(health.bot_username)}\n"
             f"{exchange.name} API: {'✅' if api_ok else '❌'}\n"
             f"Автомониторинг: ✅ каждые {settings.scan_interval_seconds // 60} мин\n"
-            f"Автопорог: {settings.min_auto_confidence}%\n"
+            f"Автопорог: LONG {settings.min_auto_confidence}/100 · "
+            f"SHORT {settings.min_auto_confidence_short}/100\n"
+            f"Активных paper-планов: {active_paper}\n"
             f"Последний скан: {last_scan}\n"
             f"Последняя ошибка: {html.escape(health.last_error or scanner.last_error or 'нет')}"
         )
@@ -192,11 +211,13 @@ def build_router(
     async def help_message(message: Message) -> None:
         await message.answer(
             "<b>Как читать сигнал</b>\n"
-            "• Уверенность — внутренний рейтинг согласованности факторов, не гарантия прибыли.\n"
+            "• Качество — внутренний рейтинг факторов от 0 до 100, не вероятность прибыли.\n"
+            "• Вероятность появляется отдельно после накопления paper-статистики.\n"
             "• Вход действителен только внутри указанной зоны и до срока истечения.\n"
             "• Стоп нельзя отодвигать после входа. Размер позиции уже ограничен заданным риском.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
-            "Команды: /scan, /analyze BTC, /backtest BTC, /best, /status.\n\n"
+            "Команды: /scan, /analyze BTC, /backtest BTC, /best, "
+            "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
             reply_markup=main_keyboard(),
@@ -277,10 +298,13 @@ def format_signal(signal: Signal) -> str:
         "\n".join(f"• {html.escape(item)}" for item in signal.risks)
         or "• Явных дополнительных рисков модель не выделила"
     )
+    calibration = _format_signal_calibration(signal)
     return (
         f"{icon} <b>{html.escape(signal.symbol)} · {signal.side.value}</b>\n"
         f"Биржа: {signal.exchange} · BTC regime: {signal.regime}\n"
-        f"Уверенность модели: <b>{signal.confidence}%</b> (не гарантия)\n"
+        f"Качество сетапа: <b>{signal.confidence}/100</b> · "
+        f"автопорог {signal.required_confidence}/100\n"
+        f"{calibration}\n"
         f"Score: {signal.score:+.1f}/100 · данные: {signal.data_age_seconds // 60} мин назад\n\n"
         f"<b>Торговый план</b>\n"
         f"Зона входа: <code>{price(signal.plan.entry_low)}–{price(signal.plan.entry_high)}</code>\n"
@@ -308,7 +332,7 @@ def format_scan(report: ScanReport, manual_threshold: int) -> str:
         f"Биржа: {report.exchange}\n"
         f"Ликвидный universe: {report.universe_count}\n"
         f"Глубоко проверено: {report.analyzed_count}\n"
-        f"Планов от {manual_threshold}%: {len(qualified)}\n"
+        f"Планов от {manual_threshold}/100: {len(qualified)}\n"
         f"Время: {duration:.1f} сек\n\n"
         + (
             "Ниже отправляю лучшие варианты."
@@ -332,4 +356,54 @@ def format_backtest(result: BacktestResult) -> str:
         "Тест использует только прошлые закрытые свечи, вход на следующем open, "
         "консервативный порядок SL/TP и поправку на комиссии/проскальзывание. "
         "Прошлая статистика не гарантирует будущий результат."
+    )
+
+
+def _format_signal_calibration(signal: Signal) -> str:
+    if (
+        signal.estimated_success_pct is None
+        or signal.success_interval_low is None
+        or signal.success_interval_high is None
+    ):
+        return (
+            "Оценка успеха: калибровка собирается "
+            f"(закрытых paper-сделок: {signal.calibration_samples})"
+        )
+    return (
+        f"Историческая частота успеха: <b>{signal.estimated_success_pct:.1f}%</b> "
+        f"(95% диапазон {signal.success_interval_low:.1f}–"
+        f"{signal.success_interval_high:.1f}%, n={signal.calibration_samples}; не гарантия)"
+    )
+
+
+def format_performance(
+    overall: CalibrationStats,
+    longs: CalibrationStats,
+    shorts: CalibrationStats,
+    active: int,
+    minimum_samples: int,
+) -> str:
+    def line(label: str, stats: CalibrationStats) -> str:
+        if not stats.sample_size:
+            return f"• {label}: пока нет закрытых сделок"
+        factor = "∞" if math.isinf(stats.profit_factor) else f"{stats.profit_factor:.2f}"
+        return (
+            f"• {label}: n={stats.sample_size}, win {stats.win_rate:.1f}%, "
+            f"expectancy {stats.expectancy_r:+.2f}R, PF {factor}"
+        )
+
+    readiness = (
+        "✅ достаточно для первичной калибровки"
+        if overall.sample_size >= minimum_samples
+        else f"⏳ нужно минимум {minimum_samples} закрытых сделок"
+    )
+    return (
+        "<b>Реальная paper-статистика</b>\n"
+        f"{line('Все', overall)}\n"
+        f"{line('LONG', longs)}\n"
+        f"{line('SHORT', shorts)}\n"
+        f"• Ожидают входа или закрытия: {active}\n\n"
+        f"{readiness}\n"
+        "Статистика считается по сигналам, отправленным ботом, с учётом комиссии "
+        "и консервативного порядка SL/TP."
     )

@@ -60,11 +60,29 @@ class Settings(BaseSettings):
     shortlist_size: int = Field(default=12, ge=3, le=40)
     request_concurrency: int = Field(default=8, ge=1, le=20)
     timeframes: str = "15,60,240"
-    min_auto_confidence: int = Field(default=78, ge=55, le=95)
-    min_manual_confidence: int = Field(default=65, ge=50, le=95)
+    min_auto_confidence: int = Field(default=84, ge=55, le=95)
+    min_auto_confidence_short: int = Field(default=86, ge=55, le=95)
+    min_manual_confidence: int = Field(default=72, ge=50, le=95)
     alert_cooldown_minutes: int = Field(default=180, ge=15, le=10_080)
     signal_expiry_minutes: int = Field(default=240, ge=30, le=2_880)
+    max_auto_signals_per_scan: int = Field(default=2, ge=1, le=10)
+    max_same_side_auto_signals: int = Field(default=1, ge=1, le=5)
+    max_portfolio_risk_pct: float = Field(default=1.0, gt=0, le=5)
     excluded_symbols: str = "USDCUSDT,FDUSDUSDT,TUSDUSDT,USDEUSDT"
+
+    min_primary_adx: float = Field(default=18.0, ge=0, le=60)
+    min_efficiency_ratio: float = Field(default=0.14, ge=0, le=1)
+    min_ema_gap_atr: float = Field(default=0.08, ge=0, le=5)
+    max_atr_regime_ratio: float = Field(default=2.8, ge=1, le=10)
+    relative_strength_filter: bool = True
+    neutral_regime_confidence_penalty: int = Field(default=2, ge=0, le=10)
+
+    paper_tracking_enabled: bool = True
+    paper_max_holding_hours: int = Field(default=72, ge=4, le=336)
+    paper_one_way_cost_bps: float = Field(default=6.0, ge=0, le=100)
+    calibration_min_samples: int = Field(default=30, ge=10, le=500)
+    calibration_lookback: int = Field(default=100, ge=20, le=1000)
+    weak_edge_confidence_penalty: int = Field(default=2, ge=0, le=10)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
@@ -97,6 +115,14 @@ class Settings(BaseSettings):
             raise ValueError("SHORTLIST_SIZE cannot exceed UNIVERSE_SIZE")
         if self.min_auto_confidence < self.min_manual_confidence:
             raise ValueError("MIN_AUTO_CONFIDENCE must be >= MIN_MANUAL_CONFIDENCE")
+        if self.min_auto_confidence_short < self.min_manual_confidence:
+            raise ValueError("MIN_AUTO_CONFIDENCE_SHORT must be >= MIN_MANUAL_CONFIDENCE")
+        if self.max_same_side_auto_signals > self.max_auto_signals_per_scan:
+            raise ValueError(
+                "MAX_SAME_SIDE_AUTO_SIGNALS cannot exceed MAX_AUTO_SIGNALS_PER_SCAN"
+            )
+        if self.max_portfolio_risk_pct < self.risk_per_trade_pct:
+            raise ValueError("MAX_PORTFOLIO_RISK_PCT must be >= RISK_PER_TRADE_PCT")
         return self
 
     @property

@@ -15,6 +15,10 @@ def test_features_and_direction_are_finite(candle_factory) -> None:
     assert directional_score(bearish) < -20
     assert math.isfinite(bullish.atr14)
     assert 0 <= bullish.rsi14 <= 100
+    assert 0 <= bullish.efficiency_ratio20 <= 1
+    assert bullish.ema_gap_atr >= 0
+    assert bullish.atr_regime_ratio > 0
+    assert bullish.dmi_spread > 0
 
 
 def test_breakout_does_not_use_future_data(candle_factory) -> None:

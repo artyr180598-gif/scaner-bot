@@ -56,24 +56,27 @@ class SignalEngine:
         aligned = len(set(directions)) == 1 and directions[0] != 0
         higher_aligned = directions[-1] == directions[-2] != 0
 
-        regime = "NEUTRAL"
+        regime = "TRANSITION"
         benchmark_score = 0.0
+        benchmark_feature: FeatureSet | None = None
         if benchmark:
             try:
-                benchmark_score = directional_score(compute_features(benchmark))
-                regime = (
-                    "BULL"
-                    if benchmark_score >= 25
-                    else "BEAR"
-                    if benchmark_score <= -25
-                    else "NEUTRAL"
-                )
+                benchmark_feature = compute_features(benchmark)
+                benchmark_score = directional_score(benchmark_feature)
+                if benchmark_feature.adx14 < 16:
+                    regime = "RANGE"
+                elif benchmark_score >= 25:
+                    regime = "BULL"
+                elif benchmark_score <= -25:
+                    regime = "BEAR"
             except (InsufficientData, ValueError):
                 risks.append("Режим BTC недоступен; уверенность снижена")
 
         primary = features[ordered[1]]
         execution = features[ordered[0]]
+        structural = features[ordered[-1]]
         data_age = self._data_age(candles[ordered[0]], ordered[0])
+        side = Side.LONG if score > 0 else Side.SHORT
 
         if ticker.turnover_24h < self.settings.min_volume_usdt:
             blockers.append("Суточный оборот ниже фильтра ликвидности")
@@ -87,8 +90,28 @@ class SignalEngine:
             blockers.append("Волатильность слишком низкая для разумной цели")
         if primary.atr_pct > 7.5:
             blockers.append("Аномально высокая волатильность; стоп получается ненадёжным")
+        if primary.adx14 < self.settings.min_primary_adx:
+            blockers.append(
+                f"ADX {primary.adx14:.1f} ниже адаптивного минимума "
+                f"{self.settings.min_primary_adx:.0f}: тренд недостаточно устойчив"
+            )
+        if primary.efficiency_ratio20 < self.settings.min_efficiency_ratio:
+            blockers.append(
+                f"Рынок слишком шумный: efficiency ratio "
+                f"{primary.efficiency_ratio20:.2f}"
+            )
+        if primary.ema_gap_atr < self.settings.min_ema_gap_atr:
+            blockers.append("EMA20 и EMA50 слишком близко: вероятна переходная фаза")
+        if primary.atr_regime_ratio > self.settings.max_atr_regime_ratio:
+            blockers.append(
+                f"Всплеск волатильности {primary.atr_regime_ratio:.1f}× нормы; "
+                "вход временно заблокирован"
+            )
+        if side is Side.LONG and primary.dmi_spread < -5:
+            blockers.append("DMI на 1h не подтверждает давление покупателей")
+        if side is Side.SHORT and primary.dmi_spread > 5:
+            blockers.append("DMI на 1h не подтверждает давление продавцов")
 
-        side = Side.LONG if score > 0 else Side.SHORT
         threshold = 45.0
         if abs(score) < threshold:
             blockers.append(f"Совокупный edge слабый: {abs(score):.1f}/100, нужно {threshold:.0f}+")
@@ -97,6 +120,22 @@ class SignalEngine:
             blockers.append("Сильный медвежий режим BTC против LONG")
         if side is Side.SHORT and regime == "BULL" and benchmark_score > 45:
             blockers.append("Сильный бычий режим BTC против SHORT")
+
+        if (
+            self.settings.relative_strength_filter
+            and symbol != "BTCUSDT"
+            and benchmark_feature is not None
+        ):
+            relative_edge = structural.return_20_pct - benchmark_feature.return_20_pct
+            tolerance = max(1.0, benchmark_feature.atr_pct * 1.5)
+            if side is Side.LONG and relative_edge < -tolerance:
+                blockers.append(
+                    f"Монета слабее BTC на {abs(relative_edge):.1f}% за окно 4h"
+                )
+            elif side is Side.SHORT and relative_edge > tolerance:
+                blockers.append(
+                    f"Монета сильнее BTC на {relative_edge:.1f}% — SHORT не подтверждён"
+                )
 
         distance_from_ema = abs(ticker.last - execution.ema20) / max(execution.atr14, 1e-12)
         if distance_from_ema > 2.4:
@@ -111,6 +150,11 @@ class SignalEngine:
             risks.append(f"Повышенный funding: {funding_pct:+.3f}%")
 
         reasons.extend(self._reasons(side, scores, features, aligned, regime))
+        if ticker.open_interest_change_pct is not None and ticker.open_interest_change_pct >= 2:
+            reasons.append(
+                f"Open interest растёт на {ticker.open_interest_change_pct:.1f}%: "
+                "движение поддержано новыми позициями"
+            )
         risks.extend(self._risks(side, primary, execution, ticker))
 
         if blockers:
@@ -122,19 +166,52 @@ class SignalEngine:
             result.data_age_seconds = data_age
             return result
 
-        plan = self._build_plan(side, ticker.last, candles[ordered[0]], execution, now)
+        confidence = self._confidence(score, aligned, regime, side, ticker, primary, risks)
+        required_confidence = (
+            self.settings.min_auto_confidence
+            if side is Side.LONG
+            else self.settings.min_auto_confidence_short
+        )
+        if regime in {"RANGE", "TRANSITION"}:
+            required_confidence = min(
+                95, required_confidence + self.settings.neutral_regime_confidence_penalty
+            )
+        if confidence < self.settings.min_manual_confidence:
+            blockers.append(
+                f"Качество сетапа {confidence}/100 ниже ручного минимума "
+                f"{self.settings.min_manual_confidence}"
+            )
+            result = self._no_trade(symbol, exchange, ticker.last, now, blockers, features)
+            result.score = round(score, 1)
+            result.confidence = confidence
+            result.required_confidence = required_confidence
+            result.regime = regime
+            result.reasons = reasons[:6]
+            result.risks = risks[:4]
+            result.data_age_seconds = data_age
+            return result
+
+        risk_multiplier = 1.0
+        if regime in {"RANGE", "TRANSITION"}:
+            risk_multiplier = 0.5
+        elif confidence < required_confidence + 2:
+            risk_multiplier = 0.75
+        plan = self._build_plan(
+            side, ticker.last, candles[ordered[0]], execution, now, risk_multiplier
+        )
         stop_pct = abs(ticker.last - plan.stop_loss) / ticker.last * 100
         if stop_pct < 0.25 or stop_pct > 5.0:
             blockers.append(f"Технический стоп {stop_pct:.2f}% вне допустимого диапазона 0.25–5%")
             result = self._no_trade(symbol, exchange, ticker.last, now, blockers, features)
             result.score = round(score, 1)
+            result.confidence = confidence
+            result.required_confidence = required_confidence
             result.regime = regime
             result.reasons = reasons[:5]
             result.risks = risks[:4]
             result.data_age_seconds = data_age
             return result
 
-        confidence = self._confidence(score, aligned, regime, side, ticker, primary, risks)
         return Signal(
             symbol=symbol,
             exchange=exchange,
@@ -149,6 +226,7 @@ class SignalEngine:
             features=features,
             plan=plan,
             data_age_seconds=data_age,
+            required_confidence=required_confidence,
         )
 
     @staticmethod
@@ -183,6 +261,8 @@ class SignalEngine:
             + ", ".join(f"{tf}={scores[tf]:+.0f}" for tf in ordered),
             f"EMA20/50/200 и наклон тренда подтверждают направление; ADX {primary.adx14:.1f}",
             f"RSI14 {primary.rsi14:.1f}, MACD histogram {primary.macd_hist:+.6g}",
+            f"ADX {primary.adx14:.1f}, DMI spread {primary.dmi_spread:+.1f}, "
+            f"efficiency {primary.efficiency_ratio20:.2f}",
         ]
         if aligned:
             result.append("Все выбранные таймфреймы направлены одинаково")
@@ -206,6 +286,12 @@ class SignalEngine:
             risks.append("Импульс не поддержан текущим объёмом")
         if ticker.open_interest <= 0:
             risks.append("Open interest недоступен и не участвует в подтверждении")
+        elif ticker.open_interest_change_pct is not None:
+            if ticker.open_interest_change_pct <= -5:
+                risks.append(
+                    f"Open interest снизился на {abs(ticker.open_interest_change_pct):.1f}%: "
+                    "движение может быть закрытием позиций"
+                )
         return risks
 
     def _build_plan(
@@ -215,6 +301,7 @@ class SignalEngine:
         candles: list[Candle],
         feature: FeatureSet,
         now: datetime,
+        risk_multiplier: float = 1.0,
     ) -> TradePlan:
         atr_value = feature.atr14
         swing_low = min(x.low for x in candles[-18:])
@@ -240,7 +327,12 @@ class SignalEngine:
             )
             invalidation = "Закрытие свечи выше стопа или слом структуры EMA50"
 
-        risk_amount = self.settings.account_equity_usdt * self.settings.risk_per_trade_pct / 100
+        risk_amount = (
+            self.settings.account_equity_usdt
+            * self.settings.risk_per_trade_pct
+            / 100
+            * risk_multiplier
+        )
         theoretical_notional = risk_amount / max(distance / price, 1e-12)
         cap = self.settings.account_equity_usdt * self.settings.max_position_pct / 100
         notional = min(theoretical_notional, cap)

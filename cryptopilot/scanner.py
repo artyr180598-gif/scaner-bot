@@ -11,6 +11,7 @@ from cryptopilot.config import Settings
 from cryptopilot.engine import SignalEngine
 from cryptopilot.exchange import ExchangeClient, MarketDataError
 from cryptopilot.models import Candle, ScanReport, Signal, Ticker
+from cryptopilot.paper import PaperTracker
 from cryptopilot.storage import SignalStore
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class MarketScanner:
         self.scan_lock = asyncio.Lock()
         self.last_report: ScanReport | None = None
         self.last_error: str | None = None
+        self.paper = PaperTracker(exchange, store, settings)
 
     async def scan_market(self) -> ScanReport:
         async with self.scan_lock:
@@ -81,6 +83,7 @@ class MarketScanner:
                     log.warning("Detailed analysis failed for %s: %s", symbol, result)
                     continue
                 if result.actionable:
+                    await self._attach_calibration(result)
                     await self.store.save(result)
                     signals.append(result)
 
@@ -109,7 +112,8 @@ class MarketScanner:
             raise ValueError(
                 f"{normalized} is not an active USDT perpetual on {self.exchange.name}"
             )
-        benchmark, *series = await asyncio.gather(
+        ticker, benchmark, *series = await asyncio.gather(
+            self.exchange.enrich_ticker(ticker),
             self.exchange.candles("BTCUSDT", self.settings.timeframe_list[-1], 260),
             *(self.exchange.candles(normalized, tf, 260) for tf in self.settings.timeframe_list),
         )
@@ -120,19 +124,39 @@ class MarketScanner:
             dict(zip(self.settings.timeframe_list, series, strict=True)),
             benchmark,
         )
+        if signal.actionable:
+            await self._attach_calibration(signal)
         await self.store.save(signal)
         return signal
 
     async def auto_candidates(self) -> list[Signal]:
         report = await self.scan_market()
         selected: list[Signal] = []
+        active = (
+            await self.store.active_paper_count()
+            if self.settings.paper_tracking_enabled
+            else 0
+        )
+        risk_slots = max(
+            0,
+            int(self.settings.max_portfolio_risk_pct / self.settings.risk_per_trade_pct)
+            - active,
+        )
+        limit = min(self.settings.max_auto_signals_per_scan, risk_slots)
+        side_counts: dict[str, int] = {}
         for signal in report.signals:
-            if signal.confidence < self.settings.min_auto_confidence:
+            if len(selected) >= limit:
+                break
+            if signal.confidence < signal.required_confidence:
                 continue
             if signal.plan is None or signal.plan.risk_reward_2 < self.settings.min_risk_reward:
                 continue
+            side_key = signal.side.value
+            if side_counts.get(side_key, 0) >= self.settings.max_same_side_auto_signals:
+                continue
             if await self.store.should_alert(signal, self.settings.alert_cooldown_minutes):
                 selected.append(signal)
+                side_counts[side_key] = side_counts.get(side_key, 0) + 1
         return selected
 
     async def monitor(self, callback: AlertCallback, stop_event: asyncio.Event) -> None:
@@ -148,9 +172,23 @@ class MarketScanner:
 
     async def _monitor_once(self, callback: AlertCallback) -> None:
         try:
+            refresh = await self.paper.refresh()
+            if refresh.closed or refresh.expired:
+                log.info(
+                    "Paper tracker: reviewed=%d entered=%d closed=%d expired=%d errors=%d",
+                    refresh.reviewed,
+                    refresh.entered,
+                    refresh.closed,
+                    refresh.expired,
+                    refresh.errors,
+                )
             for signal in await self.auto_candidates():
                 await callback(signal)
-                await self.store.mark_alerted(signal)
+                await self.store.mark_alerted(
+                    signal,
+                    track_paper=self.settings.paper_tracking_enabled,
+                    max_holding_hours=self.settings.paper_max_holding_hours,
+                )
         except (MarketDataError, aiohttp.ClientError) as exc:
             self.last_error = str(exc)
             log.exception("Automatic market scan failed")
@@ -185,11 +223,43 @@ class MarketScanner:
         benchmark: list[Candle],
     ) -> Signal:
         missing = [tf for tf in self.settings.timeframe_list if tf != cached_tf]
-        fetched = await asyncio.gather(
-            *(self.exchange.candles(symbol, timeframe, 260) for timeframe in missing)
+        enriched, *fetched = await asyncio.gather(
+            self.exchange.enrich_ticker(ticker),
+            *(self.exchange.candles(symbol, timeframe, 260) for timeframe in missing),
         )
         all_series = {cached_tf: cached}
         all_series.update(dict(zip(missing, fetched, strict=True)))
         return self.engine.analyze(
-            symbol, self.exchange.name, ticker, all_series, benchmark or None
+            symbol, self.exchange.name, enriched, all_series, benchmark or None
         )
+
+    async def _attach_calibration(self, signal: Signal) -> None:
+        specific = await self.store.calibration(
+            symbol=signal.symbol,
+            side=signal.side,
+            limit=self.settings.calibration_lookback,
+        )
+        chosen = specific
+        if specific.sample_size < self.settings.calibration_min_samples:
+            side_stats = await self.store.calibration(
+                side=signal.side,
+                limit=self.settings.calibration_lookback,
+            )
+            if side_stats.sample_size > specific.sample_size:
+                chosen = side_stats
+        signal.calibration_samples = chosen.sample_size
+        signal.recent_expectancy_r = (
+            chosen.expectancy_r if chosen.sample_size else None
+        )
+        if chosen.sample_size:
+            signal.estimated_success_pct = chosen.win_rate
+            signal.success_interval_low = chosen.interval_low
+            signal.success_interval_high = chosen.interval_high
+        if (
+            chosen.sample_size >= self.settings.calibration_min_samples
+            and chosen.expectancy_r <= 0
+        ):
+            signal.required_confidence = min(
+                95,
+                signal.required_confidence + self.settings.weak_edge_confidence_penalty,
+            )

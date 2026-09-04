@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from cryptopilot.exchange import BinanceClient
 
 
@@ -31,6 +33,11 @@ class FakeHttp:
             return [{"symbol": "BTCUSDT", "lastFundingRate": "0.0001"}]
         if path.endswith("bookTicker"):
             return [{"symbol": "BTCUSDT", "bidPrice": "49999", "askPrice": "50001"}]
+        if path.endswith("openInterestHist"):
+            return [
+                {"timestamp": 1, "sumOpenInterestValue": "1000000"},
+                {"timestamp": 2, "sumOpenInterestValue": "1050000"},
+            ]
         raise AssertionError(path)
 
     async def close(self) -> None:
@@ -49,3 +56,7 @@ def test_binance_combines_24h_funding_and_book_tickers() -> None:
     assert result[0].ask == 50_001
     assert result[0].funding_rate == 0.0001
     assert result[0].spread_bps < 1
+
+    enriched = asyncio.run(client.enrich_ticker(result[0]))
+    assert enriched.open_interest == 1_050_000
+    assert enriched.open_interest_change_pct == pytest.approx(5)
