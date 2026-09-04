@@ -18,6 +18,7 @@ from cryptopilot.models import Candle
 from cryptopilot.research import MultiTimeframeResearchBacktester, SymbolResearchResult
 
 BASE_URL = "https://data.binance.vision/data/futures/um/monthly/klines"
+RESEARCH_VERSION = "2.0.1"
 
 
 def parse_args() -> argparse.Namespace:
@@ -266,6 +267,7 @@ def main() -> None:
         )
 
     payload = {
+        "research_version": RESEARCH_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "source": "Binance Public Data (USD-M futures, 15m monthly klines)",
         "configuration": {
