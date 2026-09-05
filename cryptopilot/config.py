@@ -88,6 +88,8 @@ class Settings(BaseSettings):
     weak_edge_confidence_penalty: int = Field(default=2, ge=0, le=10)
 
     early_radar_enabled: bool = True
+    live_radar_enabled: bool = True
+    live_watchlist_interval_seconds: int = Field(default=300, ge=60, le=3600)
     early_auto_alerts: bool = True
     min_early_readiness: int = Field(default=68, ge=50, le=95)
     min_early_auto_readiness: int = Field(default=80, ge=55, le=95)
@@ -133,15 +135,11 @@ class Settings(BaseSettings):
         if self.min_auto_confidence_short < self.min_manual_confidence:
             raise ValueError("MIN_AUTO_CONFIDENCE_SHORT must be >= MIN_MANUAL_CONFIDENCE")
         if self.max_same_side_auto_signals > self.max_auto_signals_per_scan:
-            raise ValueError(
-                "MAX_SAME_SIDE_AUTO_SIGNALS cannot exceed MAX_AUTO_SIGNALS_PER_SCAN"
-            )
+            raise ValueError("MAX_SAME_SIDE_AUTO_SIGNALS cannot exceed MAX_AUTO_SIGNALS_PER_SCAN")
         if self.max_portfolio_risk_pct < self.risk_per_trade_pct:
             raise ValueError("MAX_PORTFOLIO_RISK_PCT must be >= RISK_PER_TRADE_PCT")
         if self.min_early_auto_readiness < self.min_early_readiness:
-            raise ValueError(
-                "MIN_EARLY_AUTO_READINESS must be >= MIN_EARLY_READINESS"
-            )
+            raise ValueError("MIN_EARLY_AUTO_READINESS must be >= MIN_EARLY_READINESS")
         if self.preferred_leverage > self.max_leverage:
             raise ValueError("PREFERRED_LEVERAGE cannot exceed MAX_LEVERAGE")
         return self
