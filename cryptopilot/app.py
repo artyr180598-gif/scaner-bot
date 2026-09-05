@@ -201,7 +201,15 @@ async def run() -> None:
                     raise RuntimeError("No live event recipients accepted the message")
 
             live = LiveRadar(
-                lambda: list(scanner.last_early_report.setups) if scanner.last_early_report else [],
+                lambda: (
+                    [
+                        setup
+                        for setup in scanner.last_early_report.setups
+                        if setup.readiness >= settings.min_early_auto_readiness
+                    ]
+                    if scanner.last_early_report
+                    else []
+                ),
                 send_crossing,
                 store,
             )
