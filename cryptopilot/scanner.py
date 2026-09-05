@@ -9,6 +9,7 @@ import aiohttp
 
 from cryptopilot.config import Settings
 from cryptopilot.engine import SignalEngine
+from cryptopilot.impulse import detect_impulse
 from cryptopilot.exchange import ExchangeClient, MarketDataError
 from cryptopilot.models import Candle, EarlyScanReport, EarlySetup, ScanReport, Signal, Ticker
 from cryptopilot.paper import PaperTracker
@@ -103,6 +104,29 @@ class MarketScanner:
             self.last_error = None
             await self.store.set_runtime("last_scan", report.finished_at.isoformat())
             return report
+
+    async def scan_impulses(self) -> tuple[list[tuple[str, object]], int, int]:
+        """Independent 5m research scan; never participates in auto trade alerts."""
+        async with self.scan_lock:
+            universe = self._universe(await self.exchange.tickers())
+            gate = asyncio.Semaphore(4)
+
+            async def check(ticker: Ticker):
+                async with gate:
+                    return await self.exchange.candles(ticker.symbol, "5", 60)
+
+            results = await asyncio.gather(*(check(t) for t in universe), return_exceptions=True)
+            fresh = {t.symbol:t for t in self._universe(await self.exchange.tickers())}
+            now_ms = int(datetime.now(UTC).timestamp()*1000)
+            found = []
+            for ticker, bars in zip(universe,results,strict=True):
+                if isinstance(bars,BaseException) or ticker.symbol not in fresh:
+                    continue
+                event = detect_impulse(bars, now_ms, fresh[ticker.symbol].last)
+                if event is not None:
+                    found.append((ticker.symbol,event))
+            errors = sum(isinstance(r,BaseException) for r in results)
+            return found, len(universe), errors
 
     async def scan_early_moves(self) -> EarlyScanReport:
         """Find compressed markets before a breakout; this is a watchlist, not an entry."""
