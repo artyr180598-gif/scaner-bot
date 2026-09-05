@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
+from cryptopilot.entry_timing import timing_vetoes
 from cryptopilot.indicators import (
     atr,
     bollinger_widths,
@@ -209,9 +210,7 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
     choppiness14 = choppiness(high, low, close, 14)
     cmf20 = chaikin_money_flow(high, low, close, volume, 20)
     relative_volume20 = relative_volume(volume, 20)
-    vwap_distance_atr = rolling_vwap_distance_atr(
-        high, low, close, volume, atr14, 48
-    )
+    vwap_distance_atr = rolling_vwap_distance_atr(high, low, close, volume, atr14, 48)
     supertrend_direction, supertrend_line = supertrend(high, low, close)
     supertrend_distance_atr = np.divide(
         close - supertrend_line,
@@ -326,9 +325,7 @@ def early_radar_research(
     """Test pre-breakout observations separately from post-trigger outcomes."""
     prepared = _PREPARED_CACHE.get((id(candles_15m), id(benchmark_15m)))
     if prepared is None:
-        MultiTimeframeResearchBacktester().run(
-            symbol, candles_15m, benchmark_15m
-        )
+        MultiTimeframeResearchBacktester().run(symbol, candles_15m, benchmark_15m)
         prepared = _PREPARED_CACHE[(id(candles_15m), id(benchmark_15m))]
     candles_1h = prepared.candles_1h
     f1h = prepared.f1h
@@ -392,13 +389,7 @@ def early_radar_research(
             if f1h.ema20_slope_pct[index] < -0.02
             else 0
         )
-        votes += (
-            1
-            if f1h.dmi_spread[index] > 3
-            else -1
-            if f1h.dmi_spread[index] < -3
-            else 0
-        )
+        votes += 1 if f1h.dmi_spread[index] > 3 else -1 if f1h.dmi_spread[index] < -3 else 0
         votes += 1 if f1h.macd_hist[index] > 0 else -1
         votes += (
             1
@@ -416,9 +407,8 @@ def early_radar_research(
         long = votes >= 2
         readiness += min(10, abs(votes) * 2)
         structural_score = f4h.score[index_4h]
-        trend_guard_aligned = (
-            (long and f4h.supertrend_direction[index_4h] > 0)
-            or (not long and f4h.supertrend_direction[index_4h] < 0)
+        trend_guard_aligned = (long and f4h.supertrend_direction[index_4h] > 0) or (
+            not long and f4h.supertrend_direction[index_4h] < 0
         )
         readiness += 8 if trend_guard_aligned else -10
         if require_trend_guard and not trend_guard_aligned:
@@ -451,10 +441,7 @@ def early_radar_research(
                 continue
             readiness -= 8
         if symbol != "BTCUSDT":
-            relative_edge = (
-                f4h.return_20_pct[index_4h]
-                - f_benchmark.return_20_pct[benchmark_index]
-            )
+            relative_edge = f4h.return_20_pct[index_4h] - f_benchmark.return_20_pct[benchmark_index]
             if (long and relative_edge > 0) or (not long and relative_edge < 0):
                 readiness += 5
         readiness = min(95, max(0, readiness))
@@ -462,9 +449,7 @@ def early_radar_research(
             index += 1
             continue
 
-        trigger = (
-            f1h.range_high20[index] if long else f1h.range_low20[index]
-        )
+        trigger = f1h.range_high20[index] if long else f1h.range_low20[index]
         activation_start = bisect.bisect_left(opens_15m, decision_time)
         activation_end = min(activation_start + 48, len(candles_15m) - 2)
         activation_index: int | None = None
@@ -482,9 +467,7 @@ def early_radar_research(
                 if long
                 else f15.score[cursor] <= -min_breakout_score
             )
-            triggered = (
-                close > buffered_trigger if long else close < buffered_trigger
-            )
+            triggered = close > buffered_trigger if long else close < buffered_trigger
             opposite_triggered = (
                 close < f1h.range_low20[index] - trigger_buffer_atr * f1h.atr14[index]
                 if long
@@ -532,11 +515,7 @@ def early_radar_research(
                 if (long and bar.high >= target) or (not long and bar.low <= target):
                     exit_price = target
                     break
-            result_r = (
-                (exit_price - entry) / risk
-                if long
-                else (entry - exit_price) / risk
-            )
+            result_r = (exit_price - entry) / risk if long else (entry - exit_price) / risk
             result_r -= (entry + exit_price) * cost_fraction / risk
             record["result_r"] = float(result_r)
         records.append(record)
@@ -645,6 +624,7 @@ class MultiTimeframeResearchBacktester:
         max_atr_regime_ratio: float = 2.8,
         relative_strength_filter: bool = True,
         neutral_regime_confidence_penalty: int = 2,
+        strict_entry_timing: bool = False,
     ) -> None:
         self.auto_confidence = auto_confidence
         self.short_confidence = short_confidence
@@ -660,6 +640,7 @@ class MultiTimeframeResearchBacktester:
         self.max_atr_regime_ratio = max_atr_regime_ratio
         self.relative_strength_filter = relative_strength_filter
         self.neutral_regime_confidence_penalty = neutral_regime_confidence_penalty
+        self.strict_entry_timing = strict_entry_timing
 
     def run(
         self, symbol: str, candles_15m: list[Candle], benchmark_15m: list[Candle]
@@ -683,9 +664,7 @@ class MultiTimeframeResearchBacktester:
                 f_benchmark=feature_arrays(benchmark_4h),
                 close_1h=[item.open_time_ms + 3_600_000 for item in candles_1h],
                 close_4h=[item.open_time_ms + 14_400_000 for item in candles_4h],
-                close_benchmark=[
-                    item.open_time_ms + 14_400_000 for item in benchmark_4h
-                ],
+                close_benchmark=[item.open_time_ms + 14_400_000 for item in benchmark_4h],
             )
             _PREPARED_CACHE[cache_key] = prepared
         f15 = prepared.f15
@@ -713,6 +692,18 @@ class MultiTimeframeResearchBacktester:
             aligned = len(set(directions)) == 1 and directions[0] != 0
             score = scores[0] * 0.25 + scores[1] * 0.35 + scores[2] * 0.40
             long = score > 0
+            if self.strict_entry_timing and timing_vetoes(
+                long,
+                f15.dmi_spread[index],
+                f15.supertrend_direction[index],
+                f1h.supertrend_direction[index_1h],
+                f15.rsi14[index],
+                f1h.rsi14[index_1h],
+                f4h.rsi14[index_4h],
+                f15.relative_volume20[index],
+            ):
+                index += 1
+                continue
             benchmark_score = f_benchmark.score[benchmark_index]
             if f_benchmark.adx14[benchmark_index] < 16:
                 regime = "RANGE"
@@ -753,8 +744,7 @@ class MultiTimeframeResearchBacktester:
 
             if self.relative_strength_filter and symbol != "BTCUSDT":
                 relative_edge = (
-                    f4h.return_20_pct[index_4h]
-                    - f_benchmark.return_20_pct[benchmark_index]
+                    f4h.return_20_pct[index_4h] - f_benchmark.return_20_pct[benchmark_index]
                 )
                 tolerance = max(1.0, f_benchmark.atr_pct[benchmark_index] * 1.5)
                 if (long and relative_edge < -tolerance) or (
