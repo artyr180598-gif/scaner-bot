@@ -24,6 +24,18 @@ from cryptopilot.models import EarlySetup, Side
 log = logging.getLogger(__name__)
 
 
+def active_live_setups(
+    report, now_seconds: float, threshold: int, max_age: int
+) -> list[EarlySetup]:
+    if report is None or not 0 <= now_seconds - report.finished_at.timestamp() <= max_age:
+        return []
+    return [
+        s
+        for s in report.setups
+        if s.readiness >= threshold and s.actionable and s.expires_at.timestamp() > now_seconds
+    ][:20]
+
+
 @dataclass(frozen=True)
 class Crossing:
     symbol: str
