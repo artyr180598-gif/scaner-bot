@@ -7,7 +7,19 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from cryptopilot.indicators import atr, bollinger_widths, dmi, ema, rsi
+from cryptopilot.indicators import (
+    atr,
+    bollinger_widths,
+    chaikin_money_flow,
+    choppiness,
+    dmi,
+    ema,
+    keltner_squeeze_ratios,
+    relative_volume,
+    rolling_vwap_distance_atr,
+    rsi,
+    supertrend,
+)
 from cryptopilot.models import Candle
 
 
@@ -92,6 +104,14 @@ class FeatureArrays:
     range_low20: np.ndarray
     range_position20: np.ndarray
     return_20_pct: np.ndarray
+    keltner_squeeze_ratio: np.ndarray
+    squeeze_bars: np.ndarray
+    choppiness14: np.ndarray
+    cmf20: np.ndarray
+    relative_volume20: np.ndarray
+    vwap_distance_atr: np.ndarray
+    supertrend_direction: np.ndarray
+    supertrend_distance_atr: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +200,25 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
     atr_regime_ratio = rolling_median_ratio(atr14, 100)
     bb_width_pct = bollinger_widths(close, 20)
     bb_width_regime_ratio = rolling_median_ratio(bb_width_pct, 100)
+    keltner_squeeze_ratio = keltner_squeeze_ratios(close, high, low, 20)
+    squeeze_bars = np.zeros_like(close)
+    active_squeeze = 0
+    for index, ratio in enumerate(keltner_squeeze_ratio):
+        active_squeeze = active_squeeze + 1 if index >= 19 and ratio < 1 else 0
+        squeeze_bars[index] = active_squeeze
+    choppiness14 = choppiness(high, low, close, 14)
+    cmf20 = chaikin_money_flow(high, low, close, volume, 20)
+    relative_volume20 = relative_volume(volume, 20)
+    vwap_distance_atr = rolling_vwap_distance_atr(
+        high, low, close, volume, atr14, 48
+    )
+    supertrend_direction, supertrend_line = supertrend(high, low, close)
+    supertrend_distance_atr = np.divide(
+        close - supertrend_line,
+        atr14,
+        out=np.zeros_like(close),
+        where=atr14 > 1e-12,
+    )
     breakout_up = np.zeros(len(close), dtype=bool)
     breakout_down = np.zeros(len(close), dtype=bool)
     range_high20 = np.zeros_like(close)
@@ -253,6 +292,14 @@ def feature_arrays(candles: list[Candle]) -> FeatureArrays:
         range_low20=range_low20,
         range_position20=range_position20,
         return_20_pct=return20,
+        keltner_squeeze_ratio=keltner_squeeze_ratio,
+        squeeze_bars=squeeze_bars,
+        choppiness14=choppiness14,
+        cmf20=cmf20,
+        relative_volume20=relative_volume20,
+        vwap_distance_atr=vwap_distance_atr,
+        supertrend_direction=supertrend_direction,
+        supertrend_distance_atr=supertrend_distance_atr,
     )
 
 
@@ -266,11 +313,15 @@ def early_radar_research(
     trigger_buffer_atr: float = 0.0,
     min_breakout_score: float = 0.0,
     min_breakout_volume_z: float = -10.0,
+    min_breakout_relative_volume: float = 0.0,
     target_atr: float = 1.5,
     stop_atr: float = 1.0,
     min_structural_score: float = 0.0,
     min_structural_adx: float = 0.0,
     require_btc_alignment: bool = False,
+    require_keltner_squeeze: bool = False,
+    min_squeeze_bars: int = 1,
+    require_trend_guard: bool = False,
 ) -> dict:
     """Test pre-breakout observations separately from post-trigger outcomes."""
     prepared = _PREPARED_CACHE.get((id(candles_15m), id(benchmark_15m)))
@@ -299,6 +350,7 @@ def early_radar_research(
             continue
         compression = sum(
             (
+                f1h.keltner_squeeze_ratio[index] < 1,
                 f1h.bb_width_regime_ratio[index] <= 0.9,
                 f1h.atr_regime_ratio[index] <= 0.9,
                 f1h.ema_gap_atr[index] <= 0.4,
@@ -308,7 +360,11 @@ def early_radar_research(
             candles_1h[index].close > f1h.range_high20[index]
             or candles_1h[index].close < f1h.range_low20[index]
         )
-        if compression < 2 or already_broken:
+        if (
+            compression < (3 if require_keltner_squeeze else 2)
+            or (require_keltner_squeeze and f1h.squeeze_bars[index] < min_squeeze_bars)
+            or already_broken
+        ):
             index += 1
             continue
 
@@ -326,6 +382,8 @@ def early_radar_research(
         elif f1h.ema_gap_atr[index] <= 0.4:
             readiness += 6
         readiness += 5 if f1h.adx14[index] <= 24 else 0
+        if f1h.keltner_squeeze_ratio[index] < 1:
+            readiness += min(10, 4 + int(f1h.squeeze_bars[index]))
         votes = 0
         votes += (
             1
@@ -350,12 +408,22 @@ def early_radar_research(
             else 0
         )
         votes += 1 if candles_1h[index].close >= f1h.ema20[index] else -1
+        votes += 1 if f1h.cmf20[index] > 0.05 else -1 if f1h.cmf20[index] < -0.05 else 0
+        votes += 1 if f1h.supertrend_direction[index] > 0 else -1
         if -2 < votes < 2:
             index += 1
             continue
         long = votes >= 2
         readiness += min(10, abs(votes) * 2)
         structural_score = f4h.score[index_4h]
+        trend_guard_aligned = (
+            (long and f4h.supertrend_direction[index_4h] > 0)
+            or (not long and f4h.supertrend_direction[index_4h] < 0)
+        )
+        readiness += 8 if trend_guard_aligned else -10
+        if require_trend_guard and not trend_guard_aligned:
+            index += 1
+            continue
         structural_filter_enabled = min_structural_score > 0 or min_structural_adx > 0
         if structural_filter_enabled and (
             abs(structural_score) < min_structural_score
@@ -400,6 +468,8 @@ def early_radar_research(
         activation_start = bisect.bisect_left(opens_15m, decision_time)
         activation_end = min(activation_start + 48, len(candles_15m) - 2)
         activation_index: int | None = None
+        expanded = False
+        direction_correct: bool | None = None
         for cursor in range(activation_start, activation_end):
             close = candles_15m[cursor].close
             buffered_trigger = (
@@ -415,12 +485,23 @@ def early_radar_research(
             triggered = (
                 close > buffered_trigger if long else close < buffered_trigger
             )
+            opposite_triggered = (
+                close < f1h.range_low20[index] - trigger_buffer_atr * f1h.atr14[index]
+                if long
+                else close > f1h.range_high20[index] + trigger_buffer_atr * f1h.atr14[index]
+            )
+            if triggered or opposite_triggered:
+                expanded = True
+                direction_correct = triggered
             if (
                 triggered
                 and score_confirmed
                 and f15.volume_z[cursor] >= min_breakout_volume_z
+                and f15.relative_volume20[cursor] >= min_breakout_relative_volume
             ):
                 activation_index = cursor + 1
+                break
+            if opposite_triggered:
                 break
         record = {
             "symbol": symbol,
@@ -428,6 +509,8 @@ def early_radar_research(
             "side": "LONG" if long else "SHORT",
             "readiness": readiness,
             "activated": activation_index is not None,
+            "expanded": expanded,
+            "direction_correct": direction_correct,
             "result_r": None,
         }
         if activation_index is not None:
@@ -460,15 +543,28 @@ def early_radar_research(
         index += 12
 
     activated = [item for item in records if item["activated"]]
+    expanded = [item for item in records if item["expanded"]]
+    direction_correct = [item for item in expanded if item["direction_correct"]]
     wins = [item for item in activated if float(item["result_r"]) > 0]
     net_r = sum(float(item["result_r"]) for item in activated)
     by_year: dict[str, dict[str, float]] = {}
     for item in records:
         year = str(item["setup_time"].year)
         bucket = by_year.setdefault(
-            year, {"setups": 0, "activated": 0, "wins": 0, "net_r": 0.0}
+            year,
+            {
+                "setups": 0,
+                "expanded": 0,
+                "direction_correct": 0,
+                "activated": 0,
+                "wins": 0,
+                "net_r": 0.0,
+            },
         )
         bucket["setups"] += 1
+        if item["expanded"]:
+            bucket["expanded"] += 1
+            bucket["direction_correct"] += int(bool(item["direction_correct"]))
         if item["activated"]:
             bucket["activated"] += 1
             bucket["net_r"] += float(item["result_r"])
@@ -476,6 +572,12 @@ def early_radar_research(
     return {
         "symbol": symbol,
         "setups": len(records),
+        "expanded": len(expanded),
+        "expansion_rate": len(expanded) / len(records) * 100 if records else 0.0,
+        "direction_correct": len(direction_correct),
+        "directional_precision": (
+            len(direction_correct) / len(expanded) * 100 if expanded else 0.0
+        ),
         "activated": len(activated),
         "activation_rate": len(activated) / len(records) * 100 if records else 0.0,
         "post_trigger_wins": len(wins),

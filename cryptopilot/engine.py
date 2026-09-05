@@ -51,7 +51,9 @@ class SignalEngine:
                 readiness=0,
                 price=ticker.last,
                 trigger_price=ticker.last,
+                opposite_trigger_price=ticker.last,
                 invalidation_price=ticker.last,
+                stage="WATCH",
                 regime="UNKNOWN",
                 created_at=now,
                 expires_at=now + timedelta(minutes=self.settings.early_setup_expiry_minutes),
@@ -77,21 +79,37 @@ class SignalEngine:
         if bias is Side.NO_TRADE:
             blockers.append("Направление будущего выхода из диапазона пока не подтверждено")
         structural_score = directional_score(structural)
+        trend_guard_aligned = (
+            (bias is Side.LONG and structural.supertrend_direction > 0)
+            or (bias is Side.SHORT and structural.supertrend_direction < 0)
+        )
         if structural.adx14 < 18:
             blockers.append("На 4h нет устойчивого тренда для направленного раннего сценария")
         elif (bias is Side.LONG and structural_score < 25) or (
             bias is Side.SHORT and structural_score > -25
         ):
             blockers.append("Давление на 1h не согласовано с направлением тренда 4h")
+        if trend_guard_aligned:
+            readiness += 8
+            reasons.append("Trend Guard (Supertrend + EMA) подтверждает направление на 4h")
+        else:
+            readiness -= 10
+            risks.append("Trend Guard на 4h ещё не подтвердил предполагаемое направление")
         compression_votes = sum(
             (
+                primary.keltner_squeeze_ratio < 1.0,
                 primary.bb_width_regime_ratio <= 0.9,
                 primary.atr_regime_ratio <= 0.9,
                 primary.ema_gap_atr <= 0.4,
             )
         )
-        if compression_votes < 2:
-            blockers.append("Нет одновременного сжатия диапазона, ATR и EMA")
+        if compression_votes < 3:
+            blockers.append("Нет подтверждённого сжатия Bollinger/Keltner, ATR и EMA")
+        if primary.squeeze_bars < self.settings.early_min_squeeze_bars:
+            blockers.append(
+                f"Keltner squeeze держится {primary.squeeze_bars} свеч.; "
+                f"нужно {self.settings.early_min_squeeze_bars}+"
+            )
         if primary.breakout_up or primary.breakout_down:
             blockers.append("Пробой на 1h уже произошёл — для раннего входа поздно")
         if ticker.turnover_24h < self.settings.min_volume_usdt:
@@ -108,6 +126,17 @@ class SignalEngine:
         if execution.breakout_up or execution.breakout_down:
             readiness += 6
             reasons.append("На 15m появляется первая активация границы диапазона")
+        if primary.cmf20 >= 0.08 and bias is Side.LONG:
+            readiness += 5
+            reasons.append(f"CMF20 {primary.cmf20:+.2f}: накопление поддерживает LONG")
+        elif primary.cmf20 <= -0.08 and bias is Side.SHORT:
+            readiness += 5
+            reasons.append(f"CMF20 {primary.cmf20:+.2f}: распределение поддерживает SHORT")
+        elif (bias is Side.LONG and primary.cmf20 < -0.08) or (
+            bias is Side.SHORT and primary.cmf20 > 0.08
+        ):
+            readiness -= 7
+            risks.append(f"CMF20 {primary.cmf20:+.2f} против предполагаемого направления")
         if ticker.open_interest_change_pct is not None:
             if ticker.open_interest_change_pct >= 1.0:
                 readiness += min(12, int(5 + ticker.open_interest_change_pct))
@@ -125,6 +154,40 @@ class SignalEngine:
         if abs(funding_pct) > 0.10:
             readiness -= 10
             risks.append(f"Перегретый funding {funding_pct:+.3f}%")
+        flow_aligned = False
+        if ticker.taker_buy_ratio is not None:
+            flow_aligned = (bias is Side.LONG and ticker.taker_buy_ratio >= 0.56) or (
+                bias is Side.SHORT and ticker.taker_buy_ratio <= 0.44
+            )
+            if flow_aligned:
+                readiness += 7
+                reasons.append(
+                    f"Рыночные покупки taker: {ticker.taker_buy_ratio:.0%} — "
+                    "поток подтверждает bias"
+                )
+            elif (bias is Side.LONG and ticker.taker_buy_ratio <= 0.42) or (
+                bias is Side.SHORT and ticker.taker_buy_ratio >= 0.58
+            ):
+                readiness -= 8
+                risks.append(
+                    f"Taker buy ratio {ticker.taker_buy_ratio:.0%} против сценария"
+                )
+        if ticker.orderbook_imbalance is not None:
+            book_aligned = (bias is Side.LONG and ticker.orderbook_imbalance >= 0.12) or (
+                bias is Side.SHORT and ticker.orderbook_imbalance <= -0.12
+            )
+            if book_aligned:
+                readiness += 4
+                reasons.append(
+                    f"Дисбаланс стакана {ticker.orderbook_imbalance:+.0%} поддерживает направление"
+                )
+        if ticker.long_short_ratio is not None and (
+            ticker.long_short_ratio >= 2.5 or ticker.long_short_ratio <= 0.4
+        ):
+            readiness -= 5
+            risks.append(
+                f"Толпа перекошена: long/short accounts {ticker.long_short_ratio:.2f}"
+            )
         if (bias is Side.LONG and regime == "BEAR") or (
             bias is Side.SHORT and regime == "BULL"
         ):
@@ -158,6 +221,19 @@ class SignalEngine:
                 f"{self.settings.min_early_readiness}"
             )
         trigger = primary.range_high20 if bias is Side.LONG else primary.range_low20
+        opposite_trigger = primary.range_low20 if bias is Side.LONG else primary.range_high20
+        execution_activation = (
+            (bias is Side.LONG and execution.breakout_up)
+            or (bias is Side.SHORT and execution.breakout_down)
+        )
+        stage = (
+            "CONFIRMED_WATCH"
+            if execution_activation
+            and execution.relative_volume20 >= 1.15
+            and (ticker.taker_buy_ratio is None or flow_aligned)
+            and trend_guard_aligned
+            else "WATCH"
+        )
         invalidation = (
             min(primary.ema50, primary.range_low20)
             if bias is Side.LONG
@@ -170,13 +246,30 @@ class SignalEngine:
             readiness=readiness,
             price=ticker.last,
             trigger_price=trigger,
+            opposite_trigger_price=opposite_trigger,
             invalidation_price=invalidation,
+            stage=stage,
             regime=regime,
             created_at=now,
             expires_at=now + timedelta(minutes=self.settings.early_setup_expiry_minutes),
             reasons=reasons[:7],
             risks=risks[:5],
             blockers=blockers[:5],
+            metrics={
+                "keltner_squeeze_ratio": primary.keltner_squeeze_ratio,
+                "squeeze_bars": float(primary.squeeze_bars),
+                "choppiness14": primary.choppiness14,
+                "cmf20": primary.cmf20,
+                "relative_volume20": execution.relative_volume20,
+                "taker_buy_ratio": ticker.taker_buy_ratio
+                if ticker.taker_buy_ratio is not None
+                else -1.0,
+                "orderbook_imbalance": ticker.orderbook_imbalance
+                if ticker.orderbook_imbalance is not None
+                else -2.0,
+                "supertrend_1h": float(primary.supertrend_direction),
+                "supertrend_4h": float(structural.supertrend_direction),
+            },
         )
 
     def analyze(
@@ -309,6 +402,7 @@ class SignalEngine:
                 "движение поддержано новыми позициями"
             )
         risks.extend(self._risks(side, primary, execution, ticker))
+        self._append_microstructure_context(side, ticker, reasons, risks)
 
         if blockers:
             result = self._no_trade(symbol, exchange, ticker.last, now, blockers, features)
@@ -380,6 +474,7 @@ class SignalEngine:
             plan=plan,
             data_age_seconds=data_age,
             required_confidence=required_confidence,
+            market_context=self._market_context(ticker),
         )
 
     @staticmethod
@@ -427,6 +522,12 @@ class SignalEngine:
         if feature.adx14 <= 24:
             readiness += 5
             reasons.append(f"ADX {feature.adx14:.1f}: тренд ещё не перегрет")
+        if feature.keltner_squeeze_ratio < 1:
+            readiness += min(10, 4 + feature.squeeze_bars)
+            reasons.append(
+                f"Bollinger внутри Keltner {feature.squeeze_bars} свеч. "
+                f"(ratio {feature.keltner_squeeze_ratio:.2f})"
+            )
 
         votes = 0
         votes += (
@@ -446,6 +547,8 @@ class SignalEngine:
             else 0
         )
         votes += 1 if feature.close >= feature.ema20 else -1
+        votes += 1 if feature.cmf20 > 0.05 else -1 if feature.cmf20 < -0.05 else 0
+        votes += 1 if feature.supertrend_direction > 0 else -1
         bias = Side.LONG if votes >= 2 else Side.SHORT if votes <= -2 else Side.NO_TRADE
         if bias is Side.LONG:
             reasons.append(
@@ -457,6 +560,52 @@ class SignalEngine:
             )
         readiness += min(10, abs(votes) * 2)
         return bias, readiness, reasons
+
+    @staticmethod
+    def _market_context(ticker: Ticker) -> dict[str, float]:
+        values = {
+            "funding_pct": ticker.funding_rate * 100,
+            "spread_bps": ticker.spread_bps,
+        }
+        optional = {
+            "oi_change_pct": ticker.open_interest_change_pct,
+            "taker_buy_ratio": ticker.taker_buy_ratio,
+            "orderbook_imbalance": ticker.orderbook_imbalance,
+            "long_short_ratio": ticker.long_short_ratio,
+        }
+        values.update({key: value for key, value in optional.items() if value is not None})
+        return values
+
+    @staticmethod
+    def _append_microstructure_context(
+        side: Side, ticker: Ticker, reasons: list[str], risks: list[str]
+    ) -> None:
+        if ticker.taker_buy_ratio is not None:
+            aligned = (side is Side.LONG and ticker.taker_buy_ratio >= 0.56) or (
+                side is Side.SHORT and ticker.taker_buy_ratio <= 0.44
+            )
+            opposed = (side is Side.LONG and ticker.taker_buy_ratio <= 0.42) or (
+                side is Side.SHORT and ticker.taker_buy_ratio >= 0.58
+            )
+            if aligned:
+                reasons.append(f"Taker buy ratio {ticker.taker_buy_ratio:.0%} подтверждает поток")
+            elif opposed:
+                risks.append(f"Taker buy ratio {ticker.taker_buy_ratio:.0%} против направления")
+        if ticker.orderbook_imbalance is not None:
+            aligned = (side is Side.LONG and ticker.orderbook_imbalance >= 0.12) or (
+                side is Side.SHORT and ticker.orderbook_imbalance <= -0.12
+            )
+            if aligned:
+                reasons.append(f"Дисбаланс стакана {ticker.orderbook_imbalance:+.0%} по тренду")
+            elif abs(ticker.orderbook_imbalance) >= 0.25:
+                risks.append(
+                    f"Снимок стакана перекошен {ticker.orderbook_imbalance:+.0%}; "
+                    "возможна ликвидность-приманка"
+                )
+        if ticker.long_short_ratio is not None and (
+            ticker.long_short_ratio >= 2.5 or ticker.long_short_ratio <= 0.4
+        ):
+            risks.append(f"Экстремум long/short accounts {ticker.long_short_ratio:.2f}")
 
     @staticmethod
     def _data_age(candles: list[Candle], timeframe: str) -> int:
@@ -558,7 +707,25 @@ class SignalEngine:
         )
         theoretical_notional = risk_amount / max(distance / price, 1e-12)
         cap = self.settings.account_equity_usdt * self.settings.max_position_pct / 100
+        recommended_leverage = (
+            min(self.settings.preferred_leverage, self.settings.max_leverage)
+            if feature.atr_pct <= 2.5 and risk_multiplier >= 0.75
+            else 1
+        )
+        cap *= recommended_leverage
         notional = min(theoretical_notional, cap)
+        if side is Side.LONG:
+            scale_entries = (
+                price,
+                max(price - 0.35 * atr_value, stop + 0.55 * distance),
+                max(price - 0.70 * atr_value, stop + 0.30 * distance),
+            )
+        else:
+            scale_entries = (
+                price,
+                min(price + 0.35 * atr_value, stop - 0.55 * distance),
+                min(price + 0.70 * atr_value, stop - 0.30 * distance),
+            )
         return TradePlan(
             entry_low=float(entry_low),
             entry_high=float(entry_high),
@@ -572,6 +739,11 @@ class SignalEngine:
             suggested_notional=float(notional),
             suggested_quantity=float(notional / price),
             risk_amount=float(min(risk_amount, notional * distance / price)),
+            scale_entries=tuple(float(item) for item in scale_entries),
+            scale_allocations_pct=(50, 30, 20),
+            recommended_leverage=recommended_leverage,
+            max_leverage=self.settings.max_leverage,
+            holding_horizon="1–72 часа; выход раньше при сломе структуры",
         )
 
     @staticmethod
@@ -593,6 +765,16 @@ class SignalEngine:
         )
         value += 2 if primary.adx14 >= 25 else 0
         value += 2 if ticker.turnover_24h >= 100_000_000 else 0
+        if ticker.taker_buy_ratio is not None and (
+            (side is Side.LONG and ticker.taker_buy_ratio >= 0.56)
+            or (side is Side.SHORT and ticker.taker_buy_ratio <= 0.44)
+        ):
+            value += 2
+        if ticker.orderbook_imbalance is not None and (
+            (side is Side.LONG and ticker.orderbook_imbalance >= 0.12)
+            or (side is Side.SHORT and ticker.orderbook_imbalance <= -0.12)
+        ):
+            value += 1
         value -= min(8, len(risks) * 2)
         return int(np.clip(round(value), 50, 89))
 

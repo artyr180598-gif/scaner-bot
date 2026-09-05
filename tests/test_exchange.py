@@ -38,6 +38,15 @@ class FakeHttp:
                 {"timestamp": 1, "sumOpenInterestValue": "1000000"},
                 {"timestamp": 2, "sumOpenInterestValue": "1050000"},
             ]
+        if path.endswith("takerlongshortRatio"):
+            return [{"buyVol": "60", "sellVol": "40"}]
+        if path.endswith("/depth"):
+            return {
+                "bids": [["50000", "12"]],
+                "asks": [["50000", "8"]],
+            }
+        if path.endswith("globalLongShortAccountRatio"):
+            return [{"longShortRatio": "1.5"}]
         raise AssertionError(path)
 
     async def close(self) -> None:
@@ -60,3 +69,6 @@ def test_binance_combines_24h_funding_and_book_tickers() -> None:
     enriched = asyncio.run(client.enrich_ticker(result[0]))
     assert enriched.open_interest == 1_050_000
     assert enriched.open_interest_change_pct == pytest.approx(5)
+    assert enriched.taker_buy_ratio == pytest.approx(0.6)
+    assert enriched.orderbook_imbalance == pytest.approx(0.2)
+    assert enriched.long_short_ratio == pytest.approx(1.5)

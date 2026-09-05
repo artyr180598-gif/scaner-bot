@@ -10,6 +10,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from cryptopilot.config import get_settings
 from cryptopilot.engine import SignalEngine
@@ -18,7 +19,13 @@ from cryptopilot.health import RuntimeHealth, start_health_server
 from cryptopilot.models import EarlySetup, Signal
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.storage import SignalStore
-from cryptopilot.telegram import build_router, format_early_setup, format_signal
+from cryptopilot.telegram import (
+    build_router,
+    format_early_setup,
+    format_signal,
+    main_keyboard,
+    release_label,
+)
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +74,18 @@ async def run() -> None:
         await bot.delete_webhook(drop_pending_updates=False)
         if not await exchange.ping():
             raise RuntimeError(f"{exchange.name} health check failed")
+        await bot.set_my_commands(
+            [
+                BotCommand(command="menu", description="Обновить главное меню"),
+                BotCommand(command="scan", description="Сканировать рынок"),
+                BotCommand(command="early", description="Радар до импульса"),
+                BotCommand(command="analyze", description="Анализ монеты"),
+                BotCommand(command="best", description="Последние сильные сигналы"),
+                BotCommand(command="performance", description="Paper-статистика"),
+                BotCommand(command="status", description="Версия и состояние"),
+                BotCommand(command="help", description="Как читать сигналы"),
+            ]
+        )
         health.ready = True
         log.info(
             "CryptoPilot ready as @%s; exchange=%s; authorized_ids=%d",
@@ -74,6 +93,18 @@ async def run() -> None:
             exchange.name,
             len(settings.allowed_chat_ids),
         )
+        for chat_id in settings.allowed_chat_ids:
+            try:
+                await bot.send_message(
+                    chat_id,
+                    f"✅ <b>CryptoPilot {release_label()} запущен</b>\n"
+                    "Меню обновлено. Кнопка «⚡ До импульса» находится во второй строке.\n"
+                    "Если панель скрыта, отправьте /menu.",
+                    reply_markup=main_keyboard(),
+                    disable_notification=True,
+                )
+            except Exception:
+                log.exception("Failed to refresh Telegram keyboard for an authorized chat")
 
         async def send_alert(signal_item: Signal) -> None:
             successes = 0
@@ -93,7 +124,8 @@ async def run() -> None:
             for chat_id in settings.allowed_chat_ids:
                 try:
                     await bot.send_message(
-                        chat_id, "⚡ <b>Ранний радар: движение ещё не началось</b>"
+                        chat_id,
+                        "⚡ <b>Ранний радар: подтверждённое наблюдение, не вход</b>",
                     )
                     await bot.send_message(chat_id, format_early_setup(setup))
                     successes += 1

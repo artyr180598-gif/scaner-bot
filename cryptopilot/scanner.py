@@ -178,8 +178,13 @@ class MarketScanner:
             raise ValueError(
                 f"{normalized} is not an active USDT perpetual on {self.exchange.name}"
             )
+        enrichment = (
+            self.exchange.enrich_ticker(ticker)
+            if self.settings.market_microstructure_enabled
+            else asyncio.sleep(0, result=ticker)
+        )
         ticker, benchmark, *series = await asyncio.gather(
-            self.exchange.enrich_ticker(ticker),
+            enrichment,
             self.exchange.candles("BTCUSDT", self.settings.timeframe_list[-1], 260),
             *(self.exchange.candles(normalized, tf, 260) for tf in self.settings.timeframe_list),
         )
@@ -234,6 +239,8 @@ class MarketScanner:
         for setup in report.setups:
             if len(selected) >= self.settings.max_auto_signals_per_scan:
                 break
+            if setup.stage != "CONFIRMED_WATCH":
+                continue
             if setup.readiness < self.settings.min_early_auto_readiness:
                 continue
             if await self.store.should_alert_event(
@@ -325,8 +332,13 @@ class MarketScanner:
         benchmark: list[Candle],
     ) -> Signal:
         missing = [tf for tf in self.settings.timeframe_list if tf != cached_tf]
+        enrichment = (
+            self.exchange.enrich_ticker(ticker)
+            if self.settings.market_microstructure_enabled
+            else asyncio.sleep(0, result=ticker)
+        )
         enriched, *fetched = await asyncio.gather(
-            self.exchange.enrich_ticker(ticker),
+            enrichment,
             *(self.exchange.candles(symbol, timeframe, 260) for timeframe in missing),
         )
         all_series = {cached_tf: cached}
@@ -344,8 +356,13 @@ class MarketScanner:
         benchmark: list[Candle],
     ) -> EarlySetup:
         missing = [tf for tf in self.settings.timeframe_list if tf != cached_tf]
+        enrichment = (
+            self.exchange.enrich_ticker(ticker)
+            if self.settings.market_microstructure_enabled
+            else asyncio.sleep(0, result=ticker)
+        )
         enriched, *fetched = await asyncio.gather(
-            self.exchange.enrich_ticker(ticker),
+            enrichment,
             *(self.exchange.candles(symbol, timeframe, 260) for timeframe in missing),
         )
         all_series = {cached_tf: cached}

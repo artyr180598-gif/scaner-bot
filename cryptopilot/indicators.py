@@ -105,6 +105,133 @@ def bollinger_widths(values: np.ndarray, period: int = 20) -> np.ndarray:
     return result
 
 
+def rolling_sum(values: np.ndarray, period: int) -> np.ndarray:
+    result = np.zeros_like(values, dtype=float)
+    cumulative = np.cumsum(np.insert(values.astype(float), 0, 0.0))
+    result[period - 1 :] = cumulative[period:] - cumulative[:-period]
+    return result
+
+
+def keltner_squeeze_ratios(
+    close: np.ndarray, high: np.ndarray, low: np.ndarray, period: int = 20
+) -> np.ndarray:
+    """Bollinger width divided by Keltner width; below 1 means BB is inside KC."""
+    atr_values = atr(high, low, close, period)
+    result = np.zeros_like(close, dtype=float)
+    for index in range(period - 1, len(close)):
+        deviation = float(np.std(close[index + 1 - period : index + 1]))
+        result[index] = 4 * deviation / max(3 * atr_values[index], 1e-12)
+    return result
+
+
+def choppiness(
+    high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14
+) -> np.ndarray:
+    ranges = true_range(high, low, close)
+    summed = rolling_sum(ranges, period)
+    result = np.zeros_like(close, dtype=float)
+    for index in range(period - 1, len(close)):
+        window_high = float(np.max(high[index + 1 - period : index + 1]))
+        window_low = float(np.min(low[index + 1 - period : index + 1]))
+        span = window_high - window_low
+        result[index] = (
+            100 * math.log10(summed[index] / span) / math.log10(period)
+            if span > 1e-12 and summed[index] > 0
+            else 0.0
+        )
+    return np.clip(result, 0, 100)
+
+
+def chaikin_money_flow(
+    high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray, period: int = 20
+) -> np.ndarray:
+    spread = high - low
+    multiplier = np.divide(
+        2 * close - high - low,
+        spread,
+        out=np.zeros_like(close, dtype=float),
+        where=spread > 1e-12,
+    )
+    volume_sum = rolling_sum(volume, period)
+    flow_sum = rolling_sum(multiplier * volume, period)
+    return np.divide(
+        flow_sum,
+        volume_sum,
+        out=np.zeros_like(close, dtype=float),
+        where=volume_sum > 1e-12,
+    )
+
+
+def relative_volume(values: np.ndarray, period: int = 20) -> np.ndarray:
+    result = np.ones_like(values, dtype=float)
+    for index in range(period, len(values)):
+        baseline = float(np.median(values[index - period : index]))
+        result[index] = values[index] / baseline if baseline > 1e-12 else 1.0
+    return result
+
+
+def rolling_vwap_distance_atr(
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    volume: np.ndarray,
+    atr_values: np.ndarray,
+    period: int = 48,
+) -> np.ndarray:
+    typical = (high + low + close) / 3
+    volume_sum = rolling_sum(volume, period)
+    weighted_sum = rolling_sum(typical * volume, period)
+    vwap = np.divide(
+        weighted_sum,
+        volume_sum,
+        out=close.copy(),
+        where=volume_sum > 1e-12,
+    )
+    return np.divide(
+        close - vwap,
+        atr_values,
+        out=np.zeros_like(close, dtype=float),
+        where=atr_values > 1e-12,
+    )
+
+
+def supertrend(
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    period: int = 10,
+    multiplier: float = 3.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return non-repainting close-confirmed Supertrend direction and line."""
+    atr_values = atr(high, low, close, period)
+    midpoint = (high + low) / 2
+    basic_upper = midpoint + multiplier * atr_values
+    basic_lower = midpoint - multiplier * atr_values
+    final_upper = basic_upper.copy()
+    final_lower = basic_lower.copy()
+    direction = np.zeros_like(close, dtype=int)
+    start = period - 1
+    trend_ema = ema(close, period)
+    direction[start] = 1 if close[start] >= trend_ema[start] else -1
+    for index in range(start + 1, len(close)):
+        if not (
+            basic_upper[index] < final_upper[index - 1]
+            or close[index - 1] > final_upper[index - 1]
+        ):
+            final_upper[index] = final_upper[index - 1]
+        if not (
+            basic_lower[index] > final_lower[index - 1]
+            or close[index - 1] < final_lower[index - 1]
+        ):
+            final_lower[index] = final_lower[index - 1]
+        if direction[index - 1] >= 0:
+            direction[index] = -1 if close[index] < final_lower[index] else 1
+        else:
+            direction[index] = 1 if close[index] > final_upper[index] else -1
+    line = np.where(direction >= 0, final_lower, final_upper)
+    return direction, line
+
+
 def compute_features(candles: Sequence[Candle]) -> FeatureSet:
     if len(candles) < 210:
         raise InsufficientData("At least 210 closed candles are required")
@@ -130,6 +257,17 @@ def compute_features(candles: Sequence[Candle]) -> FeatureSet:
     current_close = float(close[-1])
     dmi_total = float(plus_di14[-1] + minus_di14[-1])
     bb_width_series = bollinger_widths(close, 20)
+    squeeze_series = keltner_squeeze_ratios(close, high, low, 20)
+    choppiness14 = choppiness(high, low, close, 14)
+    cmf20 = chaikin_money_flow(high, low, close, volume, 20)
+    rvol20 = relative_volume(volume, 20)
+    vwap_atr = rolling_vwap_distance_atr(high, low, close, volume, atr14, 48)
+    supertrend_direction, supertrend_line = supertrend(high, low, close)
+    squeeze_bars = 0
+    for value in reversed(squeeze_series):
+        if value >= 1:
+            break
+        squeeze_bars += 1
     current_bb_width = float(bb_width_series[-1])
     previous_high = float(np.max(high[-21:-1]))
     previous_low = float(np.min(low[-21:-1]))
@@ -167,6 +305,16 @@ def compute_features(candles: Sequence[Candle]) -> FeatureSet:
         if range_width > 1e-12
         else 0.5,
         return_20_pct=float((close[-1] / close[-21] - 1) * 100),
+        keltner_squeeze_ratio=float(squeeze_series[-1]),
+        squeeze_bars=squeeze_bars,
+        choppiness14=float(choppiness14[-1]),
+        cmf20=float(cmf20[-1]),
+        relative_volume20=float(rvol20[-1]),
+        vwap_distance_atr=float(vwap_atr[-1]),
+        supertrend_direction=int(supertrend_direction[-1]),
+        supertrend_distance_atr=float(
+            (current_close - supertrend_line[-1]) / max(current_atr, 1e-12)
+        ),
     )
     numeric = (
         values.close,
@@ -193,6 +341,14 @@ def compute_features(candles: Sequence[Candle]) -> FeatureSet:
         values.range_low20,
         values.range_position20,
         values.return_20_pct,
+        values.keltner_squeeze_ratio,
+        float(values.squeeze_bars),
+        values.choppiness14,
+        values.cmf20,
+        values.relative_volume20,
+        values.vwap_distance_atr,
+        float(values.supertrend_direction),
+        values.supertrend_distance_atr,
     )
     if not all(math.isfinite(value) for value in numeric):
         raise ValueError("Indicator calculation produced a non-finite value")

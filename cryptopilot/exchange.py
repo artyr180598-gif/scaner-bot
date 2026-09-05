@@ -42,7 +42,7 @@ class JsonClient:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
                 timeout=self.timeout,
-                headers={"User-Agent": "CryptoPilot/3.0 market-intelligence"},
+                headers={"User-Agent": "CryptoPilot/3.1 market-intelligence"},
             )
 
     async def close(self) -> None:
@@ -183,29 +183,84 @@ class BybitClient(ExchangeClient):
         ]
 
     async def enrich_ticker(self, ticker: Ticker) -> Ticker:
+        async def optional(path: str, params: dict[str, Any]) -> dict[str, Any] | None:
+            try:
+                return self._result(await self.http.get(path, params))
+            except Exception as exc:  # optional context must never break a market scan
+                log.debug("Bybit context %s unavailable for %s: %s", path, ticker.symbol, exc)
+                return None
+
+        oi_result, trades_result, book_result, ratio_result = await asyncio.gather(
+            optional(
+                "/v5/market/open-interest",
+                {
+                    "category": "linear",
+                    "symbol": ticker.symbol,
+                    "intervalTime": "1h",
+                    "limit": 6,
+                },
+            ),
+            optional(
+                "/v5/market/recent-trade",
+                {"category": "linear", "symbol": ticker.symbol, "limit": 500},
+            ),
+            optional(
+                "/v5/market/orderbook",
+                {"category": "linear", "symbol": ticker.symbol, "limit": 50},
+            ),
+            optional(
+                "/v5/market/account-ratio",
+                {
+                    "category": "linear",
+                    "symbol": ticker.symbol,
+                    "period": "15min",
+                    "limit": 1,
+                },
+            ),
+        )
+        values: list[float] = []
+        taker_buy_ratio: float | None = None
+        orderbook_imbalance: float | None = None
+        long_short_ratio: float | None = None
         try:
-            result = self._result(
-                await self.http.get(
-                    "/v5/market/open-interest",
-                    {
-                        "category": "linear",
-                        "symbol": ticker.symbol,
-                        "intervalTime": "1h",
-                        "limit": 6,
-                    },
-                )
+            rows = sorted(
+                (oi_result or {}).get("list", []), key=lambda item: int(item["timestamp"])
             )
-            rows = sorted(result.get("list", []), key=lambda item: int(item["timestamp"]))
             values = [float(item["openInterest"]) for item in rows]
-            change = _percentage_change(values[0], values[-1]) if len(values) >= 2 else None
-            return replace(
-                ticker,
-                open_interest=values[-1] if values else ticker.open_interest,
-                open_interest_change_pct=change,
-            )
-        except (KeyError, TypeError, ValueError, MarketDataError, aiohttp.ClientError) as exc:
-            log.debug("Bybit open-interest context unavailable for %s: %s", ticker.symbol, exc)
-            return ticker
+        except (KeyError, TypeError, ValueError):
+            values = []
+        try:
+            buy = sell = 0.0
+            for item in (trades_result or {}).get("list", []):
+                notional = float(item["price"]) * float(item["size"])
+                if item.get("side") == "Buy":
+                    buy += notional
+                elif item.get("side") == "Sell":
+                    sell += notional
+            taker_buy_ratio = buy / (buy + sell) if buy + sell > 0 else None
+        except (KeyError, TypeError, ValueError):
+            taker_buy_ratio = None
+        try:
+            bids = sum(float(row[0]) * float(row[1]) for row in (book_result or {}).get("b", []))
+            asks = sum(float(row[0]) * float(row[1]) for row in (book_result or {}).get("a", []))
+            orderbook_imbalance = (bids - asks) / (bids + asks) if bids + asks > 0 else None
+        except (IndexError, TypeError, ValueError):
+            orderbook_imbalance = None
+        try:
+            latest = (ratio_result or {}).get("list", [])[0]
+            sell_ratio = float(latest["sellRatio"])
+            long_short_ratio = float(latest["buyRatio"]) / sell_ratio if sell_ratio > 0 else None
+        except (IndexError, KeyError, TypeError, ValueError):
+            long_short_ratio = None
+        change = _percentage_change(values[0], values[-1]) if len(values) >= 2 else None
+        return replace(
+            ticker,
+            open_interest=values[-1] if values else ticker.open_interest,
+            open_interest_change_pct=change,
+            taker_buy_ratio=taker_buy_ratio,
+            orderbook_imbalance=orderbook_imbalance,
+            long_short_ratio=long_short_ratio,
+        )
 
     async def ping(self) -> bool:
         return self._result(await self.http.get("/v5/market/time")) is not None
@@ -297,23 +352,59 @@ class BinanceClient(ExchangeClient):
         ]
 
     async def enrich_ticker(self, ticker: Ticker) -> Ticker:
-        try:
-            rows = await self.http.get(
+        async def optional(path: str, params: dict[str, Any]) -> Any | None:
+            try:
+                return await self.http.get(path, params)
+            except Exception as exc:  # optional context must never break a market scan
+                log.debug("Binance context %s unavailable for %s: %s", path, ticker.symbol, exc)
+                return None
+
+        oi_rows, taker_rows, depth, ratio_rows = await asyncio.gather(
+            optional(
                 "/futures/data/openInterestHist",
                 {"symbol": ticker.symbol, "period": "1h", "limit": 6},
-            )
-            ordered = sorted(rows, key=lambda item: int(item["timestamp"]))
+            ),
+            optional(
+                "/futures/data/takerlongshortRatio",
+                {"symbol": ticker.symbol, "period": "5m", "limit": 3},
+            ),
+            optional("/fapi/v1/depth", {"symbol": ticker.symbol, "limit": 50}),
+            optional(
+                "/futures/data/globalLongShortAccountRatio",
+                {"symbol": ticker.symbol, "period": "15m", "limit": 1},
+            ),
+        )
+        try:
+            ordered = sorted(oi_rows or [], key=lambda item: int(item["timestamp"]))
             values = [float(item.get("sumOpenInterestValue") or 0) for item in ordered]
             values = [value for value in values if value > 0]
-            change = _percentage_change(values[0], values[-1]) if len(values) >= 2 else None
-            return replace(
-                ticker,
-                open_interest=values[-1] if values else ticker.open_interest,
-                open_interest_change_pct=change,
-            )
-        except (KeyError, TypeError, ValueError, MarketDataError, aiohttp.ClientError) as exc:
-            log.debug("Binance open-interest context unavailable for %s: %s", ticker.symbol, exc)
-            return ticker
+        except (KeyError, TypeError, ValueError):
+            values = []
+        try:
+            buy = sum(float(item.get("buyVol") or 0) for item in (taker_rows or []))
+            sell = sum(float(item.get("sellVol") or 0) for item in (taker_rows or []))
+            taker_buy_ratio = buy / (buy + sell) if buy + sell > 0 else None
+        except (TypeError, ValueError):
+            taker_buy_ratio = None
+        try:
+            bids = sum(float(row[0]) * float(row[1]) for row in (depth or {}).get("bids", []))
+            asks = sum(float(row[0]) * float(row[1]) for row in (depth or {}).get("asks", []))
+            orderbook_imbalance = (bids - asks) / (bids + asks) if bids + asks > 0 else None
+        except (IndexError, TypeError, ValueError):
+            orderbook_imbalance = None
+        try:
+            long_short_ratio = float((ratio_rows or [])[0]["longShortRatio"])
+        except (IndexError, KeyError, TypeError, ValueError):
+            long_short_ratio = None
+        change = _percentage_change(values[0], values[-1]) if len(values) >= 2 else None
+        return replace(
+            ticker,
+            open_interest=values[-1] if values else ticker.open_interest,
+            open_interest_change_pct=change,
+            taker_buy_ratio=taker_buy_ratio,
+            orderbook_imbalance=orderbook_imbalance,
+            long_short_ratio=long_short_ratio,
+        )
 
     async def ping(self) -> bool:
         await self.http.get("/fapi/v1/ping")

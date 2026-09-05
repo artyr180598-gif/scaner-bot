@@ -1,4 +1,4 @@
-# CryptoPilot 3.0
+# CryptoPilot 3.1
 
 Telegram‑помощник для анализа ликвидных бессрочных USDT‑фьючерсов Bybit или Binance.
 Система не открывает позиции и не имеет модуля исполнения ордеров: она собирает публичные
@@ -10,17 +10,19 @@ Telegram‑помощник для анализа ликвидных бесср�
 - автоматически проверяет рынок с заданным интервалом;
 - сначала фильтрует торгуемые USDT perpetual по обороту и bid/ask‑спреду;
 - делает быстрый отбор universe, затем углублённо анализирует shortlist;
-- отдельный ранний радар ищет сжатие Bollinger/ATR/EMA до пробоя, оценивает давление
-  направления и выдаёт уровень активации и отмены сценария;
+- отдельный ранний радар ищет сжатие Bollinger/Keltner/ATR/EMA до пробоя, разделяет
+  `WATCH` и `CONFIRMED_WATCH`, выдаёт основной и альтернативный уровни выхода диапазона;
 - использует только закрытые свечи и три таймфрейма (по умолчанию 15m/1h/4h);
-- учитывает EMA 20/50/200, RSI, ATR, ADX/DMI, MACD, Bollinger position, объём, пробой
-  структуры, efficiency ratio, состояние волатильности, funding, изменение open interest,
-  относительную силу к BTC и рыночный режим;
+- учитывает EMA 20/50/200, RSI, ATR, ADX/DMI, MACD, Bollinger/Keltner, объём, пробой
+  структуры, efficiency ratio, Choppiness, CMF, relative volume, VWAP, Trend Guard
+  (Supertrend + EMA), funding, open interest, taker flow, дисбаланс стакана,
+  long/short crowding, относительную силу к BTC и рыночный режим;
 - автоматически различает бычий/медвежий тренд, флэт и переходную фазу, ужесточая требования
   в нестабильном режиме;
 - использует отдельные подтверждённые пороги для LONG и SHORT;
 - отправляет автоматический сигнал только выше строгого порога уверенности;
-- выдаёт зону входа, технический стоп, TP1/TP2/TP3, срок действия, отмену сценария,
+- выдаёт зону входа, три ограниченные ступени набора 50/30/20, технический стоп,
+  TP1/TP2/TP3, горизонт 1–72 часа, рекомендуемое плечо 1–2x (максимум 3x),
   размер позиции по заданному риску, причины и риски;
 - хранит историю в SQLite, ограничивает общий/однонаправленный риск и не повторяет одинаковый
   алерт до окончания cooldown;
@@ -48,13 +50,18 @@ Telegram‑помощник для анализа ликвидных бесср�
 - `📈 Результаты` / `/performance` — фактическая paper-статистика LONG/SHORT;
 - `⚙️ Статус` / `/status` — Telegram, API и автомониторинг;
 - `❓ Помощь` / `/help` — правила использования.
+- `/menu` — принудительно обновить Telegram-клавиатуру после деплоя.
 
 Доступ разрешён только ID из `TELEGRAM_CHAT_ID`. Это обязательный защитный барьер.
 
-Ранний радар по умолчанию работает только по ручной кнопке. Многолетний тест показал,
-что сжатие волатильности полезно как контекст, но само по себе не имеет положительной
-торговой expectancy. Поэтому `EARLY_AUTO_ALERTS=false`, а разрешение на вход может дать
-только основной подтверждённый сканер.
+Ранний радар автоматически присылает только стадию `CONFIRMED_WATCH`: направление 4h
+подтверждено Trend Guard, на 15m появился выход с относительным объёмом. Это всё равно
+наблюдение, не торговый сигнал. Многолетний тест показал отрицательную expectancy
+механического входа по радару, поэтому он не создаёт paper-сделку и не показывает
+выдуманную вероятность. Разрешение на торговый план даёт основной подтверждённый сканер.
+
+При каждом успешном старте бот отправляет авторизованным чатам версию и commit SHA вместе
+с новой клавиатурой. Если кнопка `⚡ До импульса` не появилась, `/menu` восстанавливает её.
 
 ## Railway
 
@@ -73,6 +80,7 @@ Telegram‑помощник для анализа ликвидных бесср�
 поддерживаются, чтобы существующий деплой не сломался. Также сохранена совместимость с
 `MIN_VOLUME_USD_24H`, `TOP_N_SYMBOLS` и `HTTP_TIMEOUT`.
 Ключи Bybit/Binance для анализа не нужны: используются публичные market-data endpoints.
+Снимок стакана не является самостоятельным сигналом и получает только малый вес.
 
 ## Основные настройки
 
@@ -93,6 +101,10 @@ Telegram‑помощник для анализа ликвидных бесср�
 | `ACCOUNT_EQUITY_USDT` | `1000` | База для иллюстрации риска |
 | `RISK_PER_TRADE_PCT` | `0.5` | Максимальный риск по стопу |
 | `MAX_POSITION_PCT` | `25` | Ограничение расчётного notional |
+| `PREFERRED_LEVERAGE` | `2` | Обычное плечо; при высокой волатильности снижается до 1x |
+| `MAX_LEVERAGE` | `3` | Жёсткий верхний предел в плане |
+| `MARKET_MICROSTRUCTURE_ENABLED` | `true` | Публичные OI/taker flow/order book/L-S данные |
+| `EARLY_AUTO_ALERTS` | `true` | Автоуведомления только `CONFIRMED_WATCH` |
 
 ## Логика решения
 
@@ -102,8 +114,8 @@ active USDT perpetuals
   → top universe by turnover
   → quick 1h directional score
   → full 15m + 1h + 4h analysis
-  → BTC regime + DMI/efficiency/volatility + relative strength
-  → funding + open-interest change + data-quality gates
+  → BTC regime + DMI/efficiency/volatility + Trend Guard + relative strength
+  → funding + OI + taker flow + order-book/crowding context + data-quality gates
   → risk plan or NO TRADE
   → LONG/SHORT threshold + paper calibration + portfolio cap
   → Telegram
@@ -144,7 +156,12 @@ TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... python -m cryptopilot
 - [Bybit V5 Get Kline](https://bybit-exchange.github.io/docs/v5/market/kline)
 - [Bybit V5 Get Tickers](https://bybit-exchange.github.io/docs/v5/market/tickers)
 - [Bybit V5 Instruments Info](https://bybit-exchange.github.io/docs/v5/market/instrument)
+- [Bybit V5 Recent Public Trades](https://bybit-exchange.github.io/docs/v5/market/recent-trade)
+- [Bybit V5 Orderbook](https://bybit-exchange.github.io/docs/v5/market/orderbook)
+- [Bybit V5 Long/Short Ratio](https://bybit-exchange.github.io/docs/v5/market/long-short-ratio)
 - [Binance USDⓈ‑M Futures Market Data](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/market-data/rest-api/Kline-Candlestick-Data)
+- [RID-COIN channel](https://www.youtube.com/@rid-coin6538) — публичная формула индикатора
+  не найдена; `Trend Guard` является прозрачным тестируемым аналогом назначения, не копией.
 
 ## Важное ограничение
 

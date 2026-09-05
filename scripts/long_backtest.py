@@ -22,7 +22,7 @@ from cryptopilot.research import (
 )
 
 BASE_URL = "https://data.binance.vision/data/futures/um/monthly/klines"
-RESEARCH_VERSION = "3.0.0"
+RESEARCH_VERSION = "3.1.0"
 
 
 def parse_args() -> argparse.Namespace:
@@ -586,6 +586,58 @@ def run_early_radar_test(
             "min_structural_adx": 20,
             "require_btc_alignment": True,
         },
+        {
+            "name": "keltner_watch_75",
+            "min_readiness": 75,
+            "require_keltner_squeeze": True,
+            "min_squeeze_bars": 2,
+            "min_structural_score": 25,
+            "min_structural_adx": 18,
+        },
+        {
+            "name": "keltner_armed_80",
+            "min_readiness": 80,
+            "trigger_buffer_atr": 0.05,
+            "min_breakout_score": 15,
+            "min_breakout_relative_volume": 1.15,
+            "require_keltner_squeeze": True,
+            "min_squeeze_bars": 2,
+            "min_structural_score": 25,
+            "min_structural_adx": 18,
+        },
+        {
+            "name": "keltner_armed_btc_82",
+            "min_readiness": 82,
+            "trigger_buffer_atr": 0.05,
+            "min_breakout_score": 20,
+            "min_breakout_relative_volume": 1.25,
+            "require_keltner_squeeze": True,
+            "min_squeeze_bars": 3,
+            "min_structural_score": 30,
+            "min_structural_adx": 18,
+            "require_btc_alignment": True,
+        },
+        {
+            "name": "trend_guard_watch_78",
+            "min_readiness": 78,
+            "require_keltner_squeeze": True,
+            "min_squeeze_bars": 2,
+            "min_structural_score": 25,
+            "min_structural_adx": 18,
+            "require_trend_guard": True,
+        },
+        {
+            "name": "trend_guard_armed_82",
+            "min_readiness": 82,
+            "trigger_buffer_atr": 0.05,
+            "min_breakout_score": 15,
+            "min_breakout_relative_volume": 1.15,
+            "require_keltner_squeeze": True,
+            "min_squeeze_bars": 2,
+            "min_structural_score": 25,
+            "min_structural_adx": 18,
+            "require_trend_guard": True,
+        },
     ]
     summaries: list[dict] = []
     for profile in profiles:
@@ -601,6 +653,8 @@ def run_early_radar_test(
         ]
         setups = sum(item["setups"] for item in results)
         activated = sum(item["activated"] for item in results)
+        expanded = sum(item["expanded"] for item in results)
+        direction_correct = sum(item["direction_correct"] for item in results)
         wins = sum(item["post_trigger_wins"] for item in results)
         net_r = sum(item["net_r"] for item in results)
         train = [
@@ -623,6 +677,11 @@ def run_early_radar_test(
             "name": profile["name"],
             "policy": profile,
             "setups": setups,
+            "expanded": expanded,
+            "expansion_rate": expanded / setups * 100 if setups else 0.0,
+            "directional_precision": (
+                direction_correct / expanded * 100 if expanded else 0.0
+            ),
             "activated": activated,
             "activation_rate": activated / setups * 100 if setups else 0.0,
             "wins": wins,
@@ -674,13 +733,15 @@ def run_early_radar_test(
     lines = [
         "# CryptoPilot early-radar research",
         "",
-        "| Profile | Activated | Exp. R | Train N | Train R | Train Exp. | "
+        "| Profile | Expansion | Direction | Activated | Exp. R | Train N | Train R | Train Exp. | "
         "Validation N | Validation R | Validation Exp. |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for item in summaries:
         lines.append(
-            f"| {item['name']} | {item['activated']} | {item['expectancy_r']:+.3f} | "
+            f"| {item['name']} | {item['expansion_rate']:.1f}% | "
+            f"{item['directional_precision']:.1f}% | {item['activated']} | "
+            f"{item['expectancy_r']:+.3f} | "
             f"{item['train_activated']} | {item['train_net_r']:+.2f} | "
             f"{item['train_expectancy_r']:+.3f} | {item['validation_activated']} | "
             f"{item['validation_net_r']:+.2f} | "

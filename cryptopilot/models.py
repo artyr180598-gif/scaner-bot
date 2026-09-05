@@ -34,6 +34,9 @@ class Ticker:
     funding_rate: float = 0.0
     open_interest: float = 0.0
     open_interest_change_pct: float | None = None
+    taker_buy_ratio: float | None = None
+    orderbook_imbalance: float | None = None
+    long_short_ratio: float | None = None
 
     @property
     def spread_bps(self) -> float:
@@ -69,6 +72,14 @@ class FeatureSet:
     range_low20: float
     range_position20: float
     return_20_pct: float
+    keltner_squeeze_ratio: float
+    squeeze_bars: int
+    choppiness14: float
+    cmf20: float
+    relative_volume20: float
+    vwap_distance_atr: float
+    supertrend_direction: int
+    supertrend_distance_atr: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +96,11 @@ class TradePlan:
     suggested_notional: float
     suggested_quantity: float
     risk_amount: float
+    scale_entries: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    scale_allocations_pct: tuple[int, int, int] = (50, 30, 20)
+    recommended_leverage: int = 1
+    max_leverage: int = 3
+    holding_horizon: str = "1–72 часа"
 
 
 @dataclass(slots=True)
@@ -101,6 +117,7 @@ class Signal:
     risks: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
     features: dict[str, FeatureSet] = field(default_factory=dict)
+    market_context: dict[str, float] = field(default_factory=dict)
     plan: TradePlan | None = None
     data_age_seconds: int = 0
     required_confidence: int = 0
@@ -109,7 +126,7 @@ class Signal:
     success_interval_high: float | None = None
     calibration_samples: int = 0
     recent_expectancy_r: float | None = None
-    strategy_version: str = "3.0"
+    strategy_version: str = "3.1"
 
     @property
     def actionable(self) -> bool:
@@ -147,13 +164,16 @@ class EarlySetup:
     readiness: int
     price: float
     trigger_price: float
+    opposite_trigger_price: float
     invalidation_price: float
+    stage: str
     regime: str
     created_at: datetime
     expires_at: datetime
     reasons: list[str] = field(default_factory=list)
     risks: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
+    metrics: dict[str, float] = field(default_factory=dict)
 
     @property
     def actionable(self) -> bool:
