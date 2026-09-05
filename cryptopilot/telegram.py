@@ -383,6 +383,25 @@ def format_signal(signal: Signal) -> str:
         )
 
     assert signal.plan is not None
+    observation_reasons = []
+    if signal.confidence < signal.required_confidence:
+        observation_reasons.append("Качество ниже порога торгового сигнала")
+    if signal.plan.expires_at <= datetime.now(UTC):
+        observation_reasons.append("Срок сценария истёк; нужен новый анализ")
+    observation_reasons.extend(signal.blockers)
+    if observation_reasons:
+        return (
+            f"⚪ <b>{html.escape(signal.symbol)} · КАНДИДАТ, НЕ ВХОД</b>\n"
+            f"Предполагаемое направление: {signal.side.value} · биржа: {signal.exchange}\n"
+            f"Качество: {signal.confidence}/100 · порог: {signal.required_confidence}/100\n"
+            + "\n".join(f"• {html.escape(item)}" for item in observation_reasons)
+            + f"\n\n{_format_signal_calibration(signal)}"
+            + "\n\nБаллы качества не являются вероятностью прибыли."
+            + f"\n\n<b>Индикаторы</b>\n{indicators}"
+            + "\n\n<b>Риски</b>\n"
+            + "\n".join(f"• {html.escape(item)}" for item in signal.risks)
+            + "\n\nПлан покупки и доборов не выдан. Дождитесь нового подтверждения."
+        )
     icon = "🟢" if signal.side is Side.LONG else "🔴"
     reasons = "\n".join(f"• {html.escape(item)}" for item in signal.reasons)
     risks = (
@@ -404,20 +423,16 @@ def format_signal(signal: Signal) -> str:
         f"TP2: <code>{price(signal.plan.take_profit_2)}</code> ({signal.plan.risk_reward_2:.1f}R)\n"
         f"TP3: <code>{price(signal.plan.take_profit_3)}</code> (3R)\n"
         f"Действителен до: {signal.plan.expires_at:%d.%m %H:%M} UTC\n"
-        f"Отмена: {html.escape(signal.plan.invalidation)}\n\n"
+        "Защитный стоп: не ждать закрытия свечи за уровнем. "
+        "Слом структуры до входа отменяет сценарий.\n\n"
         f"<b>Контроль риска</b>\n"
         f"Расчётный объём: ≈ <code>{signal.plan.suggested_notional:.2f} USDT</code> "
         f"({signal.plan.suggested_quantity:.8g} монеты)\n"
         f"Риск по стопу: ≈ <code>{signal.plan.risk_amount:.2f} USDT</code>\n\n"
-        f"<b>План набора позиции (не мартингейл)</b>\n"
-        f"1) <code>{price(signal.plan.scale_entries[0])}</code> — 50% объёма\n"
-        f"2) <code>{price(signal.plan.scale_entries[1])}</code> — 30%, только если структура цела\n"
-        f"3) <code>{price(signal.plan.scale_entries[2])}</code> — 20%, без переноса стопа\n"
-        f"Плечо: рекомендуется {signal.plan.recommended_leverage}×, жёсткий максимум "
-        f"{signal.plan.max_leverage}×\n"
+        "Доборы не предусмотрены: вход только в указанной зоне, без усреднения.\n"
         f"Горизонт: {html.escape(signal.plan.holding_horizon)}\n"
-        "Все три части вместе ограничены указанным риском; после отмены сценария "
-        "усреднение запрещено.\n\n"
+        "Риск расчётный: комиссии, проскальзывание и ценовые разрывы могут увеличить убыток. "
+        "Бот не размещает защитные ордера за вас.\n\n"
         f"<b>Почему</b>\n{reasons}\n\n"
         f"<b>Индикаторы по таймфреймам</b>\n{indicators}\n\n"
         f"<b>Деривативы и микроструктура</b>\n{format_market_context(signal)}\n\n"
