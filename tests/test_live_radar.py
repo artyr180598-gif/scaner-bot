@@ -146,3 +146,12 @@ def test_watchlist_refresh_does_not_require_manual_button():
         scanner.scan_early_moves.assert_awaited_once()
 
     asyncio.run(check())
+
+
+def test_watchlist_must_be_recent_and_above_auto_threshold():
+    from cryptopilot.live_radar import active_live_setups
+
+    now = datetime.now(UTC)
+    report = SimpleNamespace(finished_at=now, setups=[setup(), replace(setup(), readiness=79)])
+    assert len(active_live_setups(report, now.timestamp(), 80, 600)) == 1
+    assert active_live_setups(report, now.timestamp() + 601, 80, 600) == []
