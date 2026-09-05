@@ -12,6 +12,26 @@ from cryptopilot.paper import PaperTracker
 from cryptopilot.storage import SignalStore
 
 
+def test_below_threshold_candidate_has_no_execution_plan() -> None:
+    from cryptopilot.telegram import format_signal
+    now = datetime.now(UTC)
+    plan = TradePlan(100, 101, 98, 103, 105, 107, 2, "test",
+                     now + timedelta(hours=1), 100, 1, 2)
+    signal = Signal("LINKUSDT", "BYBIT", Side.LONG, 79, 57, "BULL", 100,
+                    now, plan=plan, required_confidence=84)
+    text = format_signal(signal)
+    assert "КАНДИДАТ, НЕ ВХОД" in text
+    assert "Зона входа:" not in text
+    assert "Расчётный объём" not in text
+    signal.confidence = 90
+    text = format_signal(signal)
+    assert "Зона входа:" in text
+    assert "План набора" not in text
+    from dataclasses import replace
+    signal.plan = replace(plan, expires_at=now - timedelta(minutes=1))
+    assert "КАНДИДАТ, НЕ ВХОД" in format_signal(signal)
+
+
 def test_midbar_alert_cannot_enter_on_earlier_price_action() -> None:
     async def scenario() -> None:
         created = datetime(2026, 1, 1, 0, 7, tzinfo=UTC)
