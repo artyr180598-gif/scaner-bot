@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
