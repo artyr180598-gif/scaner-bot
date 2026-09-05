@@ -1,0 +1,1621 @@
+{
+  "protocol": "Fixed paired risk-filter test, March-August2026; no parameter tuning.\n\nCore-engine historical approximation, not real scanner/derivatives executions.\nLive-equivalent 72h holding cap,6bps/side. Same data previously researched; no\nindependent holdout. Safety filters are not an early-entry prediction model.\n",
+  "results": {
+    "BTCUSDT": {
+      "baseline": {
+        "symbol": "BTCUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 8,
+        "wins": 1,
+        "losses": 7,
+        "win_rate": 12.5,
+        "net_r": -4.772307931452795,
+        "expectancy_r": -0.5965384914315994,
+        "profit_factor": 0.10517545695232285,
+        "max_drawdown_r": 4.804102384116705,
+        "max_drawdown_pct": 2.3793481284814106,
+        "ending_equity": 976.3544649540149,
+        "return_pct": -2.36455350459851,
+        "yearly_r": {
+          "2026": -4.772
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 8,
+            "win_rate": 12.5,
+            "expectancy_r": -0.5965384914315994
+          }
+        },
+        "records": [
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-04-16T04:45:00+00:00",
+            "exit_time": "2026-04-16T10:00:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.69,
+            "regime": "BULL",
+            "entry": 75058.8,
+            "exit": 74400.0,
+            "stop": 74400.0,
+            "target": 76376.40000000001,
+            "result_r": -1.1361191256830594,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-04-22T06:00:00+00:00",
+            "exit_time": "2026-04-25T06:00:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.29,
+            "regime": "BULL",
+            "entry": 77954.4,
+            "exit": 77507.7,
+            "stop": 76095.1,
+            "target": 81672.99999999997,
+            "result_r": -0.2904196525574143,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-05-04T03:45:00+00:00",
+            "exit_time": "2026-05-04T10:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.17,
+            "regime": "BULL",
+            "entry": 79967.1,
+            "exit": 78235.4,
+            "stop": 78235.4,
+            "target": 83430.50000000003,
+            "result_r": -1.054814055552347,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-05-04T18:00:00+00:00",
+            "exit_time": "2026-05-07T18:00:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 62.66,
+            "regime": "BULL",
+            "entry": 80339.8,
+            "exit": 80111.6,
+            "stop": 78450.0,
+            "target": 84119.40000000001,
+            "result_r": -0.1716958619959766,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-05-11T00:15:00+00:00",
+            "exit_time": "2026-05-12T15:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.98,
+            "regime": "BULL",
+            "entry": 81841.5,
+            "exit": 80225.1,
+            "stop": 80225.1,
+            "target": 85074.6,
+            "result_r": -1.060158351893096,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-06-03T04:15:00+00:00",
+            "exit_time": "2026-06-03T05:00:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -65.68,
+            "regime": "BEAR",
+            "entry": 66314.4,
+            "exit": 67195.7,
+            "stop": 67195.7,
+            "target": 64552.100000000006,
+            "result_r": -1.090895336434812,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-06-04T02:30:00+00:00",
+            "exit_time": "2026-06-07T02:30:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -67.97,
+            "regime": "BEAR",
+            "entry": 62967.4,
+            "exit": 61296.0,
+            "stop": 65814.2,
+            "target": 57273.500000000015,
+            "result_r": 0.5609252353519756,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-07-20T16:45:00+00:00",
+            "exit_time": "2026-07-23T16:45:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 63.17,
+            "regime": "BULL",
+            "entry": 65349.0,
+            "exit": 64731.4,
+            "stop": 64034.3,
+            "target": 67978.1,
+            "result_r": -0.5291307826880658,
+            "outcome": "TIME"
+          }
+        ]
+      },
+      "guard": {
+        "symbol": "BTCUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 6,
+        "wins": 0,
+        "losses": 6,
+        "win_rate": 0.0,
+        "net_r": -4.153335556043415,
+        "expectancy_r": -0.6922225926739025,
+        "profit_factor": 0.0,
+        "max_drawdown_r": 4.153335556043415,
+        "max_drawdown_pct": 2.059831323569938,
+        "ending_equity": 979.4016867643006,
+        "return_pct": -2.0598313235699384,
+        "yearly_r": {
+          "2026": -4.153
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 6,
+            "win_rate": 0.0,
+            "expectancy_r": -0.6922225926739025
+          }
+        },
+        "records": [
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-04-22T06:00:00+00:00",
+            "exit_time": "2026-04-25T06:00:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.29,
+            "regime": "BULL",
+            "entry": 77954.4,
+            "exit": 77507.7,
+            "stop": 76095.1,
+            "target": 81672.99999999997,
+            "result_r": -0.2904196525574143,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-05-04T03:45:00+00:00",
+            "exit_time": "2026-05-04T10:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.17,
+            "regime": "BULL",
+            "entry": 79967.1,
+            "exit": 78235.4,
+            "stop": 78235.4,
+            "target": 83430.50000000003,
+            "result_r": -1.054814055552347,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-05-04T18:00:00+00:00",
+            "exit_time": "2026-05-07T18:00:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 62.66,
+            "regime": "BULL",
+            "entry": 80339.8,
+            "exit": 80111.6,
+            "stop": 78450.0,
+            "target": 84119.40000000001,
+            "result_r": -0.1716958619959766,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-05-11T00:15:00+00:00",
+            "exit_time": "2026-05-12T15:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.98,
+            "regime": "BULL",
+            "entry": 81841.5,
+            "exit": 80225.1,
+            "stop": 80225.1,
+            "target": 85074.6,
+            "result_r": -1.060158351893096,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-06-05T16:15:00+00:00",
+            "exit_time": "2026-06-07T08:15:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -65.65,
+            "regime": "BEAR",
+            "entry": 60867.3,
+            "exit": 62437.5,
+            "stop": 62437.5,
+            "target": 57726.90000000001,
+            "result_r": -1.0471168513565152,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BTCUSDT",
+            "entry_time": "2026-07-20T16:45:00+00:00",
+            "exit_time": "2026-07-23T16:45:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 63.17,
+            "regime": "BULL",
+            "entry": 65349.0,
+            "exit": 64731.4,
+            "stop": 64034.3,
+            "target": 67978.1,
+            "result_r": -0.5291307826880658,
+            "outcome": "TIME"
+          }
+        ]
+      }
+    },
+    "ETHUSDT": {
+      "baseline": {
+        "symbol": "ETHUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 7,
+        "wins": 3,
+        "losses": 4,
+        "win_rate": 42.857142857142854,
+        "net_r": 2.0019267138286776,
+        "expectancy_r": 0.2859895305469539,
+        "profit_factor": 1.5306120802213674,
+        "max_drawdown_r": 2.114433107479299,
+        "max_drawdown_pct": 1.0544226969436863,
+        "ending_equity": 1009.8729475030739,
+        "return_pct": 0.9872947503073881,
+        "yearly_r": {
+          "2026": 2.002
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 7,
+            "win_rate": 42.857142857142854,
+            "expectancy_r": 0.2859895305469539
+          }
+        },
+        "records": [
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-05-06T12:00:00+00:00",
+            "exit_time": "2026-05-06T13:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.46,
+            "regime": "BULL",
+            "entry": 2408.99,
+            "exit": 2368.06,
+            "stop": 2368.06,
+            "target": 2490.8499999999995,
+            "result_r": -1.07002760811141,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-05-10T23:30:00+00:00",
+            "exit_time": "2026-05-11T14:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.02,
+            "regime": "BULL",
+            "entry": 2373.29,
+            "exit": 2310.01,
+            "stop": 2310.01,
+            "target": 2499.88,
+            "result_r": -1.0444054993678888,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-06-04T01:00:00+00:00",
+            "exit_time": "2026-06-05T06:00:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -66.11,
+            "regime": "BEAR",
+            "entry": 1793.16,
+            "exit": 1676.2900000000004,
+            "stop": 1851.58,
+            "target": 1676.2900000000004,
+            "result_r": 1.9648806915439911,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-07-02T14:45:00+00:00",
+            "exit_time": "2026-07-04T17:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.04,
+            "regime": "BULL",
+            "entry": 1694.72,
+            "exit": 1799.5600000000002,
+            "stop": 1642.3,
+            "target": 1799.5600000000002,
+            "result_r": 1.9600044257916827,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-07-20T12:15:00+00:00",
+            "exit_time": "2026-07-20T14:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.21,
+            "regime": "BULL",
+            "entry": 1879.47,
+            "exit": 1853.2,
+            "stop": 1853.2,
+            "target": 1932.01,
+            "result_r": -1.0852532165968787,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-07-20T18:30:00+00:00",
+            "exit_time": "2026-07-23T18:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.02,
+            "regime": "BULL",
+            "entry": 1907.41,
+            "exit": 1878.3,
+            "stop": 1852.66,
+            "target": 2016.88,
+            "result_r": -0.5731767305936096,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-08-19T09:00:00+00:00",
+            "exit_time": "2026-08-19T14:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 62.44,
+            "regime": "BULL",
+            "entry": 1920.75,
+            "exit": 1951.71,
+            "stop": 1905.27,
+            "target": 1951.71,
+            "result_r": 1.8499046511627908,
+            "outcome": "TP2"
+          }
+        ]
+      },
+      "guard": {
+        "symbol": "ETHUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 6,
+        "wins": 3,
+        "losses": 3,
+        "win_rate": 50.0,
+        "net_r": 3.3984995444830086,
+        "expectancy_r": 0.5664165907471681,
+        "profit_factor": 2.4301702334743536,
+        "max_drawdown_r": 2.114433107479299,
+        "max_drawdown_pct": 1.0544226969436863,
+        "ending_equity": 1016.9677695202181,
+        "return_pct": 1.6967769520218168,
+        "yearly_r": {
+          "2026": 3.398
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 6,
+            "win_rate": 50.0,
+            "expectancy_r": 0.5664165907471681
+          }
+        },
+        "records": [
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-05-06T12:00:00+00:00",
+            "exit_time": "2026-05-06T13:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.46,
+            "regime": "BULL",
+            "entry": 2408.99,
+            "exit": 2368.06,
+            "stop": 2368.06,
+            "target": 2490.8499999999995,
+            "result_r": -1.07002760811141,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-05-10T23:30:00+00:00",
+            "exit_time": "2026-05-11T14:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.02,
+            "regime": "BULL",
+            "entry": 2373.29,
+            "exit": 2310.01,
+            "stop": 2310.01,
+            "target": 2499.88,
+            "result_r": -1.0444054993678888,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-06-04T01:00:00+00:00",
+            "exit_time": "2026-06-05T06:00:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -66.11,
+            "regime": "BEAR",
+            "entry": 1793.16,
+            "exit": 1676.2900000000004,
+            "stop": 1851.58,
+            "target": 1676.2900000000004,
+            "result_r": 1.9648806915439911,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-07-02T14:45:00+00:00",
+            "exit_time": "2026-07-04T17:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.04,
+            "regime": "BULL",
+            "entry": 1694.72,
+            "exit": 1799.5600000000002,
+            "stop": 1642.3,
+            "target": 1799.5600000000002,
+            "result_r": 1.9600044257916827,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-07-20T16:45:00+00:00",
+            "exit_time": "2026-07-23T16:45:00+00:00",
+            "side": "LONG",
+            "confidence": 86,
+            "required_confidence": 84,
+            "score": 67.88,
+            "regime": "BULL",
+            "entry": 1896.08,
+            "exit": 1886.98,
+            "stop": 1852.66,
+            "target": 1982.9499999999996,
+            "result_r": -0.2618571165361573,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "ETHUSDT",
+            "entry_time": "2026-08-19T09:00:00+00:00",
+            "exit_time": "2026-08-19T14:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 62.44,
+            "regime": "BULL",
+            "entry": 1920.75,
+            "exit": 1951.71,
+            "stop": 1905.27,
+            "target": 1951.71,
+            "result_r": 1.8499046511627908,
+            "outcome": "TP2"
+          }
+        ]
+      }
+    },
+    "SOLUSDT": {
+      "baseline": {
+        "symbol": "SOLUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 10,
+        "wins": 5,
+        "losses": 5,
+        "win_rate": 50.0,
+        "net_r": 3.4241011030384962,
+        "expectancy_r": 0.3424101103038496,
+        "profit_factor": 1.7832997663075199,
+        "max_drawdown_r": 2.248074412643988,
+        "max_drawdown_pct": 1.1204481809414346,
+        "ending_equity": 1017.0195818135659,
+        "return_pct": 1.7019581813565887,
+        "yearly_r": {
+          "2026": 3.424
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 10,
+            "win_rate": 50.0,
+            "expectancy_r": 0.3424101103038496
+          }
+        },
+        "records": [
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-04-22T06:45:00+00:00",
+            "exit_time": "2026-04-23T00:00:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 65.23,
+            "regime": "BULL",
+            "entry": 87.9,
+            "exit": 86.64,
+            "stop": 86.64,
+            "target": 90.42000000000002,
+            "result_r": -1.0831142857142855,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-05-06T16:45:00+00:00",
+            "exit_time": "2026-05-08T19:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.08,
+            "regime": "BULL",
+            "entry": 89.18,
+            "exit": 92.70999999999998,
+            "stop": 87.43,
+            "target": 92.70999999999998,
+            "result_r": 1.9547805714285555,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-05-10T23:15:00+00:00",
+            "exit_time": "2026-05-13T12:30:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 64.54,
+            "regime": "BULL",
+            "entry": 96.2,
+            "exit": 93.37,
+            "stop": 93.37,
+            "target": 101.82999999999998,
+            "result_r": -1.040191519434629,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-06-03T00:00:00+00:00",
+            "exit_time": "2026-06-04T00:15:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -65.89,
+            "regime": "BEAR",
+            "entry": 74.18,
+            "exit": 70.48000000000002,
+            "stop": 76.03,
+            "target": 70.48000000000002,
+            "result_r": 1.953083243243243,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-06-05T16:15:00+00:00",
+            "exit_time": "2026-06-07T22:00:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -66.48,
+            "regime": "BEAR",
+            "entry": 64.53,
+            "exit": 66.79,
+            "stop": 66.79,
+            "target": 60.00999999999999,
+            "result_r": -1.0348637168141592,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-06-24T16:30:00+00:00",
+            "exit_time": "2026-06-26T06:45:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -65.83,
+            "regime": "BEAR",
+            "entry": 67.77,
+            "exit": 69.89,
+            "stop": 69.89,
+            "target": 63.56,
+            "result_r": -1.0389603773584906,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-07-02T12:45:00+00:00",
+            "exit_time": "2026-07-05T12:45:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 64.75,
+            "regime": "BULL",
+            "entry": 81.18,
+            "exit": 80.73,
+            "stop": 78.04,
+            "target": 87.46000000000001,
+            "result_r": -0.17425031847133846,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-08-21T06:30:00+00:00",
+            "exit_time": "2026-08-21T08:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.44,
+            "regime": "BULL",
+            "entry": 90.05,
+            "exit": 93.18999999999998,
+            "stop": 88.48,
+            "target": 93.18999999999998,
+            "result_r": 1.9299719745222927,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-08-22T00:15:00+00:00",
+            "exit_time": "2026-08-22T04:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.3,
+            "regime": "BULL",
+            "entry": 93.58,
+            "exit": 99.84999999999997,
+            "stop": 90.43,
+            "target": 99.84999999999997,
+            "result_r": 1.9536323809523761,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-08-27T10:00:00+00:00",
+            "exit_time": "2026-08-30T10:00:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.76,
+            "regime": "BULL",
+            "entry": 104.39,
+            "exit": 104.53,
+            "stop": 100.74,
+            "target": 111.69000000000001,
+            "result_r": 0.00401315068493166,
+            "outcome": "TIME"
+          }
+        ]
+      },
+      "guard": {
+        "symbol": "SOLUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 8,
+        "wins": 4,
+        "losses": 4,
+        "win_rate": 50.0,
+        "net_r": 2.5244103062737415,
+        "expectancy_r": 0.3155512882842177,
+        "profit_factor": 1.7555628480402727,
+        "max_drawdown_r": 1.2177932348864502,
+        "max_drawdown_pct": 0.6084233496407498,
+        "ending_equity": 1012.5153506429888,
+        "return_pct": 1.2515350642988698,
+        "yearly_r": {
+          "2026": 2.524
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 8,
+            "win_rate": 50.0,
+            "expectancy_r": 0.3155512882842177
+          }
+        },
+        "records": [
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-04-22T06:45:00+00:00",
+            "exit_time": "2026-04-23T00:00:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 65.23,
+            "regime": "BULL",
+            "entry": 87.9,
+            "exit": 86.64,
+            "stop": 86.64,
+            "target": 90.42000000000002,
+            "result_r": -1.0831142857142855,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-05-06T16:45:00+00:00",
+            "exit_time": "2026-05-08T19:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.08,
+            "regime": "BULL",
+            "entry": 89.18,
+            "exit": 92.70999999999998,
+            "stop": 87.43,
+            "target": 92.70999999999998,
+            "result_r": 1.9547805714285555,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-05-10T23:15:00+00:00",
+            "exit_time": "2026-05-13T12:30:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 64.54,
+            "regime": "BULL",
+            "entry": 96.2,
+            "exit": 93.37,
+            "stop": 93.37,
+            "target": 101.82999999999998,
+            "result_r": -1.040191519434629,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-06-03T00:00:00+00:00",
+            "exit_time": "2026-06-04T00:15:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -65.89,
+            "regime": "BEAR",
+            "entry": 74.18,
+            "exit": 70.48000000000002,
+            "stop": 76.03,
+            "target": 70.48000000000002,
+            "result_r": 1.953083243243243,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-06-05T16:15:00+00:00",
+            "exit_time": "2026-06-07T22:00:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -66.48,
+            "regime": "BEAR",
+            "entry": 64.53,
+            "exit": 66.79,
+            "stop": 66.79,
+            "target": 60.00999999999999,
+            "result_r": -1.0348637168141592,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-07-02T13:00:00+00:00",
+            "exit_time": "2026-07-05T13:00:00+00:00",
+            "side": "LONG",
+            "confidence": 86,
+            "required_confidence": 84,
+            "score": 65.32,
+            "regime": "BULL",
+            "entry": 81.36,
+            "exit": 80.85,
+            "stop": 78.04,
+            "target": 87.99999999999999,
+            "result_r": -0.18292951807229108,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-08-22T00:15:00+00:00",
+            "exit_time": "2026-08-22T04:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.3,
+            "regime": "BULL",
+            "entry": 93.58,
+            "exit": 99.84999999999997,
+            "stop": 90.43,
+            "target": 99.84999999999997,
+            "result_r": 1.9536323809523761,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "SOLUSDT",
+            "entry_time": "2026-08-27T10:00:00+00:00",
+            "exit_time": "2026-08-30T10:00:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.76,
+            "regime": "BULL",
+            "entry": 104.39,
+            "exit": 104.53,
+            "stop": 100.74,
+            "target": 111.69000000000001,
+            "result_r": 0.00401315068493166,
+            "outcome": "TIME"
+          }
+        ]
+      }
+    },
+    "BNBUSDT": {
+      "baseline": {
+        "symbol": "BNBUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 3,
+        "wins": 0,
+        "losses": 3,
+        "win_rate": 0.0,
+        "net_r": -3.367837376638379,
+        "expectancy_r": -1.1226124588794597,
+        "profit_factor": 0.0,
+        "max_drawdown_r": 3.367837376638379,
+        "max_drawdown_pct": 1.6744894009280982,
+        "ending_equity": 983.255105990719,
+        "return_pct": -1.674489400928103,
+        "yearly_r": {
+          "2026": -3.368
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 3,
+            "win_rate": 0.0,
+            "expectancy_r": -1.1226124588794597
+          }
+        },
+        "records": [
+          {
+            "symbol": "BNBUSDT",
+            "entry_time": "2026-05-06T13:15:00+00:00",
+            "exit_time": "2026-05-07T01:00:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.94,
+            "regime": "BULL",
+            "entry": 654.15,
+            "exit": 643.84,
+            "stop": 643.84,
+            "target": 674.7699999999999,
+            "result_r": -1.0755377303588753,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BNBUSDT",
+            "entry_time": "2026-05-15T01:00:00+00:00",
+            "exit_time": "2026-05-15T05:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.64,
+            "regime": "BULL",
+            "entry": 683.75,
+            "exit": 677.36,
+            "stop": 677.36,
+            "target": 696.53,
+            "result_r": -1.1278037558685448,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BNBUSDT",
+            "entry_time": "2026-08-05T06:00:00+00:00",
+            "exit_time": "2026-08-05T09:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.64,
+            "regime": "BULL",
+            "entry": 602.6,
+            "exit": 598.22,
+            "stop": 598.22,
+            "target": 611.36,
+            "result_r": -1.164495890410959,
+            "outcome": "SL"
+          }
+        ]
+      },
+      "guard": {
+        "symbol": "BNBUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 2,
+        "wins": 0,
+        "losses": 2,
+        "win_rate": 0.0,
+        "net_r": -2.2922996462795036,
+        "expectancy_r": -1.1461498231397518,
+        "profit_factor": 0.0,
+        "max_drawdown_r": 2.2922996462795036,
+        "max_drawdown_pct": 1.1428665160425,
+        "ending_equity": 988.571334839575,
+        "return_pct": -1.1428665160424956,
+        "yearly_r": {
+          "2026": -2.292
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 2,
+            "win_rate": 0.0,
+            "expectancy_r": -1.1461498231397518
+          }
+        },
+        "records": [
+          {
+            "symbol": "BNBUSDT",
+            "entry_time": "2026-05-15T01:00:00+00:00",
+            "exit_time": "2026-05-15T05:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.64,
+            "regime": "BULL",
+            "entry": 683.75,
+            "exit": 677.36,
+            "stop": 677.36,
+            "target": 696.53,
+            "result_r": -1.1278037558685448,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "BNBUSDT",
+            "entry_time": "2026-08-05T06:00:00+00:00",
+            "exit_time": "2026-08-05T09:45:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.64,
+            "regime": "BULL",
+            "entry": 602.6,
+            "exit": 598.22,
+            "stop": 598.22,
+            "target": 611.36,
+            "result_r": -1.164495890410959,
+            "outcome": "SL"
+          }
+        ]
+      }
+    },
+    "XRPUSDT": {
+      "baseline": {
+        "symbol": "XRPUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 4,
+        "wins": 2,
+        "losses": 2,
+        "win_rate": 50.0,
+        "net_r": 1.6293697937405673,
+        "expectancy_r": 0.40734244843514184,
+        "profit_factor": 1.7443585102782688,
+        "max_drawdown_r": 2.1889583732057405,
+        "max_drawdown_pct": 1.0914936604904235,
+        "ending_equity": 1008.058399403247,
+        "return_pct": 0.8058399403247041,
+        "yearly_r": {
+          "2026": 1.629
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 4,
+            "win_rate": 50.0,
+            "expectancy_r": 0.40734244843514184
+          }
+        },
+        "records": [
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-05-10T14:30:00+00:00",
+            "exit_time": "2026-05-10T16:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.84,
+            "regime": "BULL",
+            "entry": 1.4303,
+            "exit": 1.4558999999999997,
+            "stop": 1.4175,
+            "target": 1.4558999999999997,
+            "result_r": 1.8647093749999992,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-05-12T01:00:00+00:00",
+            "exit_time": "2026-05-12T01:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.15,
+            "regime": "BULL",
+            "entry": 1.4791,
+            "exit": 1.4677,
+            "stop": 1.4677,
+            "target": 1.5019000000000002,
+            "result_r": -1.1550947368421043,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-05-14T20:00:00+00:00",
+            "exit_time": "2026-05-15T05:15:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 64.73,
+            "regime": "BULL",
+            "entry": 1.5164,
+            "exit": 1.4636,
+            "stop": 1.4636,
+            "target": 1.6219999999999999,
+            "result_r": -1.0338636363636364,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-06-04T07:15:00+00:00",
+            "exit_time": "2026-06-05T05:45:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -66.01,
+            "regime": "BEAR",
+            "entry": 1.1816,
+            "exit": 1.1219999999999999,
+            "stop": 1.2114,
+            "target": 1.1219999999999999,
+            "result_r": 1.9536187919463088,
+            "outcome": "TP2"
+          }
+        ]
+      },
+      "guard": {
+        "symbol": "XRPUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 4,
+        "wins": 2,
+        "losses": 2,
+        "win_rate": 50.0,
+        "net_r": 1.6293697937405673,
+        "expectancy_r": 0.40734244843514184,
+        "profit_factor": 1.7443585102782688,
+        "max_drawdown_r": 2.1889583732057405,
+        "max_drawdown_pct": 1.0914936604904235,
+        "ending_equity": 1008.058399403247,
+        "return_pct": 0.8058399403247041,
+        "yearly_r": {
+          "2026": 1.629
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 4,
+            "win_rate": 50.0,
+            "expectancy_r": 0.40734244843514184
+          }
+        },
+        "records": [
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-05-10T14:30:00+00:00",
+            "exit_time": "2026-05-10T16:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.84,
+            "regime": "BULL",
+            "entry": 1.4303,
+            "exit": 1.4558999999999997,
+            "stop": 1.4175,
+            "target": 1.4558999999999997,
+            "result_r": 1.8647093749999992,
+            "outcome": "TP2"
+          },
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-05-12T01:00:00+00:00",
+            "exit_time": "2026-05-12T01:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.15,
+            "regime": "BULL",
+            "entry": 1.4791,
+            "exit": 1.4677,
+            "stop": 1.4677,
+            "target": 1.5019000000000002,
+            "result_r": -1.1550947368421043,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-05-14T20:00:00+00:00",
+            "exit_time": "2026-05-15T05:15:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 64.73,
+            "regime": "BULL",
+            "entry": 1.5164,
+            "exit": 1.4636,
+            "stop": 1.4636,
+            "target": 1.6219999999999999,
+            "result_r": -1.0338636363636364,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "XRPUSDT",
+            "entry_time": "2026-06-04T07:15:00+00:00",
+            "exit_time": "2026-06-05T05:45:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -66.01,
+            "regime": "BEAR",
+            "entry": 1.1816,
+            "exit": 1.1219999999999999,
+            "stop": 1.2114,
+            "target": 1.1219999999999999,
+            "result_r": 1.9536187919463088,
+            "outcome": "TP2"
+          }
+        ]
+      }
+    },
+    "DOGEUSDT": {
+      "baseline": {
+        "symbol": "DOGEUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 8,
+        "wins": 2,
+        "losses": 6,
+        "win_rate": 25.0,
+        "net_r": -5.313579725656798,
+        "expectancy_r": -0.6641974657070997,
+        "profit_factor": 0.17903797245051511,
+        "max_drawdown_r": 5.3135797256567985,
+        "max_drawdown_pct": 2.6311795933985307,
+        "ending_equity": 973.6882040660147,
+        "return_pct": -2.631179593398536,
+        "yearly_r": {
+          "2026": -5.314
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 8,
+            "win_rate": 25.0,
+            "expectancy_r": -0.6641974657070997
+          }
+        },
+        "records": [
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-04-16T18:15:00+00:00",
+            "exit_time": "2026-04-18T18:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.81,
+            "regime": "BULL",
+            "entry": 0.09766,
+            "exit": 0.09432,
+            "stop": 0.09432,
+            "target": 0.10433999999999999,
+            "result_r": -1.0344874251497007,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-04-24T03:00:00+00:00",
+            "exit_time": "2026-04-24T03:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.38,
+            "regime": "BULL",
+            "entry": 0.09769,
+            "exit": 0.09695,
+            "stop": 0.09695,
+            "target": 0.09917000000000001,
+            "result_r": -1.157816216216215,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-05-01T16:00:00+00:00",
+            "exit_time": "2026-05-01T16:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.18,
+            "regime": "BULL",
+            "entry": 0.10937,
+            "exit": 0.10837613581435555,
+            "stop": 0.10837613581435555,
+            "target": 0.11135772837128888,
+            "result_r": -1.1314542604268396,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-05-11T00:15:00+00:00",
+            "exit_time": "2026-05-14T00:15:00+00:00",
+            "side": "LONG",
+            "confidence": 85,
+            "required_confidence": 84,
+            "score": 63.78,
+            "regime": "BULL",
+            "entry": 0.11149,
+            "exit": 0.115,
+            "stop": 0.1062,
+            "target": 0.12203999999999998,
+            "result_r": 0.6378272211720222,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-05-15T01:00:00+00:00",
+            "exit_time": "2026-05-15T04:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.12,
+            "regime": "BULL",
+            "entry": 0.11665,
+            "exit": 0.11503,
+            "stop": 0.11503,
+            "target": 0.11989000000000002,
+            "result_r": -1.0858074074074069,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-06-05T16:15:00+00:00",
+            "exit_time": "2026-06-07T07:45:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -67.4,
+            "regime": "BEAR",
+            "entry": 0.08177,
+            "exit": 0.08487,
+            "stop": 0.08487,
+            "target": 0.07556999999999998,
+            "result_r": -1.0322529032258063,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-06-17T22:15:00+00:00",
+            "exit_time": "2026-06-20T22:15:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -67.88,
+            "regime": "BEAR",
+            "entry": 0.08531,
+            "exit": 0.08388,
+            "stop": 0.08786,
+            "target": 0.08023999999999999,
+            "result_r": 0.5209749019607852,
+            "outcome": "TIME"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-06-24T18:30:00+00:00",
+            "exit_time": "2026-06-25T05:00:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -67.17,
+            "regime": "BEAR",
+            "entry": 0.07416,
+            "exit": 0.07713,
+            "stop": 0.07713,
+            "target": 0.06822,
+            "result_r": -1.0305636363636363,
+            "outcome": "SL"
+          }
+        ]
+      },
+      "guard": {
+        "symbol": "DOGEUSDT",
+        "first_bar": "2026-03-01T00:00:00+00:00",
+        "last_bar": "2026-08-31T23:45:00+00:00",
+        "bars": 17664,
+        "trades": 5,
+        "wins": 0,
+        "losses": 5,
+        "win_rate": 0.0,
+        "net_r": -5.441818212425969,
+        "expectancy_r": -1.0883636424851937,
+        "profit_factor": 0.0,
+        "max_drawdown_r": 5.44181821242597,
+        "max_drawdown_pct": 2.691472097795099,
+        "ending_equity": 973.085279022049,
+        "return_pct": -2.6914720977951,
+        "yearly_r": {
+          "2026": -5.442
+        },
+        "confidence_bins": {
+          "78-80": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "81-83": {
+            "trades": 0,
+            "win_rate": 0.0,
+            "expectancy_r": 0.0
+          },
+          "84-89": {
+            "trades": 5,
+            "win_rate": 0.0,
+            "expectancy_r": -1.0883636424851937
+          }
+        },
+        "records": [
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-04-16T18:15:00+00:00",
+            "exit_time": "2026-04-18T18:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 59.81,
+            "regime": "BULL",
+            "entry": 0.09766,
+            "exit": 0.09432,
+            "stop": 0.09432,
+            "target": 0.10433999999999999,
+            "result_r": -1.0344874251497007,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-04-24T03:00:00+00:00",
+            "exit_time": "2026-04-24T03:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.38,
+            "regime": "BULL",
+            "entry": 0.09769,
+            "exit": 0.09695,
+            "stop": 0.09695,
+            "target": 0.09917000000000001,
+            "result_r": -1.157816216216215,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-05-01T16:00:00+00:00",
+            "exit_time": "2026-05-01T16:15:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 60.18,
+            "regime": "BULL",
+            "entry": 0.10937,
+            "exit": 0.10837613581435555,
+            "stop": 0.10837613581435555,
+            "target": 0.11135772837128888,
+            "result_r": -1.1314542604268396,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-05-15T01:00:00+00:00",
+            "exit_time": "2026-05-15T04:30:00+00:00",
+            "side": "LONG",
+            "confidence": 84,
+            "required_confidence": 84,
+            "score": 61.12,
+            "regime": "BULL",
+            "entry": 0.11665,
+            "exit": 0.11503,
+            "stop": 0.11503,
+            "target": 0.11989000000000002,
+            "result_r": -1.0858074074074069,
+            "outcome": "SL"
+          },
+          {
+            "symbol": "DOGEUSDT",
+            "entry_time": "2026-06-05T16:15:00+00:00",
+            "exit_time": "2026-06-07T07:45:00+00:00",
+            "side": "SHORT",
+            "confidence": 86,
+            "required_confidence": 86,
+            "score": -67.4,
+            "regime": "BEAR",
+            "entry": 0.08177,
+            "exit": 0.08487,
+            "stop": 0.08487,
+            "target": 0.07556999999999998,
+            "result_r": -1.0322529032258063,
+            "outcome": "SL"
+          }
+        ]
+      }
+    }
+  }
+}
