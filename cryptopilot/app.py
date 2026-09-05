@@ -19,7 +19,7 @@ from cryptopilot.config import get_settings
 from cryptopilot.engine import SignalEngine
 from cryptopilot.exchange import build_exchange
 from cryptopilot.health import RuntimeHealth, start_health_server
-from cryptopilot.live_radar import Crossing, LiveRadar, refresh_watchlist
+from cryptopilot.live_radar import Crossing, LiveRadar, active_live_setups, refresh_watchlist
 from cryptopilot.models import EarlySetup, Signal
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.storage import SignalStore
@@ -201,14 +201,11 @@ async def run() -> None:
                     raise RuntimeError("No live event recipients accepted the message")
 
             live = LiveRadar(
-                lambda: (
-                    [
-                        setup
-                        for setup in scanner.last_early_report.setups
-                        if setup.readiness >= settings.min_early_auto_readiness
-                    ]
-                    if scanner.last_early_report
-                    else []
+                lambda: active_live_setups(
+                    scanner.last_early_report,
+                    time.time(),
+                    settings.min_early_auto_readiness,
+                    2 * settings.live_watchlist_interval_seconds,
                 ),
                 send_crossing,
                 store,
