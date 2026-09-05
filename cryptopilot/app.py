@@ -1,21 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import signal
+import time
 from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramUnauthorizedError
+from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, Message
 
 from cryptopilot.config import get_settings
 from cryptopilot.engine import SignalEngine
 from cryptopilot.exchange import build_exchange
 from cryptopilot.health import RuntimeHealth, start_health_server
+from cryptopilot.live_radar import Crossing, LiveRadar, refresh_watchlist
 from cryptopilot.models import EarlySetup, Signal
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.storage import SignalStore
@@ -60,7 +64,30 @@ async def run() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
-    dispatcher.include_router(build_router(scanner, exchange, store, settings, health))
+    router = build_router(scanner, exchange, store, settings, health)
+    live: LiveRadar | None = None
+
+    @router.message(Command("live"))
+    async def live_status(message: Message) -> None:
+        if live is None:
+            await message.answer("Потоковый радар выключен или не поддерживает выбранную биржу.")
+            return
+        age = (
+            f"{max(0, int(time.time() * 1000) - live.last_trade_ms) / 1000:.1f} сек"
+            if live.last_trade_ms is not None
+            else "ещё не было"
+        )
+        await message.answer(
+            f"<b>Потоковый радар</b>\nСоединение: {live.status}\n"
+            f"Монет под наблюдением: {live.watching}\n"
+            f"Последняя сделка в потоке: {age}\n"
+            f"Доставлено событий: {live.delivered} · пропущено: {live.dropped}\n"
+            f"Обновление списка: {settings.live_watchlist_interval_seconds} сек "
+            "+ время сканирования\n"
+            "Пересечение уровня — наблюдение, не подтверждение прибыльного входа."
+        )
+
+    dispatcher.include_router(router)
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()
@@ -83,6 +110,7 @@ async def run() -> None:
                 BotCommand(command="best", description="Последние сильные сигналы"),
                 BotCommand(command="performance", description="Paper-статистика"),
                 BotCommand(command="status", description="Версия и состояние"),
+                BotCommand(command="live", description="Состояние потокового радара"),
                 BotCommand(command="help", description="Как читать сигналы"),
             ]
         )
@@ -143,9 +171,50 @@ async def run() -> None:
             name="market-monitor",
         )
         stopper = asyncio.create_task(stop_event.wait(), name="shutdown-signal")
-        done, pending = await asyncio.wait(
-            {polling, monitoring, stopper}, return_when=asyncio.FIRST_COMPLETED
-        )
+        tasks = {polling, monitoring, stopper}
+        if (
+            settings.live_radar_enabled
+            and settings.early_radar_enabled
+            and exchange.name == "BYBIT"
+        ):
+
+            async def send_crossing(event: Crossing) -> None:
+                successes = 0
+                for chat_id in settings.allowed_chat_ids:
+                    try:
+                        await bot.send_message(
+                            chat_id,
+                            f"⚡ <b>{html.escape(event.symbol)} · ПЕРЕСЕЧЕНИЕ УРОВНЯ</b>\n"
+                            f"Направление пересечения: {event.direction}\n"
+                            f"Уровень: {event.level:.8g} · сделка на бирже: {event.price:.8g}\n"
+                            "Возраст события при получении: "
+                            f"{event.received_ms - event.event_ms} мс\n"
+                            "Потоковое наблюдение за сценарием раннего радара.\n"
+                            "⚠️ Это не подтверждённый вход: возможен ложный пробой. "
+                            "Продолжение движения и прибыль не гарантированы. "
+                            "Цена могла измениться за время доставки.",
+                        )
+                        successes += 1
+                    except Exception:
+                        log.warning("Live event delivery failed for an authorized chat")
+                if not successes:
+                    raise RuntimeError("No live event recipients accepted the message")
+
+            live = LiveRadar(
+                lambda: list(scanner.last_early_report.setups) if scanner.last_early_report else [],
+                send_crossing,
+                store,
+            )
+            tasks.add(asyncio.create_task(live.run(stop_event), name="live-level-radar"))
+            tasks.add(
+                asyncio.create_task(
+                    refresh_watchlist(
+                        scanner, stop_event, settings.live_watchlist_interval_seconds
+                    ),
+                    name="live-watchlist-refresh",
+                )
+            )
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             if not task.cancelled() and task.exception():
                 raise task.exception()
