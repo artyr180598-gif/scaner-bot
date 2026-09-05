@@ -71,8 +71,14 @@ class PaperTracker:
     async def _resolve(self, trade: PaperTrade, candles: list[Candle]) -> str:
         interval_ms = INTERVAL_MS["15"]
         created_ms = int(trade.created_at.timestamp() * 1000)
-        first_entry_bar = created_ms // interval_ms * interval_ms
-        relevant = [item for item in candles if item.open_time_ms >= first_entry_bar]
+        # OHLC cannot separate activity before and after a mid-bar alert.
+        first_entry_bar = ((created_ms + interval_ms - 1) // interval_ms) * interval_ms
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        relevant = [
+            item for item in candles
+            if item.open_time_ms >= first_entry_bar
+            and item.open_time_ms + interval_ms <= now_ms
+        ]
         if not relevant:
             return "UNCHANGED"
         first_available = datetime.fromtimestamp(relevant[0].open_time_ms / 1000, UTC)
@@ -175,7 +181,8 @@ class PaperTracker:
             )
             cost_fraction = self.settings.paper_one_way_cost_bps / 10_000
             costs_r = (entry + exit_price) * cost_fraction / risk
-            result_r = max(-1.5, min(3.5, gross - costs_r))
+            # Preserve tail losses and gains; clipping biases calibration.
+            result_r = gross - costs_r
         await self.store.close_paper_trade(
             trade.id,
             outcome=outcome,

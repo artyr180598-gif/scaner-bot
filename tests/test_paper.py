@@ -2,12 +2,61 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
+from types import SimpleNamespace
 
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.models import Candle, Side, Signal, Ticker, TradePlan
 from cryptopilot.paper import PaperTracker
 from cryptopilot.storage import SignalStore
+
+
+def test_below_threshold_candidate_has_no_execution_plan() -> None:
+    from cryptopilot.telegram import format_signal
+    now = datetime.now(UTC)
+    plan = TradePlan(100, 101, 98, 103, 105, 107, 2, "test",
+                     now + timedelta(hours=1), 100, 1, 2)
+    signal = Signal("LINKUSDT", "BYBIT", Side.LONG, 79, 57, "BULL", 100,
+                    now, plan=plan, required_confidence=84)
+    text = format_signal(signal)
+    assert "КАНДИДАТ, НЕ ВХОД" in text
+    assert "Зона входа:" not in text
+    assert "Расчётный объём" not in text
+    signal.confidence = 90
+    text = format_signal(signal)
+    assert "Зона входа:" in text
+    assert "План набора" not in text
+    from dataclasses import replace
+    signal.plan = replace(plan, expires_at=now - timedelta(minutes=1))
+    assert "КАНДИДАТ, НЕ ВХОД" in format_signal(signal)
+
+
+def test_midbar_alert_cannot_enter_on_earlier_price_action() -> None:
+    async def scenario() -> None:
+        created = datetime(2026, 1, 1, 0, 7, tzinfo=UTC)
+        trade = SimpleNamespace(
+            id=1, created_at=created, status="PENDING", entry_price=None,
+            entry_at=None, entry_expires_at=created + timedelta(minutes=30),
+            entry_low=100, entry_high=101,
+        )
+        store = SimpleNamespace(mark_paper_entry=AsyncMock(), close_paper_trade=AsyncMock())
+        tracker = PaperTracker(None, store, None)
+        await tracker._resolve(trade, [Candle(1767225600000, 100, 107, 97, 105, 10)])
+        store.mark_paper_entry.assert_not_awaited()
+        store.close_paper_trade.assert_not_awaited()
+    asyncio.run(scenario())
+
+
+def test_paper_result_does_not_clip_tail_losses_or_gains() -> None:
+    async def scenario() -> None:
+        store = SimpleNamespace(close_paper_trade=AsyncMock())
+        tracker = PaperTracker(None, store, SimpleNamespace(paper_one_way_cost_bps=0))
+        trade = SimpleNamespace(id=1, side=Side.LONG, stop_loss=99)
+        for exit_price, expected in [(90, -10), (110, 10)]:
+            await tracker._close(trade, 100, exit_price, datetime.now(UTC), "TIME")
+            assert store.close_paper_trade.call_args.kwargs["result_r"] == expected
+    asyncio.run(scenario())
 
 
 class PaperExchange(ExchangeClient):
