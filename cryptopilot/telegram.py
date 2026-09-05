@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import math
+import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
@@ -12,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, TelegramObject
 
+from cryptopilot import __version__
 from cryptopilot.backtest import WalkForwardBacktester
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
@@ -96,11 +98,19 @@ def build_router(
     async def start(message: Message, state: FSMContext) -> None:
         await state.clear()
         await message.answer(
-            "<b>CryptoPilot 3.0</b>\n\n"
+            f"<b>CryptoPilot {html.escape(release_label())}</b>\n\n"
             "Я сканирую ликвидные USDT‑фьючерсы, подтверждаю идею на нескольких "
             "таймфреймах и показываю только планы с контролируемым риском. "
             "Автоторговли нет: ордера я не размещаю.\n\n"
             "Нажмите кнопку ниже.",
+            reply_markup=main_keyboard(),
+        )
+
+    @router.message(Command("menu"))
+    async def menu(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        await message.answer(
+            f"✅ Меню CryptoPilot {html.escape(release_label())} обновлено.",
             reply_markup=main_keyboard(),
         )
 
@@ -223,12 +233,14 @@ def build_router(
         active_paper = await store.active_paper_count()
         await message.answer(
             "<b>Состояние системы</b>\n"
+            f"Версия: <code>{html.escape(release_label())}</code>\n"
             f"Telegram: ✅ @{html.escape(health.bot_username)}\n"
             f"{exchange.name} API: {'✅' if api_ok else '❌'}\n"
             f"Автомониторинг: ✅ каждые {settings.scan_interval_seconds // 60} мин\n"
             f"Автопорог: LONG {settings.min_auto_confidence}/100 · "
             f"SHORT {settings.min_auto_confidence_short}/100\n"
-            f"Ранний радар: {'авто' if settings.early_auto_alerts else 'только вручную'}\n"
+            f"Ранний радар: "
+            f"{'авто-наблюдения' if settings.early_auto_alerts else 'только вручную'}\n"
             f"Активных paper-планов: {active_paper}\n"
             f"Последний скан: {last_scan}\n"
             f"Последняя ошибка: {html.escape(health.last_error or scanner.last_error or 'нет')}"
@@ -243,8 +255,10 @@ def build_router(
             "• Вероятность появляется отдельно после накопления paper-статистики.\n"
             "• Вход действителен только внутри указанной зоны и до срока истечения.\n"
             "• Стоп нельзя отодвигать после входа. Размер позиции уже ограничен заданным риском.\n"
+            "• Ступени 50/30/20 — не мартингейл: добавляться можно только до отмены сценария.\n"
+            "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
-            "Команды: /scan, /early, /analyze BTC, /backtest BTC, /best, "
+            "Команды: /menu, /scan, /early, /analyze BTC, /backtest BTC, /best, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
@@ -303,7 +317,55 @@ def price(value: float) -> str:
     return f"{value:.8f}".rstrip("0").rstrip(".")
 
 
+def release_label() -> str:
+    commit = os.getenv("RAILWAY_GIT_COMMIT_SHA", "").strip()
+    return f"{__version__} · {commit[:7]}" if commit else __version__
+
+
+def format_indicators(signal: Signal) -> str:
+    labels = {
+        "5": "5m",
+        "15": "15m",
+        "30": "30m",
+        "60": "1h",
+        "120": "2h",
+        "240": "4h",
+        "D": "1d",
+    }
+    lines: list[str] = []
+    for timeframe, feature in signal.features.items():
+        trend = "↑" if feature.supertrend_direction > 0 else "↓"
+        lines.append(
+            f"• {labels.get(timeframe, timeframe)}: RSI {feature.rsi14:.1f} · "
+            f"ADX {feature.adx14:.1f} · DMI {feature.dmi_spread:+.1f} · "
+            f"CMF {feature.cmf20:+.2f} · RVOL {feature.relative_volume20:.2f}× · "
+            f"CHOP {feature.choppiness14:.1f} · BB/KC {feature.keltner_squeeze_ratio:.2f} · "
+            f"Trend Guard {trend}"
+        )
+    return "\n".join(lines)
+
+
+def format_market_context(signal: Signal) -> str:
+    values = signal.market_context
+    if not values:
+        return "• Микроструктура недоступна; решение не опирается на неё"
+    pieces = [
+        f"funding {values.get('funding_pct', 0):+.3f}%",
+        f"spread {values.get('spread_bps', 0):.1f} bps",
+    ]
+    if "oi_change_pct" in values:
+        pieces.append(f"OI {values['oi_change_pct']:+.1f}%")
+    if "taker_buy_ratio" in values:
+        pieces.append(f"taker buy {values['taker_buy_ratio']:.0%}")
+    if "orderbook_imbalance" in values:
+        pieces.append(f"book {values['orderbook_imbalance']:+.0%}")
+    if "long_short_ratio" in values:
+        pieces.append(f"L/S {values['long_short_ratio']:.2f}")
+    return "• " + " · ".join(pieces)
+
+
 def format_signal(signal: Signal) -> str:
+    indicators = format_indicators(signal)
     if signal.side is Side.NO_TRADE:
         blockers = (
             "\n".join(f"• {html.escape(item)}" for item in signal.blockers)
@@ -316,6 +378,7 @@ def format_signal(signal: Signal) -> str:
             f"Score: {signal.score:+.1f}/100 · BTC regime: {signal.regime}\n\n"
             f"<b>Почему пропускаем</b>\n{blockers}"
             + (f"\n\n<b>Что всё же видно</b>\n{reasons}" if reasons else "")
+            + (f"\n\n<b>Индикаторы</b>\n{indicators}" if indicators else "")
             + "\n\nЛучшее действие сейчас — дождаться более чистой конфигурации."
         )
 
@@ -346,7 +409,18 @@ def format_signal(signal: Signal) -> str:
         f"Расчётный объём: ≈ <code>{signal.plan.suggested_notional:.2f} USDT</code> "
         f"({signal.plan.suggested_quantity:.8g} монеты)\n"
         f"Риск по стопу: ≈ <code>{signal.plan.risk_amount:.2f} USDT</code>\n\n"
+        f"<b>План набора позиции (не мартингейл)</b>\n"
+        f"1) <code>{price(signal.plan.scale_entries[0])}</code> — 50% объёма\n"
+        f"2) <code>{price(signal.plan.scale_entries[1])}</code> — 30%, только если структура цела\n"
+        f"3) <code>{price(signal.plan.scale_entries[2])}</code> — 20%, без переноса стопа\n"
+        f"Плечо: рекомендуется {signal.plan.recommended_leverage}×, жёсткий максимум "
+        f"{signal.plan.max_leverage}×\n"
+        f"Горизонт: {html.escape(signal.plan.holding_horizon)}\n"
+        "Все три части вместе ограничены указанным риском; после отмены сценария "
+        "усреднение запрещено.\n\n"
         f"<b>Почему</b>\n{reasons}\n\n"
+        f"<b>Индикаторы по таймфреймам</b>\n{indicators}\n\n"
+        f"<b>Деривативы и микроструктура</b>\n{format_market_context(signal)}\n\n"
         f"<b>Риски</b>\n{risks}\n\n"
         "⚠️ Не входите, если цена уже вне зоны. Не отодвигайте стоп."
     )
@@ -394,16 +468,42 @@ def format_early_setup(setup: EarlySetup) -> str:
         "\n".join(f"• {html.escape(item)}" for item in setup.risks)
         or "• Дополнительных рисков радар не выделил"
     )
+    stage = (
+        "ПОДТВЕРЖДЁННОЕ НАБЛЮДЕНИЕ 15m"
+        if setup.stage == "CONFIRMED_WATCH"
+        else "НАБЛЮДЕНИЕ"
+    )
+    metrics = setup.metrics
+    taker = metrics.get("taker_buy_ratio", -1)
+    book = metrics.get("orderbook_imbalance", -2)
+    metric_lines = (
+        f"• BB/Keltner: {metrics.get('keltner_squeeze_ratio', 0):.2f} · "
+        f"squeeze {metrics.get('squeeze_bars', 0):.0f} свеч.\n"
+        f"• CHOP14 {metrics.get('choppiness14', 0):.1f} · "
+        f"CMF20 {metrics.get('cmf20', 0):+.2f} · "
+        f"RVOL {metrics.get('relative_volume20', 0):.2f}×"
+        + (f"\n• Taker buy {taker:.0%}" if taker >= 0 else "")
+        + (f" · стакан {book:+.0%}" if book >= -1 else "")
+        + (
+            "\n• Trend Guard: "
+            + ("1h ↑" if metrics.get("supertrend_1h", 0) > 0 else "1h ↓")
+            + " · "
+            + ("4h ↑" if metrics.get("supertrend_4h", 0) > 0 else "4h ↓")
+        )
+    )
     return (
         f"⚡ {icon} <b>{html.escape(setup.symbol)} — ДО ИМПУЛЬСА</b>\n"
+        f"Стадия: <b>{stage}</b>\n"
         f"Предполагаемое направление: <b>{setup.bias.value}</b>\n"
         f"Готовность: <b>{setup.readiness}/100</b> · BTC regime: {setup.regime}\n"
         f"Текущая цена: <code>{price(setup.price)}</code>\n\n"
         "<b>Это наблюдение, а не команда на вход</b>\n"
         f"Активация после закрытия за уровнем: <code>{price(setup.trigger_price)}</code>\n"
+        f"Альтернативный выход диапазона: <code>{price(setup.opposite_trigger_price)}</code>\n"
         f"Сценарий сломан около: <code>{price(setup.invalidation_price)}</code>\n"
         f"Истекает: {setup.expires_at:%d.%m %H:%M} UTC\n\n"
         f"<b>Почему движение может готовиться</b>\n{reasons}\n\n"
+        f"<b>Доказательства индикаторами</b>\n{metric_lines}\n\n"
         f"<b>Что может отменить сценарий</b>\n{risks}\n\n"
         "⚠️ До подтверждения границы диапазона позицию не открывать."
     )

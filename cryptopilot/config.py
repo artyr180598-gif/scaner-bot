@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     max_atr_regime_ratio: float = Field(default=2.8, ge=1, le=10)
     relative_strength_filter: bool = True
     neutral_regime_confidence_penalty: int = Field(default=2, ge=0, le=10)
+    market_microstructure_enabled: bool = True
 
     paper_tracking_enabled: bool = True
     paper_max_holding_hours: int = Field(default=72, ge=4, le=336)
@@ -87,16 +88,19 @@ class Settings(BaseSettings):
     weak_edge_confidence_penalty: int = Field(default=2, ge=0, le=10)
 
     early_radar_enabled: bool = True
-    early_auto_alerts: bool = False
+    early_auto_alerts: bool = True
     min_early_readiness: int = Field(default=68, ge=50, le=95)
     min_early_auto_readiness: int = Field(default=80, ge=55, le=95)
     early_alert_cooldown_minutes: int = Field(default=360, ge=30, le=10_080)
     early_setup_expiry_minutes: int = Field(default=720, ge=60, le=2_880)
+    early_min_squeeze_bars: int = Field(default=2, ge=1, le=20)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
     max_position_pct: float = Field(default=25, gt=0, le=100)
     min_risk_reward: float = Field(default=1.8, ge=1, le=5)
+    preferred_leverage: int = Field(default=2, ge=1, le=3)
+    max_leverage: int = Field(default=3, ge=1, le=3)
 
     data_dir: Path = Path("./data")
     log_level: str = "INFO"
@@ -138,6 +142,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MIN_EARLY_AUTO_READINESS must be >= MIN_EARLY_READINESS"
             )
+        if self.preferred_leverage > self.max_leverage:
+            raise ValueError("PREFERRED_LEVERAGE cannot exceed MAX_LEVERAGE")
         return self
 
     @property

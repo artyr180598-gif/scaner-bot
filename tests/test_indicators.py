@@ -19,6 +19,13 @@ def test_features_and_direction_are_finite(candle_factory) -> None:
     assert bullish.ema_gap_atr >= 0
     assert bullish.atr_regime_ratio > 0
     assert bullish.dmi_spread > 0
+    assert 0 <= bullish.choppiness14 <= 100
+    assert -1 <= bullish.cmf20 <= 1
+    assert bullish.relative_volume20 > 0
+    assert bullish.keltner_squeeze_ratio >= 0
+    assert math.isfinite(bullish.vwap_distance_atr)
+    assert bullish.supertrend_direction in {-1, 1}
+    assert math.isfinite(bullish.supertrend_distance_atr)
 
 
 def test_breakout_does_not_use_future_data(candle_factory) -> None:

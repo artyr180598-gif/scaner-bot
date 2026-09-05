@@ -28,6 +28,18 @@ def test_feature_series_matches_live_score_at_last_bar(candle_factory) -> None:
         live_features.bb_width_regime_ratio
     )
     assert series.range_position20[-1] == pytest.approx(live_features.range_position20)
+    assert series.keltner_squeeze_ratio[-1] == pytest.approx(
+        live_features.keltner_squeeze_ratio
+    )
+    assert series.squeeze_bars[-1] == live_features.squeeze_bars
+    assert series.choppiness14[-1] == pytest.approx(live_features.choppiness14)
+    assert series.cmf20[-1] == pytest.approx(live_features.cmf20)
+    assert series.relative_volume20[-1] == pytest.approx(live_features.relative_volume20)
+    assert series.vwap_distance_atr[-1] == pytest.approx(live_features.vwap_distance_atr)
+    assert series.supertrend_direction[-1] == live_features.supertrend_direction
+    assert series.supertrend_distance_atr[-1] == pytest.approx(
+        live_features.supertrend_distance_atr
+    )
 
 
 def test_aggregation_ignores_incomplete_higher_timeframe(candle_factory) -> None:

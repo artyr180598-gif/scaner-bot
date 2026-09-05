@@ -49,6 +49,10 @@ def test_engine_builds_explainable_long_plan(candle_factory) -> None:
     assert signal.plan is not None
     assert signal.plan.stop_loss < signal.price < signal.plan.take_profit_1
     assert signal.plan.take_profit_2 > signal.plan.take_profit_1
+    assert signal.plan.scale_allocations_pct == (50, 30, 20)
+    assert signal.plan.scale_entries[0] > signal.plan.scale_entries[1]
+    assert signal.plan.scale_entries[1] > signal.plan.scale_entries[2]
+    assert 1 <= signal.plan.recommended_leverage <= signal.plan.max_leverage <= 3
     assert 50 <= signal.confidence <= 89
     assert signal.reasons
 
