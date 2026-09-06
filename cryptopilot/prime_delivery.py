@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from dataclasses import replace
@@ -9,6 +10,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from cryptopilot.models import Side
+
+DELIVERY_TIMEOUT_SECONDS = 5
 
 if TYPE_CHECKING:
     from cryptopilot.config import Settings
@@ -34,7 +37,8 @@ async def refresh_prime_entry(
     quote = None
     started = time.monotonic()
     try:
-        quote = next((q for q in await exchange.tickers() if q.symbol == item.symbol), None)
+        async with asyncio.timeout(DELIVERY_TIMEOUT_SECONDS):
+            quote = next((q for q in await exchange.tickers() if q.symbol == item.symbol), None)
     except Exception:
         blockers.append("Свежая котировка недоступна")
     if time.monotonic() - started > 5:

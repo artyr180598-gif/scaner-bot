@@ -96,6 +96,26 @@ def test_network_failure_does_not_reuse_old_price():
     assert check(Candidate(), failure=True).plan is None
 
 
+def test_stalled_quote_is_cancelled_and_plan_removed(monkeypatch):
+    monkeypatch.setattr("cryptopilot.prime_delivery.DELIVERY_TIMEOUT_SECONDS", 0.01)
+
+    async def scenario():
+        cancelled = asyncio.Event()
+
+        async def stall():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        exchange = SimpleNamespace(name="BYBIT", tickers=stall)
+        checked = await refresh_prime_entry(Candidate(), exchange, Settings(_env_file=None))
+        assert not checked.prime_ready and checked.plan is None
+        assert cancelled.is_set()
+
+    asyncio.run(scenario())
+
+
 def test_early_shortlist_cannot_be_displaced_by_eight_active_movers():
     def row(symbol, breakout=False):
         return (
