@@ -139,6 +139,17 @@ class Settings(BaseSettings):
     prime_min_replenishment_notional: float = Field(default=25_000, ge=0, le=100_000_000)
     prime_max_directional_liquidation_ratio: float = Field(default=0.25, ge=0.05, le=2.0)
 
+    prime_cross_exchange_enabled: bool = True
+    prime_cross_exchange_min_confirmations: int = Field(default=2, ge=1, le=4)
+    prime_cross_exchange_max_price_divergence_bps: float = Field(
+        default=35.0, ge=5.0, le=200.0
+    )
+    prime_entry_expiry_minutes: int = Field(default=90, ge=15, le=360)
+    prime_min_plan_rr: float = Field(default=2.0, ge=1.2, le=5.0)
+    prime_max_stop_pct: float = Field(default=2.5, ge=0.5, le=6.0)
+    prime_risk_multiplier: float = Field(default=0.5, gt=0, le=1.0)
+    prime_max_leverage: int = Field(default=2, ge=1, le=3)
+
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
     max_position_pct: float = Field(default=25, gt=0, le=100)
@@ -184,6 +195,8 @@ class Settings(BaseSettings):
             raise ValueError("MIN_EARLY_AUTO_READINESS must be >= MIN_EARLY_READINESS")
         if self.preferred_leverage > self.max_leverage:
             raise ValueError("PREFERRED_LEVERAGE cannot exceed MAX_LEVERAGE")
+        if self.prime_max_leverage > self.max_leverage:
+            raise ValueError("PRIME_MAX_LEVERAGE cannot exceed MAX_LEVERAGE")
         return self
 
     @property
