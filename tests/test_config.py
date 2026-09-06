@@ -46,6 +46,13 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.liquidity_orderbook_watch_limit <= 4
     assert config.prime_min_persistent_wall_ratio >= 2.5
     assert config.prime_min_wall_persistence_seconds >= 10
+    assert config.prime_cross_exchange_enabled
+    assert config.prime_cross_exchange_required
+    assert config.prime_cross_exchange_min_confirmations >= 2
+    assert config.prime_min_plan_rr >= 2.0
+    assert config.prime_max_leverage <= 2
+    assert config.prime_shadow_enabled
+    assert config.prime_shadow_min_samples >= 30
     assert config.max_auto_signals_per_scan == 1
     assert not config.early_auto_alerts
     assert config.flow_radar_enabled
