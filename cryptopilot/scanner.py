@@ -246,7 +246,7 @@ class MarketScanner:
         for setup in report.setups:
             if len(selected) >= self.settings.max_auto_signals_per_scan:
                 break
-            if setup.stage != "CONFIRMED_WATCH":
+            if setup.stage != "ARMED_PREMOVE":
                 continue
             if setup.readiness < self.settings.min_early_auto_readiness:
                 continue
