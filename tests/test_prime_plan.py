@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
+import pytest
+
 from cryptopilot.config import Settings
 from cryptopilot.indicators import compute_features
 from cryptopilot.models import Side
@@ -99,3 +101,41 @@ def test_prime_plan_rejects_late_entry_when_trigger_too_close(candle_factory) ->
 
     assert result.plan is None
     assert result.blockers
+
+
+@pytest.mark.parametrize("side,direction", [(Side.LONG, 1), (Side.SHORT, -1)])
+def test_zone_worst_fill_respects_risk_with_costs(candle_factory, side, direction):
+    feature = compute_features(candle_factory(direction=direction))
+    settings = Settings(_env_file=None, prime_max_stop_pct=5.0)
+    result = build_prime_plan(
+        side,
+        feature.close,
+        feature.close + direction * feature.atr14 * 0.8,
+        candle_factory(interval="5", direction=direction),
+        feature,
+        settings,
+    )
+    assert result.plan is not None
+    plan = result.plan
+    budget = settings.account_equity_usdt * settings.risk_per_trade_pct / 100
+    budget *= settings.prime_risk_multiplier
+    for entry in (plan.entry_low, plan.entry_high):
+        loss = abs(entry - plan.stop_loss)
+        loss += (entry + plan.stop_loss) * settings.paper_one_way_cost_bps / 10_000
+        assert plan.suggested_quantity * loss <= budget + 1e-9
+        assert plan.suggested_quantity * loss <= plan.risk_amount + 1e-9
+
+
+@pytest.mark.parametrize("side,direction", [(Side.LONG, 1), (Side.SHORT, -1)])
+def test_crossed_trigger_is_not_early_entry(candle_factory, side, direction):
+    feature = compute_features(candle_factory(direction=direction))
+    result = build_prime_plan(
+        side,
+        feature.close,
+        feature.close * (1 - direction * 0.005),
+        candle_factory(interval="5", direction=direction),
+        feature,
+        Settings(_env_file=None, prime_max_stop_pct=5.0),
+    )
+    assert result.plan is None
+    assert "trigger" in result.blockers[0]
