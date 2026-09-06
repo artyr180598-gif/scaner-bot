@@ -335,9 +335,7 @@ class SmartMoneyScanner:
             self.settings,
         )
         prime_ready = (
-            prime_score >= self.settings.prime_min_score
-            and not prime_blockers
-            and stage != "ENTRY"
+            prime_score >= self.settings.prime_min_score and not prime_blockers and stage != "ENTRY"
         )
         return SmartMoneySetup(
             symbol=ticker.symbol,
@@ -379,18 +377,10 @@ class SmartMoneyScanner:
             ask_wall_persistence_seconds=(
                 liquidity.ask_wall_persistence_seconds if liquidity else 0.0
             ),
-            bid_replenishment_usdt_60s=(
-                liquidity.bid_replenishment_usdt_60s if liquidity else 0.0
-            ),
-            ask_replenishment_usdt_60s=(
-                liquidity.ask_replenishment_usdt_60s if liquidity else 0.0
-            ),
-            long_liquidation_usdt_60s=(
-                liquidity.long_liquidation_usdt_60s if liquidity else 0.0
-            ),
-            short_liquidation_usdt_60s=(
-                liquidity.short_liquidation_usdt_60s if liquidity else 0.0
-            ),
+            bid_replenishment_usdt_60s=(liquidity.bid_replenishment_usdt_60s if liquidity else 0.0),
+            ask_replenishment_usdt_60s=(liquidity.ask_replenishment_usdt_60s if liquidity else 0.0),
+            long_liquidation_usdt_60s=(liquidity.long_liquidation_usdt_60s if liquidity else 0.0),
+            short_liquidation_usdt_60s=(liquidity.short_liquidation_usdt_60s if liquidity else 0.0),
             distance_to_trigger_pct=distance_to_trigger_pct,
             prime_score=prime_score,
             prime_ready=prime_ready,
@@ -400,7 +390,6 @@ class SmartMoneyScanner:
             prime_reasons=tuple(prime_reasons[:6]),
             prime_blockers=tuple(prime_blockers[:4]),
         )
-
 
 
 async def refresh_smart_money_watchlist(
@@ -442,7 +431,7 @@ def _structure_score(feature: FeatureSet, side: Side) -> float:
     )
     if aligned:
         score += 10
-    if (feature.breakout_up if bullish else feature.breakout_down):
+    if feature.breakout_up if bullish else feature.breakout_down:
         score += 15
     dmi_ok = feature.dmi_spread >= 8 if bullish else feature.dmi_spread <= -8
     if dmi_ok:
@@ -621,19 +610,11 @@ def _pre_move_score(
     directional_recent_move = recent_move_15m_pct if bullish else -recent_move_15m_pct
     if directional_recent_move <= 0.15:
         score += 8
-        reasons.append(
-            f"За последние ~15м цена ещё не убежала: {recent_move_15m_pct:+.2f}%"
-        )
+        reasons.append(f"За последние ~15м цена ещё не убежала: {recent_move_15m_pct:+.2f}%")
     elif directional_recent_move > settings.prime_max_directional_move_15m_pct:
-        blockers.append(
-            f"Цена уже прошла {directional_recent_move:.2f}% по сценарию за ~15м"
-        )
+        blockers.append(f"Цена уже прошла {directional_recent_move:.2f}% по сценарию за ~15м")
 
-    aligned15 = (
-        f15.close > f15.ema20 > f15.ema50
-        if bullish
-        else f15.close < f15.ema20 < f15.ema50
-    )
+    aligned15 = f15.close > f15.ema20 > f15.ema50 if bullish else f15.close < f15.ema20 < f15.ema50
     if aligned15:
         score += 14
         reasons.append("15m структура уже направлена, но BOS ещё не состоялся")
@@ -691,9 +672,7 @@ def _pre_move_score(
                 score += 10
                 spot_evidence += 1
             elif directional_spot_taker <= 1 - settings.prime_min_spot_taker_ratio:
-                blockers.append(
-                    f"Spot taker-flow {directional_spot_taker:.0%} против сценария"
-                )
+                blockers.append(f"Spot taker-flow {directional_spot_taker:.0%} против сценария")
 
         spot_book = ticker.spot_orderbook_imbalance
         if spot_book is not None:
@@ -702,7 +681,7 @@ def _pre_move_score(
                 score += 6
                 spot_evidence += 1
             elif directional_spot_book <= -0.12:
-                blockers.append("Spot-стакан устойчиво против сценария")
+                blockers.append("Снимок spot-стакана против сценария")
 
         block_ratio = ticker.spot_block_trade_buy_ratio
         block_notional = ticker.spot_block_trade_notional
@@ -740,13 +719,15 @@ def _pre_move_score(
         )
         if spot_evidence >= settings.prime_min_spot_confirmations:
             reasons.append(
-                "Spot ведёт сценарий: реальная покупка/продажа подтверждается до perp-разгона"
+                "Spot-прокси согласованы со сценарием; это не доказательство опережения perp"
             )
         elif spot_data_present:
             blockers.append(
                 f"Spot дал только {spot_evidence}/"
-                f"{settings.prime_min_spot_confirmations} независимых подтверждений"
+                f"{settings.prime_min_spot_confirmations} подтверждений-прокси"
             )
+        else:
+            blockers.append("Spot-данные недоступны: обязательное подтверждение не проверено")
 
     funding_pct = ticker.funding_rate * 100
     directional_funding = funding_pct if bullish else -funding_pct
@@ -787,9 +768,7 @@ def _pre_move_score(
             blockers.append("OI уже ускоряется слишком резко")
 
         matching_absorption = (
-            flow.absorption == "BUY_ABSORPTION"
-            if bullish
-            else flow.absorption == "SELL_ABSORPTION"
+            flow.absorption == "BUY_ABSORPTION" if bullish else flow.absorption == "SELL_ABSORPTION"
         )
         if matching_absorption and price_move <= settings.prime_max_price_move_60s_pct:
             score += 6
@@ -829,16 +808,15 @@ def _pre_move_score(
             opposing_wall is not None
             and opposing_wall >= settings.prime_min_persistent_wall_ratio * 1.3
             and opposing_persistence >= settings.prime_min_wall_persistence_seconds
-            and opposing_replenishment > max(
+            and opposing_replenishment
+            > max(
                 directional_replenishment * 1.5,
                 settings.prime_min_replenishment_notional,
             )
         )
         if persistent_support:
             score += 9
-            reasons.append(
-                "Стакан не просто показывает стену: уровень держится и пополняется"
-            )
+            reasons.append("Стакан не просто показывает стену: уровень держится и пополняется")
         if persistent_resistance:
             blockers.append(
                 "Против сценария стоит более сильная устойчивая и пополняемая ликвидность"
@@ -866,13 +844,11 @@ def _pre_move_score(
                 )
             elif (
                 flush_ratio >= 0.12
-                and abs(flow.price_change_60s_pct or 0.0)
-                <= settings.prime_max_price_move_60s_pct
+                and abs(flow.price_change_60s_pct or 0.0) <= settings.prime_max_price_move_60s_pct
             ):
                 score += 5
                 reasons.append(
-                    "Противоположные ликвидации прошли, но цена удержалась — "
-                    "возможное поглощение"
+                    "Противоположные ликвидации прошли, но цена удержалась — возможное поглощение"
                 )
 
     return int(round(max(0.0, min(score, 100.0)))), reasons, blockers
@@ -891,14 +867,10 @@ def _live_flow_adjustment(
     warnings: list[str] = []
 
     matching_absorption = (
-        flow.absorption == "BUY_ABSORPTION"
-        if bullish
-        else flow.absorption == "SELL_ABSORPTION"
+        flow.absorption == "BUY_ABSORPTION" if bullish else flow.absorption == "SELL_ABSORPTION"
     )
     opposing_absorption = (
-        flow.absorption == "SELL_ABSORPTION"
-        if bullish
-        else flow.absorption == "BUY_ABSORPTION"
+        flow.absorption == "SELL_ABSORPTION" if bullish else flow.absorption == "BUY_ABSORPTION"
     )
 
     if directional_delta >= 0.18:
@@ -935,14 +907,10 @@ def _live_flow_adjustment(
         reasons.append(f"Ускорение OI {acceleration:+.3f}%/мин")
 
     matching_absorption = (
-        flow.absorption == "BUY_ABSORPTION"
-        if bullish
-        else flow.absorption == "SELL_ABSORPTION"
+        flow.absorption == "BUY_ABSORPTION" if bullish else flow.absorption == "SELL_ABSORPTION"
     )
     opposing_absorption = (
-        flow.absorption == "SELL_ABSORPTION"
-        if bullish
-        else flow.absorption == "BUY_ABSORPTION"
+        flow.absorption == "SELL_ABSORPTION" if bullish else flow.absorption == "BUY_ABSORPTION"
     )
     if matching_absorption:
         score += 8
@@ -971,12 +939,12 @@ def _stage(
         else f1h.supertrend_direction < 0 and f1h.close < f1h.ema50
     )
     if ticker.taker_buy_ratio is None:
-        taker_ok = True
+        taker_ok = False
     elif bullish:
         taker_ok = ticker.taker_buy_ratio >= 0.54
     else:
         taker_ok = ticker.taker_buy_ratio <= 0.46
-    oi_ok = ticker.open_interest_change_pct is None or ticker.open_interest_change_pct >= 0
+    oi_ok = ticker.open_interest_change_pct is not None and ticker.open_interest_change_pct >= 0
     flow_conflict = False
     live_prepressure = False
     if flow is not None and flow.fresh:
@@ -987,14 +955,10 @@ def _stage(
         burst_ok = flow.volume_burst_ratio is not None and flow.volume_burst_ratio >= 1.2
         oi_live_ok = flow.oi_change_2m_pct is None or flow.oi_change_2m_pct >= 0
         matching_absorption = (
-            flow.absorption == "BUY_ABSORPTION"
-            if bullish
-            else flow.absorption == "SELL_ABSORPTION"
+            flow.absorption == "BUY_ABSORPTION" if bullish else flow.absorption == "SELL_ABSORPTION"
         )
         live_prepressure = (
-            (directional_delta >= 0.12 or matching_absorption)
-            and burst_ok
-            and oi_live_ok
+            (directional_delta >= 0.12 or matching_absorption) and burst_ok and oi_live_ok
         )
     if (
         score >= 78
@@ -1023,13 +987,13 @@ def _recent_close_move_pct(candles, bars: int) -> float:
 
 def _structure_label(feature: FeatureSet) -> str:
     if feature.breakout_up:
-        return "BOS ↑"
+        return "Пробой диапазона 20 свечей ↑"
     if feature.breakout_down:
-        return "BOS ↓"
+        return "Пробой диапазона 20 свечей ↓"
     if feature.close > feature.ema20 > feature.ema50:
-        return "HH/HL ↑"
+        return "EMA20/50 ↑ (экстремумы не проверены)"
     if feature.close < feature.ema20 < feature.ema50:
-        return "LH/LL ↓"
+        return "EMA20/50 ↓ (экстремумы не проверены)"
     return "переходная"
 
 
