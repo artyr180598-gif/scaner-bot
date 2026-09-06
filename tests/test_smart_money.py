@@ -5,6 +5,7 @@ from dataclasses import replace
 from cryptopilot.config import Settings
 from cryptopilot.flow import FlowSnapshot
 from cryptopilot.indicators import compute_features
+from cryptopilot.liquidity import LiquiditySnapshot
 from cryptopilot.models import Side, Ticker
 from cryptopilot.smart_money import _direction_score, _pre_move_score, _stage
 
@@ -207,7 +208,7 @@ def test_prime_pre_move_rewards_coiled_market_before_flow(candle_factory) -> Non
     )
 
     score, reasons, blockers = _pre_move_score(
-        Side.LONG, f15, f1h, f4h, market, flow, 0.05, settings
+        Side.LONG, f15, f1h, f4h, market, flow, None, 0.05, settings
     )
 
     assert score >= settings.prime_min_score
@@ -277,8 +278,195 @@ def test_prime_pre_move_rejects_market_that_already_accelerated(candle_factory) 
         f4h,
         market,
         flow,
+        None,
         0.60,
         settings,
     )
 
     assert any("уже" in blocker.lower() for blocker in blockers)
+
+
+
+def test_prime_rewards_persistent_replenishing_bid_wall(candle_factory) -> None:
+    raw15 = compute_features(candle_factory(direction=1))
+    raw1h = compute_features(candle_factory(interval="60", direction=1))
+    raw4h = compute_features(candle_factory(interval="240", direction=1))
+    f15 = replace(
+        raw15,
+        breakout_up=False,
+        breakout_down=False,
+        range_high20=raw15.close / 0.995,
+        range_position20=0.90,
+        relative_volume20=1.0,
+        keltner_squeeze_ratio=1.0,
+        bb_width_regime_ratio=0.80,
+        vwap_distance_atr=0.50,
+        dmi_spread=8.0,
+    )
+    f1h = replace(
+        raw1h,
+        close=max(raw1h.close, raw1h.ema50 * 1.02, raw1h.ema200 * 1.03),
+        supertrend_direction=1,
+    )
+    f4h = replace(
+        raw4h,
+        close=max(raw4h.close, raw4h.ema50 * 1.02),
+        supertrend_direction=1,
+    )
+    market = replace(
+        _ticker(f15.close, bullish=True),
+        open_interest_change_pct=1.0,
+        spot_taker_buy_ratio=0.68,
+        spot_orderbook_imbalance=0.18,
+        spot_perp_basis_bps=3.0,
+    )
+    flow = FlowSnapshot(
+        symbol="TESTUSDT",
+        created_ms=1_000_000,
+        age_ms=500,
+        price=f15.close,
+        notional_60s=200_000,
+        notional_prev_60s=190_000,
+        notional_5m=800_000,
+        delta_60s_usdt=10_000,
+        cvd_5m_usdt=20_000,
+        delta_ratio_60s=0.05,
+        cvd_ratio_5m=0.025,
+        volume_burst_ratio=1.05,
+        price_change_60s_pct=0.03,
+        oi_change_2m_pct=0.10,
+        oi_change_prev_2m_pct=0.02,
+        oi_acceleration_pct_per_min=0.04,
+        absorption=None,
+        trade_count_60s=80,
+        spread_bps=2.0,
+        funding_pct=0.01,
+    )
+    liquidity = LiquiditySnapshot(
+        symbol="TESTUSDT",
+        created_ms=1_000_000,
+        spread_bps=2.0,
+        imbalance_top10=0.25,
+        bid_wall_ratio=3.2,
+        ask_wall_ratio=1.4,
+        bid_wall_price=f15.close * 0.999,
+        ask_wall_price=f15.close * 1.002,
+        bid_wall_persistence_seconds=18.0,
+        ask_wall_persistence_seconds=2.0,
+        bid_replenishment_usdt_60s=80_000,
+        ask_replenishment_usdt_60s=5_000,
+        long_liquidation_usdt_60s=5_000,
+        short_liquidation_usdt_60s=8_000,
+    )
+    settings = Settings(
+        _env_file=None,
+        telegram_bot_token="test",
+        telegram_chat_id="1",
+    )
+
+    score, reasons, blockers = _pre_move_score(
+        Side.LONG,
+        f15,
+        f1h,
+        f4h,
+        market,
+        flow,
+        liquidity,
+        0.05,
+        settings,
+    )
+
+    assert score >= settings.prime_min_score
+    assert not blockers
+    assert any("пополня" in reason.lower() for reason in reasons)
+
+
+def test_prime_rejects_move_driven_by_short_liquidation_squeeze(candle_factory) -> None:
+    raw15 = compute_features(candle_factory(direction=1))
+    raw1h = compute_features(candle_factory(interval="60", direction=1))
+    raw4h = compute_features(candle_factory(interval="240", direction=1))
+    f15 = replace(
+        raw15,
+        breakout_up=False,
+        breakout_down=False,
+        range_high20=raw15.close / 0.995,
+        range_position20=0.90,
+        relative_volume20=1.0,
+        keltner_squeeze_ratio=1.0,
+        bb_width_regime_ratio=0.80,
+        vwap_distance_atr=0.50,
+    )
+    f1h = replace(
+        raw1h,
+        close=max(raw1h.close, raw1h.ema50 * 1.02, raw1h.ema200 * 1.03),
+        supertrend_direction=1,
+    )
+    f4h = replace(
+        raw4h,
+        close=max(raw4h.close, raw4h.ema50 * 1.02),
+        supertrend_direction=1,
+    )
+    market = replace(
+        _ticker(f15.close, bullish=True),
+        open_interest_change_pct=1.0,
+        spot_taker_buy_ratio=0.67,
+        spot_orderbook_imbalance=0.15,
+        spot_perp_basis_bps=4.0,
+    )
+    flow = FlowSnapshot(
+        symbol="TESTUSDT",
+        created_ms=1_000_000,
+        age_ms=500,
+        price=f15.close,
+        notional_60s=100_000,
+        notional_prev_60s=95_000,
+        notional_5m=500_000,
+        delta_60s_usdt=10_000,
+        cvd_5m_usdt=20_000,
+        delta_ratio_60s=0.10,
+        cvd_ratio_5m=0.04,
+        volume_burst_ratio=1.05,
+        price_change_60s_pct=0.05,
+        oi_change_2m_pct=0.10,
+        oi_change_prev_2m_pct=0.02,
+        oi_acceleration_pct_per_min=0.04,
+        absorption=None,
+        trade_count_60s=60,
+        spread_bps=2.0,
+        funding_pct=0.01,
+    )
+    liquidity = LiquiditySnapshot(
+        symbol="TESTUSDT",
+        created_ms=1_000_000,
+        spread_bps=2.0,
+        imbalance_top10=0.10,
+        bid_wall_ratio=2.0,
+        ask_wall_ratio=1.5,
+        bid_wall_price=f15.close * 0.999,
+        ask_wall_price=f15.close * 1.002,
+        bid_wall_persistence_seconds=5.0,
+        ask_wall_persistence_seconds=2.0,
+        bid_replenishment_usdt_60s=10_000,
+        ask_replenishment_usdt_60s=5_000,
+        long_liquidation_usdt_60s=2_000,
+        short_liquidation_usdt_60s=40_000,
+    )
+    settings = Settings(
+        _env_file=None,
+        telegram_bot_token="test",
+        telegram_chat_id="1",
+    )
+
+    _, _, blockers = _pre_move_score(
+        Side.LONG,
+        f15,
+        f1h,
+        f4h,
+        market,
+        flow,
+        liquidity,
+        0.05,
+        settings,
+    )
+
+    assert any("ликвидац" in blocker.lower() for blocker in blockers)
