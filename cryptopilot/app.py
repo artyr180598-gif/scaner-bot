@@ -22,7 +22,6 @@ from cryptopilot.flow import FlowPressureEvent, FlowTracker
 from cryptopilot.flow_validation import FlowForwardValidator
 from cryptopilot.health import RuntimeHealth, start_health_server
 from cryptopilot.liquidity import LiquidityTracker
-from cryptopilot.prime_shadow import PrimeShadowTracker
 from cryptopilot.live_radar import (
     Crossing,
     LiveRadar,
@@ -31,6 +30,7 @@ from cryptopilot.live_radar import (
     refresh_watchlist,
 )
 from cryptopilot.models import EarlySetup, Signal
+from cryptopilot.prime_shadow import PrimeShadowTracker
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.smart_money import (
     SmartMoneyScanner,
