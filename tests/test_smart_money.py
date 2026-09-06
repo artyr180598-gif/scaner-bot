@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from cryptopilot.flow import FlowSnapshot
 from cryptopilot.indicators import compute_features
 from cryptopilot.models import Side, Ticker
@@ -67,7 +69,12 @@ def test_entry_stage_requires_confirmed_breakout(candle_factory) -> None:
 def test_live_flow_strengthens_matching_direction(candle_factory) -> None:
     f15 = compute_features(candle_factory(direction=1))
     f1h = compute_features(candle_factory(interval="60", direction=1))
-    market = _ticker(f15.close, bullish=True)
+    market = replace(
+        _ticker(f15.close, bullish=True),
+        open_interest_change_pct=None,
+        taker_buy_ratio=0.50,
+        orderbook_imbalance=0.0,
+    )
     baseline, _, _ = _direction_score(Side.LONG, f15, f1h, market)
     flow = FlowSnapshot(
         symbol="TESTUSDT",
@@ -99,7 +106,12 @@ def test_live_flow_strengthens_matching_direction(candle_factory) -> None:
 def test_matching_absorption_is_not_treated_as_flow_conflict(candle_factory) -> None:
     f15 = compute_features(candle_factory(direction=1))
     f1h = compute_features(candle_factory(interval="60", direction=1))
-    market = _ticker(f15.close, bullish=True)
+    market = replace(
+        _ticker(f15.close, bullish=True),
+        open_interest_change_pct=None,
+        taker_buy_ratio=0.50,
+        orderbook_imbalance=0.0,
+    )
     flow = FlowSnapshot(
         symbol="TESTUSDT",
         created_ms=1_000_000,
