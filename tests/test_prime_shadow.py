@@ -33,6 +33,7 @@ def test_prime_shadow_records_deduplicates_and_resolves_tp2(tmp_path) -> None:
             exchange="BYBIT",
             side=Side.LONG,
             score=90,
+            strategy_version="prime-test",
             created_at=created,
             entry_low=99.5,
             entry_high=100.0,
@@ -47,6 +48,7 @@ def test_prime_shadow_records_deduplicates_and_resolves_tp2(tmp_path) -> None:
             exchange="BYBIT",
             side=Side.LONG,
             score=92,
+            strategy_version="prime-test",
             created_at=created + timedelta(minutes=10),
             entry_low=99.6,
             entry_high=100.1,
@@ -88,7 +90,7 @@ def test_prime_shadow_records_deduplicates_and_resolves_tp2(tmp_path) -> None:
         )
         tracker = PrimeShadowTracker(Exchange(), store, settings)
         reviewed, entered, resolved = await tracker.cycle()
-        stats = await store.prime_shadow_stats()
+        stats = await store.prime_shadow_stats(strategy_version="prime-test")
 
         assert reviewed == 1
         assert entered == 0 or entered == 1
@@ -112,6 +114,7 @@ def test_prime_shadow_no_entry_expires_without_counting_as_loss(tmp_path) -> Non
             exchange="BYBIT",
             side=Side.SHORT,
             score=80,
+            strategy_version="prime-test",
             created_at=created,
             entry_low=100.0,
             entry_high=100.5,
@@ -157,7 +160,7 @@ def test_prime_shadow_no_entry_expires_without_counting_as_loss(tmp_path) -> Non
         )
         tracker = PrimeShadowTracker(Exchange(), store, settings)
         await tracker.cycle()
-        stats = await store.prime_shadow_stats()
+        stats = await store.prime_shadow_stats(strategy_version="prime-test")
 
         assert stats["no_entry"] == 1
         assert stats["sample_size"] == 0
