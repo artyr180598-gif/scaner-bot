@@ -70,6 +70,11 @@ def test_entry_stage_requires_confirmed_breakout(candle_factory) -> None:
 def test_live_flow_strengthens_matching_direction(candle_factory) -> None:
     f15 = compute_features(candle_factory(direction=1))
     f1h = compute_features(candle_factory(interval="60", direction=1))
+    f4h = replace(
+        raw4h,
+        close=max(raw4h.close, raw4h.ema50 * 1.02),
+        supertrend_direction=1,
+    )
     market = replace(
         _ticker(f15.close, bullish=True),
         open_interest_change_pct=None,
@@ -145,6 +150,7 @@ def test_matching_absorption_is_not_treated_as_flow_conflict(candle_factory) -> 
 def test_prime_pre_move_rewards_coiled_market_before_flow(candle_factory) -> None:
     raw15 = compute_features(candle_factory(direction=1))
     raw1h = compute_features(candle_factory(interval="60", direction=1))
+    raw4h = compute_features(candle_factory(interval="240", direction=1))
     f15 = replace(
         raw15,
         breakout_up=False,
@@ -196,7 +202,7 @@ def test_prime_pre_move_rewards_coiled_market_before_flow(candle_factory) -> Non
     )
 
     score, reasons, blockers = _pre_move_score(
-        Side.LONG, f15, f1h, market, flow, settings
+        Side.LONG, f15, f1h, f4h, market, flow, 0.05, settings
     )
 
     assert score >= settings.prime_min_score
@@ -207,6 +213,7 @@ def test_prime_pre_move_rewards_coiled_market_before_flow(candle_factory) -> Non
 def test_prime_pre_move_rejects_market_that_already_accelerated(candle_factory) -> None:
     raw15 = compute_features(candle_factory(direction=1))
     raw1h = compute_features(candle_factory(interval="60", direction=1))
+    raw4h = compute_features(candle_factory(interval="240", direction=1))
     f15 = replace(
         raw15,
         breakout_up=False,
@@ -221,6 +228,11 @@ def test_prime_pre_move_rejects_market_that_already_accelerated(candle_factory) 
     f1h = replace(
         raw1h,
         close=max(raw1h.close, raw1h.ema50 * 1.02, raw1h.ema200 * 1.03),
+        supertrend_direction=1,
+    )
+    f4h = replace(
+        raw4h,
+        close=max(raw4h.close, raw4h.ema50 * 1.02),
         supertrend_direction=1,
     )
     market = replace(_ticker(f15.close, bullish=True), open_interest_change_pct=1.0)
@@ -252,6 +264,15 @@ def test_prime_pre_move_rejects_market_that_already_accelerated(candle_factory) 
         telegram_chat_id="1",
     )
 
-    _, _, blockers = _pre_move_score(Side.LONG, f15, f1h, market, flow, settings)
+    _, _, blockers = _pre_move_score(
+        Side.LONG,
+        f15,
+        f1h,
+        f4h,
+        market,
+        flow,
+        0.60,
+        settings,
+    )
 
     assert any("уже" in blocker.lower() for blocker in blockers)
