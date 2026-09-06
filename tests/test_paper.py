@@ -7,7 +7,14 @@ from unittest.mock import AsyncMock
 
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
-from cryptopilot.models import Candle, Side, Signal, Ticker, TradePlan
+from cryptopilot.models import (
+    CURRENT_STRATEGY_VERSION,
+    Candle,
+    Side,
+    Signal,
+    Ticker,
+    TradePlan,
+)
 from cryptopilot.paper import PaperTracker
 from cryptopilot.storage import SignalStore
 
@@ -178,5 +185,75 @@ def test_paper_tracker_uses_conservative_stop_first(tmp_path) -> None:
 
         assert stats.losses == 1
         assert stats.expectancy_r < 0
+
+    asyncio.run(scenario())
+
+
+
+def test_calibration_does_not_mix_legacy_strategy_generations(tmp_path) -> None:
+    async def scenario() -> None:
+        store = SignalStore(tmp_path / "versioned.sqlite3")
+        await store.initialize()
+        now = datetime.now(UTC)
+        plan = TradePlan(
+            entry_low=100,
+            entry_high=101,
+            stop_loss=98,
+            take_profit_1=103,
+            take_profit_2=106,
+            take_profit_3=109,
+            risk_reward_2=2,
+            invalidation="test",
+            expires_at=now + timedelta(hours=1),
+            suggested_notional=100,
+            suggested_quantity=1,
+            risk_amount=2,
+        )
+        current = Signal(
+            "TESTUSDT",
+            "BYBIT",
+            Side.LONG,
+            88,
+            70,
+            "BULL",
+            100,
+            now,
+            plan=plan,
+            strategy_version=CURRENT_STRATEGY_VERSION,
+        )
+        legacy = Signal(
+            "OLDUSDT",
+            "BYBIT",
+            Side.LONG,
+            88,
+            70,
+            "BULL",
+            100,
+            now,
+            plan=plan,
+            strategy_version="legacy-trend",
+        )
+        await store.mark_alerted(current)
+        await store.mark_alerted(legacy)
+        trades = await store.open_paper_trades()
+        for trade in trades:
+            result_r = 1.5 if trade.symbol == "TESTUSDT" else -1.0
+            await store.close_paper_trade(
+                trade.id,
+                outcome="TEST",
+                result_r=result_r,
+                exit_price=101,
+                closed_at=now + timedelta(minutes=15),
+            )
+
+        current_stats = await store.calibration(
+            strategy_version=CURRENT_STRATEGY_VERSION
+        )
+        legacy_stats = await store.calibration(strategy_version="legacy-trend")
+
+        assert current_stats.sample_size == 1
+        assert current_stats.wins == 1
+        assert legacy_stats.sample_size == 1
+        assert legacy_stats.losses == 1
 
     asyncio.run(scenario())
