@@ -300,6 +300,11 @@ class FlowTracker:
         min_score: int,
         max_spread_bps: float | None = None,
         max_directional_funding_pct: float = 0.08,
+        early_pressure_enabled: bool = False,
+        early_pressure_min_score: int = 82,
+        early_pressure_max_price_move_60s_pct: float = 0.10,
+        early_pressure_min_burst_ratio: float = 1.05,
+        early_pressure_max_burst_ratio: float = 1.45,
         cooldown_seconds: int = 180,
         now_ms: int | None = None,
     ) -> FlowPressureEvent | None:
@@ -342,6 +347,94 @@ class FlowTracker:
             if bullish
             else snapshot.absorption == "BUY_ABSORPTION"
         )
+
+        # Earlier than FLOW_BUILDUP: look for directional pressure while price and
+        # volume are still controlled. This event is used to trigger a fresh PRIME
+        # re-check; it is not itself a trade recommendation.
+        if early_pressure_enabled:
+            early_score = 0
+            early_confirmations = 0
+            early_reasons: list[str] = []
+            early_burst = snapshot.volume_burst_ratio
+            early_oi = snapshot.oi_change_2m_pct
+            early_accel = snapshot.oi_acceleration_pct_per_min
+            early_price_move = abs(snapshot.price_change_60s_pct or 0.0)
+            early_delta_threshold = max(0.08, delta_threshold * 0.55)
+            if directional_delta >= early_delta_threshold:
+                early_score += 18
+                early_confirmations += 1
+                early_reasons.append(
+                    f"Ранний taker delta {directional_delta:+.0%} по {bias.value}"
+                )
+            if directional_cvd >= 0.04:
+                early_score += 15
+                early_confirmations += 1
+                early_reasons.append(
+                    f"CVD proxy уже смещён {directional_cvd:+.0%}, но без экстремума"
+                )
+            if (
+                early_oi is not None
+                and early_oi >= max(0.05, min_oi_change_pct * 0.75)
+            ):
+                early_score += 20
+                early_confirmations += 1
+                early_reasons.append(f"OI +{early_oi:.2f}% растёт до пробоя")
+            if early_accel is not None and early_accel >= 0.02:
+                early_score += 12
+                early_confirmations += 1
+                early_reasons.append(f"OI acceleration {early_accel:+.3f}%/мин")
+            if (
+                early_burst is not None
+                and early_pressure_min_burst_ratio
+                <= early_burst
+                <= early_pressure_max_burst_ratio
+            ):
+                early_score += 12
+                early_confirmations += 1
+                early_reasons.append(
+                    f"Объём только начинает расти: {early_burst:.2f}×"
+                )
+            if early_price_move <= early_pressure_max_price_move_60s_pct:
+                early_score += 13
+                early_confirmations += 1
+                early_reasons.append(
+                    f"Цена ещё удерживается: {early_price_move:.2f}% за 60с"
+                )
+            if distance_pct <= 0.9:
+                early_score += 10
+                early_confirmations += 1
+                early_reasons.append(f"До trigger {distance_pct:.2f}%")
+            if matching_absorption:
+                early_score += 12
+                early_confirmations += 1
+                early_reasons.append("Есть поглощение агрессивного потока")
+
+            funding_pct = snapshot.funding_pct
+            if funding_pct is not None:
+                directional_funding = funding_pct if bullish else -funding_pct
+                if directional_funding > max_directional_funding_pct:
+                    early_score -= 15
+
+            early_score = max(0, min(early_score, 100))
+            early_key = f"{symbol.upper()}:{bias.value}:EARLY_PRESSURE"
+            previous_early = self._last_event_ms.get(early_key, 0)
+            if (
+                early_score >= early_pressure_min_score
+                and early_confirmations >= 5
+                and current_ms - previous_early >= cooldown_seconds * 1000
+            ):
+                self._last_event_ms[early_key] = current_ms
+                return FlowPressureEvent(
+                    symbol=symbol.upper(),
+                    bias=bias,
+                    score=early_score,
+                    price=snapshot.price,
+                    trigger_price=trigger_price,
+                    created_ms=current_ms,
+                    event_type="EARLY_PRESSURE",
+                    snapshot=snapshot,
+                    reasons=tuple(early_reasons[:6]),
+                )
 
         score = 0
         confirmations = 0
