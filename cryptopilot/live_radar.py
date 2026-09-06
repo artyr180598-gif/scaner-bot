@@ -23,6 +23,7 @@ import aiohttp
 
 from cryptopilot.config import Settings
 from cryptopilot.flow import FlowPressureEvent, FlowTracker
+from cryptopilot.liquidity import LiquidityTracker
 from cryptopilot.models import EarlySetup, Side
 
 log = logging.getLogger(__name__)
@@ -145,6 +146,7 @@ class LiveRadar:
         url: str = "wss://stream.bybit.com/v5/public/linear",
         *,
         flow_tracker: FlowTracker | None = None,
+        liquidity_tracker: LiquidityTracker | None = None,
         flow_candidates: Callable[[], dict[str, tuple[Side, float]]] | None = None,
         send_flow: Callable[[FlowPressureEvent], Awaitable[None]] | None = None,
         settings: Settings | None = None,
@@ -163,6 +165,7 @@ class LiveRadar:
         self.last_trade_ms: int | None = None
 
         self.flow_tracker = flow_tracker
+        self.liquidity_tracker = liquidity_tracker
         self.flow_candidates = flow_candidates
         self.send_flow = send_flow
         self.settings = settings
@@ -388,6 +391,20 @@ class LiveRadar:
                 desired_topics = {f"publicTrade.{s}" for s in stream_symbols}
                 if self.flow_enabled:
                     desired_topics |= {f"tickers.{s}" for s in stream_symbols}
+                if (
+                    self.liquidity_tracker is not None
+                    and self.settings is not None
+                    and self.settings.liquidity_intelligence_enabled
+                ):
+                    desired_topics |= {
+                        f"allLiquidation.{symbol}" for symbol in stream_symbols
+                    }
+                    orderbook_symbols = list(flow_map)[
+                        : self.settings.liquidity_orderbook_watch_limit
+                    ]
+                    desired_topics |= {
+                        f"orderbook.50.{symbol}" for symbol in orderbook_symbols
+                    }
 
                 if subscribed_topics - desired_topics:
                     await ws.send_json(
@@ -439,6 +456,12 @@ class LiveRadar:
                     raise PermissionError("Subscription operation rejected")
                 topic = payload.get("topic", "")
 
+                if topic.startswith("orderbook.50."):
+                    self._handle_orderbook(payload)
+                    continue
+                if topic.startswith("allLiquidation."):
+                    self._handle_liquidation(payload)
+                    continue
                 if topic.startswith("tickers.") and self.flow_enabled:
                     self._handle_ticker(topic, payload)
                     continue
@@ -519,6 +542,54 @@ class LiveRadar:
                             except asyncio.QueueFull:
                                 self.flow_dropped += 1
                                 log.warning("Flow queue full; dropping event")
+
+    def _handle_orderbook(self, payload: dict) -> None:
+        if self.liquidity_tracker is None:
+            return
+        data = payload.get("data", {})
+        if not isinstance(data, dict):
+            return
+        symbol = str(data.get("s") or "")
+        if not symbol:
+            return
+        bids = data.get("b", [])
+        asks = data.get("a", [])
+        if not isinstance(bids, list) or not isinstance(asks, list):
+            return
+        self.liquidity_tracker.update_orderbook(
+            symbol,
+            str(payload.get("type") or "delta"),
+            bids,
+            asks,
+            int(payload.get("ts") or time.time() * 1000),
+        )
+
+    def _handle_liquidation(self, payload: dict) -> None:
+        if self.liquidity_tracker is None:
+            return
+        rows = payload.get("data", [])
+        if not isinstance(rows, list):
+            return
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            try:
+                symbol = str(item["s"])
+                bybit_side = str(item["S"])
+                price = float(item["p"])
+                size = float(item["v"])
+                event_ms = int(item["T"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            # Bybit: S=Buy means a LONG position was liquidated; Sell means SHORT.
+            position_side = "LONG" if bybit_side == "Buy" else "SHORT"
+            self.liquidity_tracker.add_liquidation(
+                symbol,
+                position_side,
+                price,
+                size,
+                event_ms,
+            )
 
     def _handle_ticker(self, topic: str, payload: dict) -> None:
         if self.flow_tracker is None:
