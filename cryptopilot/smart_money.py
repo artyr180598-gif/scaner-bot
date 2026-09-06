@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -39,9 +40,14 @@ class SmartMoneySetup:
     live_oi_change_2m_pct: float | None
     live_oi_acceleration_pct_per_min: float | None
     live_absorption: str | None
+    distance_to_trigger_pct: float
+    prime_score: int
+    prime_ready: bool
     created_at: datetime
     reasons: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    prime_reasons: tuple[str, ...] = ()
+    prime_blockers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +82,7 @@ class SmartMoneyScanner:
         self._lock = asyncio.Lock()
         self.last_report: SmartMoneyReport | None = None
         self._flow_watchlist: dict[str, tuple[Side, float]] = {}
+        self._prime_candidates: tuple[SmartMoneySetup, ...] = ()
 
     async def scan(self) -> SmartMoneyReport:
         async with self._lock:
@@ -116,6 +123,13 @@ class SmartMoneyScanner:
 
             stage_rank = {"ENTRY": 3, "ARMED": 2, "WATCH": 1}
             setups.sort(key=lambda item: (stage_rank.get(item.stage, 0), item.score), reverse=True)
+            self._prime_candidates = tuple(
+                sorted(
+                    (item for item in setups if item.prime_ready),
+                    key=lambda item: (item.prime_score, item.score),
+                    reverse=True,
+                )[:3]
+            )
             report = SmartMoneyReport(
                 exchange=self.exchange.name,
                 started_at=started,
@@ -132,13 +146,17 @@ class SmartMoneyScanner:
         """Preselected candidates are streamed even before the deep score reaches WATCH."""
         return dict(self._flow_watchlist)
 
+    def prime_candidates(self) -> tuple[SmartMoneySetup, ...]:
+        """Highest-quality pre-move candidates; intentionally tiny to avoid alert spam."""
+        return self._prime_candidates
+
     @staticmethod
     def _build_flow_watchlist(
         ranked: list[tuple[float, Ticker, FeatureSet]],
     ) -> dict[str, tuple[Side, float]]:
         result: dict[str, tuple[Side, float]] = {}
         for pre_score, ticker, feature in ranked:
-            if pre_score < 18:
+            if pre_score < 28:
                 continue
             long_score = _structure_score(feature, Side.LONG)
             short_score = _structure_score(feature, Side.SHORT)
@@ -151,6 +169,13 @@ class SmartMoneyScanner:
                     continue
             else:
                 bias = Side.LONG if long_score > short_score else Side.SHORT
+            if feature.breakout_up or feature.breakout_down:
+                continue
+            directional_position = (
+                feature.range_position20 if bias is Side.LONG else 1 - feature.range_position20
+            )
+            if not 0.62 <= directional_position <= 0.96:
+                continue
             trigger = feature.range_high20 if bias is Side.LONG else feature.range_low20
             if trigger > 0:
                 result[ticker.symbol] = (bias, trigger)
@@ -216,6 +241,22 @@ class SmartMoneyScanner:
 
         trigger = feature15.range_high20 if bias is Side.LONG else feature15.range_low20
         invalidation = feature15.range_low20 if bias is Side.LONG else feature15.range_high20
+        distance_to_trigger_pct = (
+            abs(feature15.close / trigger - 1) * 100 if trigger > 0 else float("inf")
+        )
+        prime_score, prime_reasons, prime_blockers = _pre_move_score(
+            bias,
+            feature15,
+            feature1h,
+            enriched,
+            flow,
+            self.settings,
+        )
+        prime_ready = (
+            prime_score >= self.settings.prime_min_score
+            and not prime_blockers
+            and stage != "ENTRY"
+        )
         return SmartMoneySetup(
             symbol=ticker.symbol,
             exchange=self.exchange.name,
@@ -240,9 +281,14 @@ class SmartMoneyScanner:
                 flow.oi_acceleration_pct_per_min if flow and flow.fresh else None
             ),
             live_absorption=flow.absorption if flow and flow.fresh else None,
+            distance_to_trigger_pct=distance_to_trigger_pct,
+            prime_score=prime_score,
+            prime_ready=prime_ready,
             created_at=datetime.now(UTC),
             reasons=tuple(reasons[:5]),
             warnings=tuple(warnings[:4]),
+            prime_reasons=tuple(prime_reasons[:6]),
+            prime_blockers=tuple(prime_blockers[:4]),
         )
 
 
@@ -252,6 +298,7 @@ async def refresh_smart_money_watchlist(
     stop: asyncio.Event,
     interval_seconds: int = 300,
     initial_delay_seconds: int = 45,
+    on_report: Callable[[SmartMoneyReport], Awaitable[None]] | None = None,
 ) -> None:
     """Continuously refresh candidates so streaming flow can watch them before BOS."""
     if initial_delay_seconds > 0:
@@ -266,7 +313,9 @@ async def refresh_smart_money_watchlist(
         )
         if age >= interval_seconds and not scanner._lock.locked():
             try:
-                await scanner.scan()
+                refreshed = await scanner.scan()
+                if on_report is not None:
+                    await on_report(refreshed)
             except Exception as exc:
                 log.warning("Smart money auto refresh failed: %s", type(exc).__name__)
         with suppress(TimeoutError):
@@ -405,6 +454,138 @@ def _direction_score(
         warnings.extend(live_warnings)
 
     return max(0.0, min(score, 100.0)), reasons, warnings
+
+
+def _pre_move_score(
+    side: Side,
+    f15: FeatureSet,
+    f1h: FeatureSet,
+    ticker: Ticker,
+    flow: FlowSnapshot | None,
+    settings: Settings,
+) -> tuple[int, list[str], list[str]]:
+    """Score conditions that exist before the obvious order-flow expansion.
+
+    The goal is not to predict hidden orders. It ranks a small set of coiled, liquid,
+    higher-timeframe-aligned markets while explicitly rejecting anything already moving.
+    """
+    bullish = side is Side.LONG
+    score = 0.0
+    reasons: list[str] = []
+    blockers: list[str] = []
+
+    breakout = f15.breakout_up if bullish else f15.breakout_down
+    if breakout:
+        blockers.append("BOS уже произошёл — для раннего входа поздно")
+
+    htf_aligned = (
+        f1h.close > f1h.ema50 > f1h.ema200 and f1h.supertrend_direction > 0
+        if bullish
+        else f1h.close < f1h.ema50 < f1h.ema200 and f1h.supertrend_direction < 0
+    )
+    if htf_aligned:
+        score += 22
+        reasons.append("1h тренд и Supertrend согласованы до импульса")
+    else:
+        blockers.append("Нет строгого подтверждения направления на 1h")
+
+    aligned15 = (
+        f15.close > f15.ema20 > f15.ema50
+        if bullish
+        else f15.close < f15.ema20 < f15.ema50
+    )
+    if aligned15:
+        score += 14
+        reasons.append("15m структура уже направлена, но BOS ещё не состоялся")
+
+    directional_dmi = f15.dmi_spread if bullish else -f15.dmi_spread
+    if directional_dmi >= 6:
+        score += 6
+
+    trigger = f15.range_high20 if bullish else f15.range_low20
+    distance_pct = abs(f15.close / trigger - 1) * 100 if trigger > 0 else float("inf")
+    if settings.prime_min_trigger_distance_pct <= distance_pct <= settings.prime_max_trigger_distance_pct:
+        score += 20
+        reasons.append(f"До trigger {distance_pct:.2f}%: есть запас до движения")
+    elif distance_pct < settings.prime_min_trigger_distance_pct:
+        blockers.append(f"До trigger всего {distance_pct:.2f}% — сигнал уже слишком поздний")
+    else:
+        blockers.append(f"Trigger слишком далеко: {distance_pct:.2f}%")
+
+    if f15.keltner_squeeze_ratio <= 1.05:
+        score += 12
+        reasons.append("Волатильность сжата: рынок ещё не разогнан")
+    elif f15.keltner_squeeze_ratio <= 1.15:
+        score += 5
+
+    if f15.bb_width_regime_ratio <= 0.95:
+        score += 6
+
+    rvol = f15.relative_volume20
+    if 0.65 <= rvol <= 1.25:
+        score += 8
+        reasons.append(f"RVOL {rvol:.2f}×: объём ещё не перешёл в импульс")
+    elif 1.25 < rvol <= 1.50:
+        score += 3
+    elif rvol > 1.50:
+        blockers.append(f"RVOL {rvol:.2f}×: активный поток уже начался")
+
+    oi = ticker.open_interest_change_pct
+    if oi is not None:
+        if 0 <= oi <= 5:
+            score += 8
+            reasons.append(f"OI {oi:+.1f}%: позиции набираются без экстремума")
+        elif oi < -1:
+            blockers.append(f"OI {oi:+.1f}%: позиции сокращаются")
+
+    funding_pct = ticker.funding_rate * 100
+    directional_funding = funding_pct if bullish else -funding_pct
+    if directional_funding <= 0.05:
+        score += 5
+    elif directional_funding > settings.flow_max_directional_funding_pct:
+        blockers.append(f"Funding {funding_pct:+.3f}% уже перегрет")
+
+    if abs(f15.vwap_distance_atr) <= 1.5:
+        score += 5
+    elif abs(f15.vwap_distance_atr) > 2.2:
+        blockers.append("Цена уже слишком далеко от VWAP")
+
+    if flow is not None and flow.fresh:
+        price_move = abs(flow.price_change_60s_pct or 0.0)
+        if price_move <= settings.prime_max_price_move_60s_pct:
+            score += 8
+            reasons.append(f"Цена за 60с почти не ушла: {price_move:.2f}%")
+        else:
+            blockers.append(f"Цена уже ускорилась на {price_move:.2f}% за 60с")
+
+        burst = flow.volume_burst_ratio
+        if burst is None or burst <= 1.25:
+            score += 5
+        elif burst >= 1.50:
+            blockers.append(f"Поток уже ускорился до {burst:.2f}×")
+
+        if abs(flow.delta_ratio_60s) <= 0.30:
+            score += 3
+        elif abs(flow.delta_ratio_60s) >= 0.55:
+            blockers.append("Taker delta уже экстремальна — это не pre-flow")
+
+        accel = flow.oi_acceleration_pct_per_min
+        if accel is not None and 0.02 <= accel <= 0.12:
+            score += 5
+            reasons.append(f"OI начинает ускоряться: {accel:+.3f}%/мин")
+        elif accel is not None and accel > 0.20:
+            blockers.append("OI уже ускоряется слишком резко")
+
+        matching_absorption = (
+            flow.absorption == "BUY_ABSORPTION"
+            if bullish
+            else flow.absorption == "SELL_ABSORPTION"
+        )
+        if matching_absorption and price_move <= settings.prime_max_price_move_60s_pct:
+            score += 6
+            reasons.append("Есть раннее поглощение без заметного движения цены")
+
+    return int(round(max(0.0, min(score, 100.0)))), reasons, blockers
 
 
 def _live_flow_adjustment(
