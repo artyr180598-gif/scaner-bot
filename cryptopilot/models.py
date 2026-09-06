@@ -37,6 +37,12 @@ class Ticker:
     taker_buy_ratio: float | None = None
     orderbook_imbalance: float | None = None
     long_short_ratio: float | None = None
+    spot_last: float | None = None
+    spot_taker_buy_ratio: float | None = None
+    spot_orderbook_imbalance: float | None = None
+    spot_block_trade_buy_ratio: float | None = None
+    spot_block_trade_notional: float | None = None
+    spot_perp_basis_bps: float | None = None
 
     @property
     def spread_bps(self) -> float:
