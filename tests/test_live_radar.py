@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from cryptopilot.config import Settings
+from cryptopilot.flow import FlowTracker
 from cryptopilot.live_radar import Crossing, CrossingDetector, LiveRadar
 from cryptopilot.models import EarlySetup, Side
 
@@ -155,3 +157,85 @@ def test_watchlist_must_be_recent_and_above_auto_threshold():
     report = SimpleNamespace(finished_at=now, setups=[setup(), replace(setup(), readiness=79)])
     assert len(active_live_setups(report, now.timestamp(), 80, 600)) == 1
     assert active_live_setups(report, now.timestamp() + 601, 80, 600) == []
+
+
+def test_websocket_feeds_public_trade_and_ticker_into_flow_tracker():
+    import json
+
+    import aiohttp
+
+    async def check():
+        stop = asyncio.Event()
+        t = int(time.time() * 1000)
+        frames = [
+            {"op": "subscribe", "success": True},
+            {
+                "topic": "tickers.TESTUSDT",
+                "ts": t - 10,
+                "data": {
+                    "symbol": "TESTUSDT",
+                    "lastPrice": "99.90",
+                    "openInterest": "10000",
+                    "openInterestValue": "999000",
+                },
+            },
+            {
+                "topic": "publicTrade.TESTUSDT",
+                "data": [
+                    {
+                        "s": "TESTUSDT",
+                        "S": "Buy",
+                        "p": "99.90",
+                        "v": "25",
+                        "T": t - 2,
+                    }
+                ],
+            },
+        ]
+
+        class Socket:
+            sent = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def send_json(self, value):
+                self.sent.append(value)
+
+            async def receive(self, timeout):
+                item = frames.pop(0)
+                if not frames:
+                    stop.set()
+                return SimpleNamespace(type=aiohttp.WSMsgType.TEXT, data=json.dumps(item))
+
+        socket = Socket()
+        session = SimpleNamespace(ws_connect=lambda *args, **kwargs: socket)
+        tracker = FlowTracker()
+        config = Settings(
+            _env_file=None,
+            telegram_bot_token="test",
+            telegram_chat_id="1",
+            flow_min_alert_score=95,
+        )
+        radar = LiveRadar(
+            lambda: [],
+            AsyncMock(),
+            None,
+            flow_tracker=tracker,
+            flow_candidates=lambda: {"TESTUSDT": (Side.LONG, 100.0)},
+            send_flow=AsyncMock(),
+            settings=config,
+        )
+        await radar._connection(session, stop)
+
+        topics = set(socket.sent[0]["args"])
+        assert topics == {"publicTrade.TESTUSDT", "tickers.TESTUSDT"}
+        snapshot = tracker.snapshot("TESTUSDT", t)
+        assert snapshot is not None
+        assert snapshot.delta_ratio_60s == 1.0
+        assert snapshot.notional_60s > 2_000
+
+    asyncio.run(check())
