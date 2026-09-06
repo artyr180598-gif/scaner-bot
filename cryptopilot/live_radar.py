@@ -55,7 +55,11 @@ def active_flow_candidates(
         age = now_seconds - smart_report.finished_at.timestamp()
         if 0 <= age <= max_age:
             for setup in smart_report.setups[:16]:
-                if setup.bias is not Side.NO_TRADE and setup.trigger_price > 0:
+                if (
+                    setup.bias is not Side.NO_TRADE
+                    and setup.stage != "ENTRY"
+                    and setup.trigger_price > 0
+                ):
                     result[setup.symbol] = (setup.bias, setup.trigger_price)
     if early_report is not None:
         age = now_seconds - early_report.finished_at.timestamp()
@@ -149,6 +153,7 @@ class LiveRadar:
         liquidity_tracker: LiquidityTracker | None = None,
         flow_candidates: Callable[[], dict[str, tuple[Side, float]]] | None = None,
         send_flow: Callable[[FlowPressureEvent], Awaitable[None]] | None = None,
+        on_flow_observed: Callable[[FlowPressureEvent], Awaitable[None]] | None = None,
         settings: Settings | None = None,
     ) -> None:
         self.candidates = candidates
@@ -168,6 +173,7 @@ class LiveRadar:
         self.liquidity_tracker = liquidity_tracker
         self.flow_candidates = flow_candidates
         self.send_flow = send_flow
+        self.on_flow_observed = on_flow_observed
         self.settings = settings
         self.flow_queue: asyncio.Queue[FlowPressureEvent] = asyncio.Queue(maxsize=20)
         self.flow_delivered = 0
@@ -237,6 +243,16 @@ class LiveRadar:
 
         await self.store.mark_event_alerted(event.fingerprint, event.price)
         self.flow_observed += 1
+
+        if self.on_flow_observed is not None:
+            try:
+                await asyncio.wait_for(self.on_flow_observed(event), timeout=12)
+            except Exception as exc:
+                log.warning(
+                    "Flow-triggered PRIME recheck failed for %s: %s",
+                    event.symbol,
+                    type(exc).__name__,
+                )
 
         if self.settings.flow_auto_alerts_enabled:
             budget = await self.store.notification_budget_available(
@@ -534,6 +550,21 @@ class LiveRadar:
                             max_spread_bps=self.settings.max_spread_bps,
                             max_directional_funding_pct=(
                                 self.settings.flow_max_directional_funding_pct
+                            ),
+                            early_pressure_enabled=(
+                                self.settings.flow_early_pressure_enabled
+                            ),
+                            early_pressure_min_score=(
+                                self.settings.flow_early_pressure_min_score
+                            ),
+                            early_pressure_max_price_move_60s_pct=(
+                                self.settings.flow_early_pressure_max_price_move_60s_pct
+                            ),
+                            early_pressure_min_burst_ratio=(
+                                self.settings.flow_early_pressure_min_burst_ratio
+                            ),
+                            early_pressure_max_burst_ratio=(
+                                self.settings.flow_early_pressure_max_burst_ratio
                             ),
                         )
                         if flow_event is not None:
