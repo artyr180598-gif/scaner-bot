@@ -185,7 +185,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     port: int = Field(default=8080, ge=1, le=65_535)
     http_timeout_seconds: float = Field(
-        default=15,
+        default=8,
         ge=3,
         le=60,
         validation_alias=AliasChoices("HTTP_TIMEOUT_SECONDS", "HTTP_TIMEOUT"),
