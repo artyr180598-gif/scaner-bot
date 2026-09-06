@@ -100,6 +100,7 @@ class SignalStore:
                     exchange TEXT NOT NULL,
                     side TEXT NOT NULL,
                     score INTEGER NOT NULL,
+                    strategy_version TEXT NOT NULL DEFAULT 'legacy',
                     entry_low REAL NOT NULL,
                     entry_high REAL NOT NULL,
                     stop_loss REAL NOT NULL,
@@ -119,6 +120,21 @@ class SignalStore:
                 CREATE INDEX IF NOT EXISTS idx_prime_shadow_stats
                     ON prime_shadow(side, id DESC);
                 """
+            )
+            columns = {
+                str(row[1])
+                for row in await (
+                    await db.execute("PRAGMA table_info(prime_shadow)")
+                ).fetchall()
+            }
+            if "strategy_version" not in columns:
+                await db.execute(
+                    "ALTER TABLE prime_shadow "
+                    "ADD COLUMN strategy_version TEXT NOT NULL DEFAULT 'legacy'"
+                )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prime_shadow_version "
+                "ON prime_shadow(strategy_version, side, id DESC)"
             )
             await db.commit()
 
@@ -362,6 +378,7 @@ class SignalStore:
         exchange: str,
         side: Side,
         score: int,
+        strategy_version: str,
         created_at: datetime,
         entry_low: float,
         entry_high: float,
@@ -393,9 +410,10 @@ class SignalStore:
             cursor = await db.execute(
                 """
                 INSERT INTO prime_shadow
-                    (created_at, symbol, exchange, side, score, entry_low, entry_high,
-                     stop_loss, take_profit, entry_expires_at, exit_expires_at, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'WAITING')
+                    (created_at, symbol, exchange, side, score, strategy_version,
+                     entry_low, entry_high, stop_loss, take_profit, entry_expires_at,
+                     exit_expires_at, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'WAITING')
                 """,
                 (
                     created_at.astimezone(UTC).isoformat(),
@@ -403,6 +421,7 @@ class SignalStore:
                     exchange,
                     side.value,
                     score,
+                    strategy_version,
                     entry_low,
                     entry_high,
                     stop_loss,
@@ -498,23 +517,40 @@ class SignalStore:
             )
             await db.commit()
 
-    async def prime_shadow_stats(self, limit: int = 300) -> dict[str, float | int | None]:
+    async def prime_shadow_stats(
+        self,
+        limit: int = 300,
+        *,
+        strategy_version: str | None = None,
+    ) -> dict[str, float | int | None]:
         async with aiosqlite.connect(self.path) as db:
+            clauses = ["status IN ('CLOSED', 'EXPIRED')"]
+            parameters: list[object] = []
+            pending_clauses = ["status IN ('WAITING', 'OPEN')"]
+            pending_parameters: list[object] = []
+            if strategy_version:
+                clauses.append("strategy_version=?")
+                parameters.append(strategy_version)
+                pending_clauses.append("strategy_version=?")
+                pending_parameters.append(strategy_version)
+            parameters.append(min(max(limit, 1), 2000))
             rows = await (
                 await db.execute(
-                    """
+                    f"""
                     SELECT status, outcome, result_r
                     FROM prime_shadow
-                    WHERE status IN ('CLOSED', 'EXPIRED')
+                    WHERE {' AND '.join(clauses)}
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (min(max(limit, 1), 2000),),
+                    parameters,
                 )
             ).fetchall()
             pending = await (
                 await db.execute(
-                    "SELECT COUNT(*) FROM prime_shadow WHERE status IN ('WAITING', 'OPEN')"
+                    f"SELECT COUNT(*) FROM prime_shadow "
+                    f"WHERE {' AND '.join(pending_clauses)}",
+                    pending_parameters,
                 )
             ).fetchone()
         resolved = len(rows)
