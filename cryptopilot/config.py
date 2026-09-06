@@ -89,6 +89,7 @@ class Settings(BaseSettings):
 
     early_radar_enabled: bool = True
     live_radar_enabled: bool = True
+    squeeze_lab_enabled: bool = True
     live_watchlist_interval_seconds: int = Field(default=300, ge=60, le=3600)
     early_auto_alerts: bool = True
     min_early_readiness: int = Field(default=68, ge=50, le=95)
