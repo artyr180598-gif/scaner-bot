@@ -284,10 +284,12 @@ def test_delivered_flow_alert_is_resolved_on_exact_streamed_trigger() -> None:
             reasons=("test",),
         )
         store = SimpleNamespace(
-            should_alert_event=AsyncMock(return_value=True),
+            strict_alert_allowed=AsyncMock(return_value=True),
             mark_event_alerted=AsyncMock(),
             record_flow_observation=AsyncMock(return_value=7),
             resolve_flow_observation=AsyncMock(),
+            notification_budget_available=AsyncMock(return_value=True),
+            mark_notification_budget=AsyncMock(),
         )
         config = Settings(
             _env_file=None,
@@ -307,6 +309,9 @@ def test_delivered_flow_alert_is_resolved_on_exact_streamed_trigger() -> None:
         )
 
         await radar.deliver_flow(event)
+        send_flow.assert_not_awaited()
+        assert radar.flow_observed == 1
+        assert radar.flow_delivered == 0
         assert 7 in radar._flow_validation_active
         trigger_ms = created_ms + 30_000
         await radar._resolve_live_flow_validation("TESTUSDT", 100.05, trigger_ms)
