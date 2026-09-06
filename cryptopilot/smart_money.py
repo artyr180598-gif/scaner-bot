@@ -18,6 +18,7 @@ from cryptopilot.models import FeatureSet, Side, Ticker, TradePlan
 from cryptopilot.prime_plan import build_prime_plan
 
 log = logging.getLogger(__name__)
+SCAN_TIMEOUT_SECONDS = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +116,19 @@ class SmartMoneyScanner:
         self._shadow_candidates: tuple[SmartMoneySetup, ...] = ()
 
     async def scan(self) -> SmartMoneyReport:
+        # Include queueing behind the background scan in the total budget.
+        # Per-HTTP timeouts alone do not bound semaphore waits or an entire scan.
+        async with asyncio.timeout(SCAN_TIMEOUT_SECONDS):
+            return await self._scan()
+
+    async def _scan(self) -> SmartMoneyReport:
         async with self._lock:
+            if self.last_report is not None and (
+                0 <= (datetime.now(UTC) - self.last_report.finished_at).total_seconds() < 15
+            ):
+                return self.last_report
+            self._prime_candidates = ()
+            self._shadow_candidates = ()
             started = datetime.now(UTC)
             errors: list[str] = []
             tickers = await self.exchange.tickers()
