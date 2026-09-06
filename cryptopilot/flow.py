@@ -310,7 +310,7 @@ class FlowTracker:
             reasons.append(
                 f"60s taker delta {directional_delta:+.0%} в сторону {bias.value}"
             )
-        elif directional_delta <= -delta_threshold:
+        elif directional_delta <= -delta_threshold and not matching_absorption:
             score -= 12
 
         if directional_cvd >= 0.08:
@@ -318,7 +318,7 @@ class FlowTracker:
             confirmations += 1
             reasons.append(f"5m CVD proxy {directional_cvd:+.0%} поддерживает направление")
         elif directional_cvd <= -0.12:
-            score -= 8
+            score -= 4 if matching_absorption else 8
 
         burst = snapshot.volume_burst_ratio
         if burst is not None and burst >= burst_threshold:
