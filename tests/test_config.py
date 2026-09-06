@@ -51,7 +51,7 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.prime_min_persistent_wall_ratio >= 2.5
     assert config.prime_min_wall_persistence_seconds >= 10
     assert config.prime_cross_exchange_enabled
-    assert config.prime_cross_exchange_required
+    assert not config.prime_cross_exchange_required
     assert config.prime_cross_exchange_min_confirmations >= 2
     assert config.prime_min_plan_rr >= 2.0
     assert config.prime_max_leverage <= 2
@@ -61,8 +61,8 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert not config.early_auto_alerts
     assert config.flow_radar_enabled
     assert not config.flow_auto_alerts_enabled
-    assert config.flow_watchlist_limit <= 8
-    assert 120 <= config.smart_money_scan_interval_seconds <= 180
+    assert 12 <= config.flow_watchlist_limit <= 20
+    assert config.smart_money_scan_interval_seconds == 120
     assert config.flow_early_pressure_enabled
     assert config.flow_early_pressure_min_score >= 80
     assert (
