@@ -101,10 +101,11 @@ async def run() -> None:
             f"<b>Потоковый радар</b>\nСоединение: {live.status}\n"
             f"Монет под наблюдением: {live.watching}\n"
             f"Последняя сделка в потоке: {age}\n"
-            f"Доставлено событий: {live.delivered} · пропущено: {live.dropped}\n"
-            f"Обновление списка: {settings.live_watchlist_interval_seconds} сек "
-            "+ время сканирования\n"
-            "Пересечение уровня — наблюдение, не подтверждение прибыльного входа."
+            f"Пересечения: {live.delivered} · пропущено: {live.dropped}\n"
+            f"Flow до BOS: {live.flow_delivered} · пропущено: {live.flow_dropped}\n"
+            f"Ранний refresh: {settings.live_watchlist_interval_seconds} сек\n"
+            f"Smart Money refresh: {settings.smart_money_scan_interval_seconds} сек\n"
+            "Flow использует publicTrade CVD-proxy и streaming OI; это наблюдение, не вход."
         )
 
     dispatcher.include_router(router)
@@ -148,7 +149,7 @@ async def run() -> None:
                 await bot.send_message(
                     chat_id,
                     f"✅ <b>CryptoPilot {release_label()} запущен</b>\n"
-                    "Меню обновлено. Добавлен «🐋 Крупный капитал» — отдельный Smart Money Radar.\n"
+                    "Smart Money Radar усилен realtime CVD, OI acceleration и absorption.\n"
                     "Если панель скрыта, отправьте /menu.",
                     reply_markup=main_keyboard(),
                     disable_notification=True,
