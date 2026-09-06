@@ -13,7 +13,6 @@ from cryptopilot.flow import FlowSnapshot, FlowTracker
 from cryptopilot.indicators import compute_features
 from cryptopilot.models import FeatureSet, Side, Ticker
 
-
 log = logging.getLogger(__name__)
 
 
