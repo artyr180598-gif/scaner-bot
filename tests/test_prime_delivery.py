@@ -150,9 +150,17 @@ def test_no_early_candidates_means_empty_shortlist():
 def test_manual_search_does_not_fall_back_to_weaker_scanner():
     scanner = SimpleNamespace(scan_market=AsyncMock())
     report = SimpleNamespace(
-        finished_at=datetime.now(UTC), universe_count=100, analyzed_count=0, errors=()
+        finished_at=datetime.now(UTC),
+        universe_count=100,
+        analyzed_count=0,
+        errors=(),
+        setups=(),
     )
-    smart = SimpleNamespace(scan=AsyncMock(return_value=report), prime_candidates=lambda: ())
+    smart = SimpleNamespace(
+        scan=AsyncMock(return_value=report),
+        prime_candidates=lambda: (),
+        flow_watchlist=lambda: {},
+    )
     router = build_router(
         scanner,
         SimpleNamespace(),
