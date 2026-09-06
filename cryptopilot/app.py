@@ -155,6 +155,10 @@ async def run() -> None:
                     command="smartmoney",
                     description="Крупный поток: структура + объём + OI",
                 ),
+                BotCommand(
+                    command="prime",
+                    description="Редкий pre-move поиск до разгона цены",
+                ),
                 BotCommand(command="analyze", description="Анализ монеты"),
                 BotCommand(command="best", description="Последние сильные сигналы"),
                 BotCommand(command="performance", description="Paper-статистика"),
