@@ -5,6 +5,7 @@ import html
 import math
 import os
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from aiogram import BaseMiddleware, F, Router
@@ -164,14 +165,12 @@ def build_router(
                         if preselected
                         else "1/3 — ранний отбор ещё продолжается"
                     )
-                    try:
+                    with suppress(Exception):
                         await progress.edit_text(
                             f"⏳ {stage}.\n"
                             f"Прошло {elapsed} сек · под live-наблюдением: "
                             f"{len(preselected)} монет."
                         )
-                    except Exception:
-                        pass
                     if elapsed >= 36:
                         scan_task.cancel()
                         scan_task.add_done_callback(_consume_background_task)
@@ -481,10 +480,8 @@ async def run_backtest(message: Message, exchange: ExchangeClient, raw_symbol: s
 
 
 def _consume_background_task(task: asyncio.Task) -> None:
-    try:
+    with suppress(asyncio.CancelledError, Exception):
         task.result()
-    except (asyncio.CancelledError, Exception):
-        pass
 
 
 def format_flow_watchlist_preview(
