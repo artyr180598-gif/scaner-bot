@@ -316,7 +316,8 @@ def build_router(
             "• Ступени 50/30/20 — не мартингейл: добавляться можно только до отмены сценария.\n"
             "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
-            "Команды: /menu, /scan, /early, /smartmoney, /prime, /analyze BTC, /backtest BTC, /best, "
+            "Команды: /menu, /scan, /early, /smartmoney, /prime, /analyze BTC, "
+            "/backtest BTC, /best, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
@@ -613,7 +614,8 @@ def format_prime_setup(item) -> str:
     return (
         f"🎯 {side_icon} <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
         f"Сценарий: <b>{item.bias.value}</b> · Prime score: <b>{item.prime_score}/100</b>\n"
-        f"Цена: <code>{price(item.price)}</code> · trigger: <code>{price(item.trigger_price)}</code>\n"
+        f"Цена: <code>{price(item.price)}</code> · "
+        f"trigger: <code>{price(item.trigger_price)}</code>\n"
         f"До trigger: {item.distance_to_trigger_pct:.2f}% · "
         f"движение ~15м: {item.recent_move_15m_pct:+.2f}%\n"
         f"Структура: 15m {html.escape(item.structure_15m)} · "
