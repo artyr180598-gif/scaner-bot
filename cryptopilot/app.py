@@ -149,12 +149,22 @@ async def run() -> None:
 
     @router.message(Command("flowstats"))
     async def flow_stats(message: Message) -> None:
-        stats = await store.flow_validation_stats()
+        early_stats, buildup_stats, absorption_stats = await asyncio.gather(
+            store.flow_validation_stats(event_type="EARLY_PRESSURE"),
+            store.flow_validation_stats(event_type="FLOW_BUILDUP"),
+            store.flow_validation_stats(event_type="ABSORPTION"),
+        )
         await message.answer(
-            "<b>Forward-проверка раннего Flow</b>\n"
-            + _format_flow_validation(stats, settings.flow_validation_min_samples)
-            + "\n\nПроверяется только факт: был ли структурный trigger после раннего алерта. "
-            "Это не win rate и не доказательство прибыльности."
+            "<b>Forward-проверка PRE-MOVE Flow</b>\n"
+            "EARLY_PRESSURE: "
+            + _format_flow_validation(early_stats, settings.flow_validation_min_samples)
+            + "\nFLOW_BUILDUP: "
+            + _format_flow_validation(buildup_stats, settings.flow_validation_min_samples)
+            + "\nABSORPTION: "
+            + _format_flow_validation(absorption_stats, settings.flow_validation_min_samples)
+            + "\n\nСобытия разделены, чтобы ранний EARLY_PRESSURE не смешивался "
+            "с уже более зрелым FLOW_BUILDUP. Проверяется факт достижения trigger, "
+            "а не гарантированная прибыльность."
         )
 
     @router.message(Command("primestats"))
