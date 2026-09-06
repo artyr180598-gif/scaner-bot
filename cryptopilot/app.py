@@ -29,7 +29,7 @@ from cryptopilot.live_radar import (
     active_live_setups,
     refresh_watchlist,
 )
-from cryptopilot.models import EarlySetup, Signal
+from cryptopilot.models import CURRENT_PRIME_STRATEGY_VERSION, EarlySetup, Signal
 from cryptopilot.prime_shadow import PrimeShadowTracker
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.smart_money import (
@@ -159,7 +159,9 @@ async def run() -> None:
 
     @router.message(Command("primestats"))
     async def prime_stats(message: Message) -> None:
-        stats = await store.prime_shadow_stats()
+        stats = await store.prime_shadow_stats(
+            strategy_version=CURRENT_PRIME_STRATEGY_VERSION
+        )
         await message.answer(
             "<b>PRIME Shadow Learning</b>\n"
             + _format_prime_shadow_stats(stats, settings.prime_shadow_min_samples)
@@ -312,6 +314,7 @@ async def run() -> None:
                         exchange=item.exchange,
                         side=item.bias,
                         score=item.prime_score,
+                        strategy_version=CURRENT_PRIME_STRATEGY_VERSION,
                         created_at=item.created_at,
                         entry_low=item.plan.entry_low,
                         entry_high=item.plan.entry_high,
