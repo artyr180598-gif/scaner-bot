@@ -36,7 +36,13 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.early_radar_enabled
     assert config.early_auto_alerts
     assert config.smart_money_auto_scan_enabled
+    assert config.prime_alerts_enabled
+    assert config.prime_min_score >= 88
+    assert config.max_auto_signals_per_scan == 1
+    assert not config.early_auto_alerts
     assert config.flow_radar_enabled
+    assert not config.flow_auto_alerts_enabled
+    assert config.flow_watchlist_limit <= 8
     assert config.smart_money_scan_interval_seconds >= 120
     assert config.flow_min_alert_score >= 70
     assert config.flow_delta_ratio_threshold >= 0.10
