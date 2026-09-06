@@ -36,6 +36,11 @@ class SmartMoneySetup:
     taker_buy_ratio: float | None
     orderbook_imbalance: float | None
     funding_pct: float
+    spot_taker_buy_ratio: float | None
+    spot_orderbook_imbalance: float | None
+    spot_block_trade_buy_ratio: float | None
+    spot_block_trade_notional: float | None
+    spot_perp_basis_bps: float | None
     live_delta_ratio_60s: float | None
     live_cvd_ratio_5m: float | None
     live_volume_burst_ratio: float | None
@@ -331,6 +336,11 @@ class SmartMoneyScanner:
             taker_buy_ratio=enriched.taker_buy_ratio,
             orderbook_imbalance=enriched.orderbook_imbalance,
             funding_pct=enriched.funding_rate * 100,
+            spot_taker_buy_ratio=enriched.spot_taker_buy_ratio,
+            spot_orderbook_imbalance=enriched.spot_orderbook_imbalance,
+            spot_block_trade_buy_ratio=enriched.spot_block_trade_buy_ratio,
+            spot_block_trade_notional=enriched.spot_block_trade_notional,
+            spot_perp_basis_bps=enriched.spot_perp_basis_bps,
             live_delta_ratio_60s=flow.delta_ratio_60s if flow and flow.fresh else None,
             live_cvd_ratio_5m=flow.cvd_ratio_5m if flow and flow.fresh else None,
             live_volume_burst_ratio=flow.volume_burst_ratio if flow and flow.fresh else None,
@@ -487,6 +497,58 @@ def _direction_score(
     if f15.keltner_squeeze_ratio <= 1.05:
         score += 4
         reasons.append("Есть сжатие волатильности перед потенциальным расширением")
+
+    if settings.prime_spot_confirmation_enabled:
+        spot_evidence = 0
+        spot_taker = ticker.spot_taker_buy_ratio
+        if spot_taker is not None:
+            directional_spot_taker = spot_taker if bullish else 1 - spot_taker
+            if directional_spot_taker >= settings.prime_min_spot_taker_ratio:
+                score += 10
+                spot_evidence += 1
+            elif directional_spot_taker <= 1 - settings.prime_min_spot_taker_ratio:
+                blockers.append(
+                    f"Spot taker-flow ${directional_spot_taker:.0%} против сценария"
+                )
+
+        spot_book = ticker.spot_orderbook_imbalance
+        if spot_book is not None:
+            directional_spot_book = spot_book if bullish else -spot_book
+            if directional_spot_book >= settings.prime_min_spot_book_imbalance:
+                score += 6
+                spot_evidence += 1
+            elif directional_spot_book <= -0.12:
+                blockers.append("Spot-стакан устойчиво против сценария")
+
+        block_ratio = ticker.spot_block_trade_buy_ratio
+        block_notional = ticker.spot_block_trade_notional
+        if block_ratio is not None and block_notional is not None:
+            directional_block_ratio = block_ratio if bullish else 1 - block_ratio
+            if (
+                block_notional >= settings.prime_min_spot_block_notional
+                and directional_block_ratio >= 0.65
+            ):
+                score += 8
+                spot_evidence += 1
+                reasons.append(
+                    f"Spot block trades ${block_notional:,.0f}: "
+                    f"${directional_block_ratio:.0%} по сценарию"
+                )
+
+        basis_bps = ticker.spot_perp_basis_bps
+        if basis_bps is not None:
+            directional_basis = basis_bps if bullish else -basis_bps
+            if directional_basis <= settings.prime_max_directional_perp_basis_bps:
+                score += 4
+            else:
+                blockers.append(
+                    f"Perp уже перегрет относительно spot: ${directional_basis:+.1f} bps"
+                )
+
+        if spot_evidence >= 2:
+            reasons.append(
+                "Spot ведёт сценарий: реальная покупка/продажа подтверждается до perp-разгона"
+            )
 
     funding_pct = ticker.funding_rate * 100
     if bullish and funding_pct > 0.08:
