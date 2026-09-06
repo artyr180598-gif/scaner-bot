@@ -383,12 +383,14 @@ class MarketScanner:
         specific = await self.store.calibration(
             symbol=signal.symbol,
             side=signal.side,
+            strategy_version=signal.strategy_version,
             limit=self.settings.calibration_lookback,
         )
         chosen = specific
         if specific.sample_size < self.settings.calibration_min_samples:
             side_stats = await self.store.calibration(
                 side=signal.side,
+                strategy_version=signal.strategy_version,
                 limit=self.settings.calibration_lookback,
             )
             if side_stats.sample_size > specific.sample_size:
