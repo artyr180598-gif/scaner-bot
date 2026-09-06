@@ -86,6 +86,8 @@ class FlowTracker:
         self._last_price: dict[str, float] = {}
         self._last_trade_ms: dict[str, int] = {}
         self._last_oi_sample_ms: dict[str, int] = {}
+        self._last_bid: dict[str, float] = {}
+        self._last_ask: dict[str, float] = {}
         self._last_spread_bps: dict[str, float] = {}
         self._last_funding_pct: dict[str, float] = {}
         self._last_event_ms: dict[str, int] = {}
@@ -170,16 +172,15 @@ class FlowTracker:
         normalized = symbol.upper()
         if last_price is not None and math.isfinite(last_price) and last_price > 0:
             self._last_price[normalized] = last_price
-        if (
-            bid is not None
-            and ask is not None
-            and math.isfinite(bid)
-            and math.isfinite(ask)
-            and bid > 0
-            and ask >= bid
-        ):
-            mid = (bid + ask) / 2
-            self._last_spread_bps[normalized] = (ask - bid) / mid * 10_000
+        if bid is not None and math.isfinite(bid) and bid > 0:
+            self._last_bid[normalized] = bid
+        if ask is not None and math.isfinite(ask) and ask > 0:
+            self._last_ask[normalized] = ask
+        live_bid = self._last_bid.get(normalized)
+        live_ask = self._last_ask.get(normalized)
+        if live_bid is not None and live_ask is not None and live_ask >= live_bid:
+            mid = (live_bid + live_ask) / 2
+            self._last_spread_bps[normalized] = (live_ask - live_bid) / mid * 10_000
         if funding_rate is not None and math.isfinite(funding_rate):
             self._last_funding_pct[normalized] = funding_rate * 100
 
