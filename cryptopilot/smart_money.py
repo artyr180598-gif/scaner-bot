@@ -686,10 +686,25 @@ def _pre_move_score(
                     f"Perp уже перегрет относительно spot: {directional_basis:+.1f} bps"
                 )
 
-        if spot_evidence >= 2:
+        spot_data_present = any(
+            value is not None
+            for value in (
+                spot_taker,
+                spot_book,
+                block_ratio,
+                ticker.spot_perp_basis_bps,
+            )
+        )
+        if spot_evidence >= settings.prime_min_spot_confirmations:
             reasons.append(
                 "Spot ведёт сценарий: реальная покупка/продажа подтверждается до perp-разгона"
             )
+        elif spot_data_present:
+            blockers.append(
+                f"Spot дал только {spot_evidence}/"
+                f"{settings.prime_min_spot_confirmations} независимых подтверждений"
+            )
+
     funding_pct = ticker.funding_rate * 100
     directional_funding = funding_pct if bullish else -funding_pct
     if directional_funding <= 0.05:
