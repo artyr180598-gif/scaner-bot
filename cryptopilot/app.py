@@ -127,7 +127,10 @@ async def run() -> None:
                 BotCommand(command="menu", description="Обновить главное меню"),
                 BotCommand(command="scan", description="Сканировать рынок"),
                 BotCommand(command="early", description="Радар до импульса"),
-                BotCommand(command="smartmoney", description="Крупный поток: структура + объём + OI"),
+                BotCommand(
+                    command="smartmoney",
+                    description="Крупный поток: структура + объём + OI",
+                ),
                 BotCommand(command="analyze", description="Анализ монеты"),
                 BotCommand(command="best", description="Последние сильные сигналы"),
                 BotCommand(command="performance", description="Paper-статистика"),
