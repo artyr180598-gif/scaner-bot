@@ -2,11 +2,12 @@ import asyncio
 from dataclasses import replace
 
 from cryptopilot.models import Candle, Ticker
-from cryptopilot.squeeze_lab import SqueezeLab, advance, fill_plan
+from cryptopilot.squeeze_lab import VERSION, SqueezeLab, advance, fill_plan
 
 
 def position(entry_ms=60000):
     return dict(
+        version=VERSION,
         side=1,
         entry=100.0,
         stop=97.0,
@@ -74,7 +75,7 @@ async def check_persistence(tmp_path):
     await lab.save("key", "BTCUSDT", dict(position(), status="CENSORED_GAP"))
     restarted = SqueezeLab(None, SimpleNamespace(path=lab.path), None)
     assert len(await restarted.rows()) == 1
-    assert "CENSORED_GAP" in await restarted.report()
+    assert "пропуск минутных данных: 1" in await restarted.report()
 
 
 def test_cycle_records_fresh_entry_once_without_alerts(tmp_path, monkeypatch):
