@@ -250,7 +250,25 @@ async def run() -> None:
                 flow_state.append(
                     f"OI accel {item.live_oi_acceleration_pct_per_min:+.3f}%/мин"
                 )
-            flow_text = " · ".join(flow_state) if flow_state else "ещё нет достаточного live-потока"
+            flow_text = (
+                " · ".join(flow_state)
+                if flow_state
+                else "ещё нет достаточного live-потока"
+            )
+            spot_state = []
+            if item.spot_taker_buy_ratio is not None:
+                spot_state.append(f"spot BUY {item.spot_taker_buy_ratio:.0%}")
+            if item.spot_orderbook_imbalance is not None:
+                spot_state.append(f"book {item.spot_orderbook_imbalance:+.0%}")
+            if item.spot_block_trade_notional is not None:
+                spot_state.append(f"block ${item.spot_block_trade_notional:,.0f}")
+            if item.spot_perp_basis_bps is not None:
+                spot_state.append(f"perp/spot {item.spot_perp_basis_bps:+.1f} bps")
+            spot_text = (
+                " · ".join(spot_state)
+                if spot_state
+                else "нет доступного spot-подтверждения"
+            )
 
             message_text = (
                 f"🎯 <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
@@ -266,6 +284,7 @@ async def run() -> None:
                 f"Движение за ~15м: {item.recent_move_15m_pct:+.2f}%\n"
                 f"RVOL: {item.rvol:.2f}× · OI: {oi} · "
                 f"funding: {item.funding_pct:+.3f}%\n"
+                f"Spot: {html.escape(spot_text)}\n"
                 f"Live: {html.escape(flow_text)}\n\n"
                 f"<b>Почему это TOP-кандидат до потока</b>\n{reasons}\n\n"
                 "🟢 Это редкий ранний кандидат: система специально требует, чтобы "
