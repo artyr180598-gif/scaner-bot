@@ -39,7 +39,12 @@ def _cancel_detached(tasks) -> None:
 async def _hard_wait(awaitable, timeout_seconds: float):
     """Return on deadline even if underlying network cancellation is slow."""
     task = asyncio.create_task(awaitable)
-    done, _ = await asyncio.wait({task}, timeout=timeout_seconds)
+    try:
+        done, _ = await asyncio.wait({task}, timeout=timeout_seconds)
+    except asyncio.CancelledError:
+        _cancel_detached((task,))
+        await asyncio.sleep(0)
+        raise
     if task not in done:
         _cancel_detached((task,))
         await asyncio.sleep(0)
@@ -188,10 +193,15 @@ class SmartMoneyScanner:
             quick_tasks = {
                 asyncio.create_task(self._quick(item)): item for item in universe
             }
-            quick_done, quick_pending = await asyncio.wait(
-                set(quick_tasks),
-                timeout=QUICK_STAGE_TIMEOUT_SECONDS,
-            )
+            try:
+                quick_done, quick_pending = await asyncio.wait(
+                    set(quick_tasks),
+                    timeout=QUICK_STAGE_TIMEOUT_SECONDS,
+                )
+            except asyncio.CancelledError:
+                _cancel_detached(set(quick_tasks))
+                await asyncio.sleep(0)
+                raise
             if quick_pending:
                 _cancel_detached(quick_pending)
                 errors.append(f"quick-stage timeout: {len(quick_pending)} markets skipped")
@@ -237,10 +247,15 @@ class SmartMoneyScanner:
                 ): ticker
                 for _, ticker, feature15 in candidates
             }
-            deep_done, deep_pending = await asyncio.wait(
-                set(deep_tasks),
-                timeout=DEEP_STAGE_TIMEOUT_SECONDS,
-            )
+            try:
+                deep_done, deep_pending = await asyncio.wait(
+                    set(deep_tasks),
+                    timeout=DEEP_STAGE_TIMEOUT_SECONDS,
+                )
+            except asyncio.CancelledError:
+                _cancel_detached(set(deep_tasks))
+                await asyncio.sleep(0)
+                raise
             if deep_pending:
                 _cancel_detached(deep_pending)
                 errors.append(f"deep-stage timeout: {len(deep_pending)} markets skipped")
