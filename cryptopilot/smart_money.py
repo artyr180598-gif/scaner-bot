@@ -395,6 +395,17 @@ class SmartMoneyScanner:
             self.settings,
         )
 
+        if (
+            self.settings.prime_cross_exchange_enabled
+            and self.settings.prime_cross_exchange_required
+            and self.confirmation_exchange is not None
+            and cross is None
+        ):
+            prime_blockers.append(
+                f"{self.confirmation_exchange.name}: обязательное второе подтверждение "
+                "временно недоступно"
+            )
+
         if cross is not None:
             if (
                 cross.price_divergence_bps is not None
