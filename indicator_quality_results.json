@@ -1,0 +1,3794 @@
+{
+  "protocol": "Exploratory quality study, March-August2026; economic phase added posthoc.\n\nHypothesis: buying strength after an observed pullback/reclaim is different from\nranking mature trends. Compare reclaim with/without volume confirmation. Long\nand short symmetric. Six liquid coins, same next-open fills, 1.45ATR/18-bar stop,\nTP2R, max72h, 6/12bps each execution, funding proxy1bp/8h, no averaging/leverage.\nPreviously examined period: exploratory, NOT an independent holdout. Historical\nspread/OI/funding/scanner membership unavailable. Monthly/cross-symbol breakdowns\nmust be retained; don't promote from one pooled positive number.\n",
+  "phase2_disclosure": "Economic variants added AFTER original outcomes showed cost drag; a posthoc subset looked positive. Threshold1.8 is the existing configured RR minimum, now applied net of costs. This rerun gives each variant independent trade occupancy. NOT an independent validation; no promotion is allowed on these data.",
+  "promotion_allowed": false,
+  "records": {
+    "economic_baseline": [
+      {
+        "exit_index": 4652,
+        "entry": 77409.9,
+        "exit": 76023.0,
+        "stop": 76023.0,
+        "target": 80183.69999999998,
+        "reason": "SL",
+        "hours": 17.5,
+        "gross_r": -1.0,
+        "net_r": -1.078587609506814,
+        "stress_r": -1.1449656756975994,
+        "net_pct": -1.93243132419109,
+        "symbol": "BTCUSDT",
+        "time": "2026-04-17T17:45:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 9278,
+        "entry": 62501.4,
+        "exit": 60154.4,
+        "stop": 63674.9,
+        "target": 60154.4,
+        "reason": "TP2",
+        "hours": 7.0,
+        "gross_r": 2.0,
+        "net_r": 1.9326268832552196,
+        "stress_r": 1.869914075415424,
+        "net_pct": 3.628618954935413,
+        "symbol": "BTCUSDT",
+        "time": "2026-06-05T08:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9439,
+        "entry": 61034.6,
+        "exit": 62310.0,
+        "stop": 62310.0,
+        "target": 58483.799999999996,
+        "reason": "SL",
+        "hours": 38.75,
+        "gross_r": -1.0,
+        "net_r": -1.0812062054061469,
+        "stress_r": -1.139232518719617,
+        "net_pct": -2.259325684734566,
+        "symbol": "BTCUSDT",
+        "time": "2026-06-05T17:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 11798,
+        "entry": 59583.6,
+        "exit": 60758.3,
+        "stop": 60758.3,
+        "target": 57234.19999999999,
+        "reason": "SL",
+        "hours": 53.25,
+        "gross_r": -1.0,
+        "net_r": -1.0952289722907973,
+        "stress_r": -1.1566958489401542,
+        "net_pct": -2.1592610613490972,
+        "symbol": "BTCUSDT",
+        "time": "2026-06-29T16:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 3738,
+        "entry": 2224.45,
+        "exit": 2186.03,
+        "stop": 2186.03,
+        "target": 2301.289999999999,
+        "reason": "SL",
+        "hours": 5.5,
+        "gross_r": -1.0,
+        "net_r": -1.0728583794247795,
+        "stress_r": -1.1417362555309747,
+        "net_pct": -1.8530072124569967,
+        "symbol": "ETHUSDT",
+        "time": "2026-04-08T17:15:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 9241,
+        "entry": 1731.76,
+        "exit": 1652.0400000000002,
+        "stop": 1771.62,
+        "target": 1652.0400000000002,
+        "reason": "TP2",
+        "hours": 1.25,
+        "gross_r": 2.0,
+        "net_r": 1.9483858818364272,
+        "stress_r": 1.8974506083793272,
+        "net_pct": 4.484608793943722,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 1683.9,
+        "exit": 1557.7000000000003,
+        "stop": 1747.0,
+        "target": 1557.7000000000003,
+        "reason": "TP2",
+        "hours": 6.75,
+        "gross_r": 2.0,
+        "net_r": 1.9669248959984151,
+        "stress_r": 1.9361014411648176,
+        "net_pct": 7.370566003770995,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T09:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9328,
+        "entry": 1591.69,
+        "exit": 1537.3700000000003,
+        "stop": 1618.85,
+        "target": 1537.3700000000003,
+        "reason": "TP2",
+        "hours": 5.0,
+        "gross_r": 2.0,
+        "net_r": 1.927212200846833,
+        "stress_r": 1.8580871640279815,
+        "net_pct": 3.288522474539621,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T23:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9413,
+        "entry": 1561.27,
+        "exit": 1587.99,
+        "stop": 1587.99,
+        "target": 1507.83,
+        "reason": "SL",
+        "hours": 12.0,
+        "gross_r": -1.0,
+        "net_r": -1.0794815306886227,
+        "stress_r": -1.1501984468562874,
+        "net_pct": -1.8474540918611142,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-06T13:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 13184,
+        "entry": 1918.83,
+        "exit": 1884.0,
+        "stop": 1884.0,
+        "target": 1988.4899999999998,
+        "reason": "SL",
+        "hours": 15.25,
+        "gross_r": -1.0,
+        "net_r": -1.0760113399009477,
+        "stress_r": -1.141520900624462,
+        "net_pct": -1.9531420172057907,
+        "symbol": "ETHUSDT",
+        "time": "2026-07-15T17:00:00+00:00",
+        "month": 7,
+        "side": 1
+      },
+      {
+        "exit_index": 16643,
+        "entry": 2320.18,
+        "exit": 2419.72,
+        "stop": 2270.41,
+        "target": 2419.72,
+        "reason": "TP2",
+        "hours": 13.75,
+        "gross_r": 2.0,
+        "net_r": 1.9348458722624071,
+        "stress_r": 1.8777042206650592,
+        "net_pct": 4.15042277161685,
+        "symbol": "ETHUSDT",
+        "time": "2026-08-20T19:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 17147,
+        "entry": 2437.94,
+        "exit": 2438.1,
+        "stop": 2387.0,
+        "target": 2539.82,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.0031409501374137084,
+        "net_r": -0.09736493914409383,
+        "stress_r": -0.15479768354927634,
+        "net_pct": -0.20344101987743662,
+        "symbol": "ETHUSDT",
+        "time": "2026-08-23T15:00:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4491,
+        "entry": 85.34,
+        "exit": 88.62,
+        "stop": 83.7,
+        "target": 88.62,
+        "reason": "TP2",
+        "hours": 4.0,
+        "gross_r": 2.0,
+        "net_r": 1.933754268292683,
+        "stress_r": 1.8701103658536584,
+        "net_pct": 3.7161436606515066,
+        "symbol": "SOLUSDT",
+        "time": "2026-04-16T15:00:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 6605,
+        "entry": 89.18,
+        "exit": 92.68,
+        "stop": 87.43,
+        "target": 92.68,
+        "reason": "TP2",
+        "hours": 50.75,
+        "gross_r": 2.0,
+        "net_r": 1.90532025,
+        "stress_r": 1.84296825,
+        "net_pct": 3.7388544937205572,
+        "symbol": "SOLUSDT",
+        "time": "2026-05-06T16:45:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 7058,
+        "entry": 95.46,
+        "exit": 93.37,
+        "stop": 93.37,
+        "target": 99.63999999999997,
+        "reason": "SL",
+        "hours": 62.5,
+        "gross_r": -1.0,
+        "net_r": -1.08989288277512,
+        "stress_r": -1.1441024521531107,
+        "net_pct": -2.3862100618059854,
+        "symbol": "SOLUSDT",
+        "time": "2026-05-10T22:15:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 9164,
+        "entry": 70.32,
+        "exit": 67.47999999999999,
+        "stop": 71.74,
+        "target": 67.47999999999999,
+        "reason": "TP2",
+        "hours": 4.25,
+        "gross_r": 2.0,
+        "net_r": 1.9391438380281691,
+        "stress_r": 1.880918485915493,
+        "net_pct": 3.9157910267349343,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-04T07:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9232,
+        "entry": 69.25,
+        "exit": 66.55000000000001,
+        "stop": 70.6,
+        "target": 66.55000000000001,
+        "reason": "TP2",
+        "hours": 12.0,
+        "gross_r": 2.0,
+        "net_r": 1.9319499999999998,
+        "stress_r": 1.871594444444444,
+        "net_pct": 3.7662563176895194,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-04T16:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9241,
+        "entry": 67.66,
+        "exit": 64.95999999999998,
+        "stop": 69.01,
+        "target": 64.95999999999998,
+        "reason": "TP2",
+        "hours": 1.25,
+        "gross_r": 2.0,
+        "net_r": 1.9402746759259264,
+        "stress_r": 1.8813324537037046,
+        "net_pct": 3.8713727645581106,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9292,
+        "entry": 66.08,
+        "exit": 62.260000000000005,
+        "stop": 67.99,
+        "target": 62.260000000000005,
+        "reason": "TP2",
+        "hours": 9.5,
+        "gross_r": 2.0,
+        "net_r": 1.9555753926701571,
+        "stress_r": 1.9152591623036648,
+        "net_pct": 5.652465193704591,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T09:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9328,
+        "entry": 64.24,
+        "exit": 61.9376114046167,
+        "stop": 65.39119429769164,
+        "target": 61.9376114046167,
+        "reason": "TP2",
+        "hours": 6.0,
+        "gross_r": 2.0,
+        "net_r": 1.9300512806532863,
+        "stress_r": 1.8642877800916735,
+        "net_pct": 3.458692447914882,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T22:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9421,
+        "entry": 62.18,
+        "exit": 63.91,
+        "stop": 63.91,
+        "target": 58.720000000000006,
+        "reason": "SL",
+        "hours": 20.5,
+        "gross_r": -1.0,
+        "net_r": -1.052940823699422,
+        "stress_r": -1.0966714595375724,
+        "net_pct": -2.929539441942736,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-06T07:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 10746,
+        "entry": 71.63,
+        "exit": 74.04999999999998,
+        "stop": 70.42,
+        "target": 74.04999999999998,
+        "reason": "TP2",
+        "hours": 5.75,
+        "gross_r": 2.0,
+        "net_r": 1.9235071022727268,
+        "stress_r": 1.8512690857438008,
+        "net_pct": 3.2492581233421602,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-20T17:00:00+00:00",
+        "month": 6,
+        "side": 1
+      },
+      {
+        "exit_index": 11229,
+        "entry": 66.05,
+        "exit": 67.33,
+        "stop": 67.33,
+        "target": 63.489999999999995,
+        "reason": "SL",
+        "hours": 5.25,
+        "gross_r": -1.0,
+        "net_r": -1.0659082275390623,
+        "stress_r": -1.1284301025390624,
+        "net_pct": -2.065651069265719,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-25T18:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 13884,
+        "entry": 77.51,
+        "exit": 76.06,
+        "stop": 76.06,
+        "target": 80.41000000000001,
+        "reason": "SL",
+        "hours": 67.75,
+        "gross_r": -1.0,
+        "net_r": -1.1088160560344824,
+        "stress_r": -1.172362262931034,
+        "net_pct": -2.074291422074574,
+        "symbol": "SOLUSDT",
+        "time": "2026-07-20T19:30:00+00:00",
+        "month": 7,
+        "side": 1
+      },
+      {
+        "exit_index": 16713,
+        "entry": 91.51,
+        "exit": 95.05000000000003,
+        "stop": 89.74,
+        "target": 95.05000000000003,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9302967514124296,
+        "stress_r": 1.8670560734463284,
+        "net_pct": 3.733608622008553,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-21T16:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16802,
+        "entry": 93.87,
+        "exit": 98.99000000000001,
+        "stop": 91.31,
+        "target": 98.99000000000001,
+        "reason": "TP2",
+        "hours": 10.25,
+        "gross_r": 2.0,
+        "net_r": 1.9501003540039064,
+        "stress_r": 1.9048987915039064,
+        "net_pct": 5.318266652018758,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-22T14:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16992,
+        "entry": 95.64,
+        "exit": 99.72000000000001,
+        "stop": 93.6,
+        "target": 99.72000000000001,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9366808823529413,
+        "stress_r": 1.8792220588235298,
+        "net_pct": 4.130937892095381,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-24T14:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 17320,
+        "entry": 107.48,
+        "exit": 105.17,
+        "stop": 105.17,
+        "target": 112.10000000000001,
+        "reason": "SL",
+        "hours": 15.5,
+        "gross_r": -1.0,
+        "net_r": -1.064248593073593,
+        "stress_r": -1.1194823593073593,
+        "net_pct": -2.287322525120959,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-27T18:45:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 9291,
+        "entry": 589.31,
+        "exit": 561.4299999999998,
+        "stop": 603.25,
+        "target": 561.4299999999998,
+        "reason": "TP2",
+        "hours": 10.75,
+        "gross_r": 2.0,
+        "net_r": 1.9447896319045912,
+        "stress_r": 1.8952599331958397,
+        "net_pct": 4.600357616322496,
+        "symbol": "BNBUSDT",
+        "time": "2026-06-05T08:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16819,
+        "entry": 705.34,
+        "exit": 684.0,
+        "stop": 684.0,
+        "target": 748.0200000000001,
+        "reason": "SL",
+        "hours": 21.5,
+        "gross_r": -1.0,
+        "net_r": -1.0479458352858482,
+        "stress_r": -1.0870088156044986,
+        "net_pct": -3.170550957694166,
+        "symbol": "BNBUSDT",
+        "time": "2026-08-22T07:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4564,
+        "entry": 1.4195,
+        "exit": 1.4745000000000001,
+        "stop": 1.392,
+        "target": 1.4745000000000001,
+        "reason": "TP2",
+        "hours": 19.75,
+        "gross_r": 2.0,
+        "net_r": 1.9241149431818185,
+        "stress_r": 1.8609731250000006,
+        "net_pct": 3.7275914714688447,
+        "symbol": "XRPUSDT",
+        "time": "2026-04-16T17:30:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 6967,
+        "entry": 1.4664,
+        "exit": 1.4356,
+        "stop": 1.4356,
+        "target": 1.5279999999999998,
+        "reason": "SL",
+        "hours": 39.5,
+        "gross_r": -1.0,
+        "net_r": -1.0800400974025977,
+        "stress_r": -1.1365725649350653,
+        "net_pct": -2.2684966584833512,
+        "symbol": "XRPUSDT",
+        "time": "2026-05-10T22:30:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 7221,
+        "entry": 1.5074,
+        "exit": 1.464,
+        "stop": 1.464,
+        "target": 1.5942000000000003,
+        "reason": "SL",
+        "hours": 8.5,
+        "gross_r": -1.0,
+        "net_r": -1.0447696140552993,
+        "stress_r": -1.0858488767281103,
+        "net_pct": -3.0080271493963235,
+        "symbol": "XRPUSDT",
+        "time": "2026-05-14T21:00:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 7681,
+        "entry": 1.3988,
+        "exit": 1.3518000000000003,
+        "stop": 1.4223,
+        "target": 1.3518000000000003,
+        "reason": "TP2",
+        "hours": 46.0,
+        "gross_r": 2.0,
+        "net_r": 1.8955459574468079,
+        "stress_r": 1.8253178723404244,
+        "net_pct": 3.1845388904775294,
+        "symbol": "XRPUSDT",
+        "time": "2026-05-18T02:30:00+00:00",
+        "month": 5,
+        "side": -1
+      },
+      {
+        "exit_index": 9157,
+        "entry": 1.1904,
+        "exit": 1.1483999999999996,
+        "stop": 1.2114,
+        "target": 1.1483999999999996,
+        "reason": "TP2",
+        "hours": 4.25,
+        "gross_r": 2.0,
+        "net_r": 1.930165714285715,
+        "stress_r": 1.863342857142858,
+        "net_pct": 3.4050302419355054,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-04T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9240,
+        "entry": 1.1621,
+        "exit": 1.1180999999999999,
+        "stop": 1.1841,
+        "target": 1.1180999999999999,
+        "reason": "TP2",
+        "hours": 6.75,
+        "gross_r": 2.0,
+        "net_r": 1.9333558096590908,
+        "stress_r": 1.8711685369318183,
+        "net_pct": 3.660083281344126,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-04T23:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 1.128,
+        "exit": 1.0869999999999995,
+        "stop": 1.1485,
+        "target": 1.0869999999999995,
+        "reason": "TP2",
+        "hours": 8.0,
+        "gross_r": 2.0,
+        "net_r": 1.9296682926829274,
+        "stress_r": 1.864839024390245,
+        "net_pct": 3.5069326241135124,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T08:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9441,
+        "entry": 1.1007,
+        "exit": 1.1374,
+        "stop": 1.1374,
+        "target": 1.0273,
+        "reason": "SL",
+        "hours": 39.0,
+        "gross_r": -1.0,
+        "net_r": -1.051211205722071,
+        "stress_r": -1.087801396457766,
+        "net_pct": -3.5049923912055996,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9959,
+        "entry": 1.1376,
+        "exit": 1.1316,
+        "stop": 1.1629,
+        "target": 1.0869999999999997,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.23715415019762773,
+        "net_r": 0.14287114624505895,
+        "stress_r": 0.08905612648221331,
+        "net_pct": 0.31774261603375437,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-09T18:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 11155,
+        "entry": 1.0638,
+        "exit": 1.0818,
+        "stop": 1.0818,
+        "target": 1.0278,
+        "reason": "SL",
+        "hours": 10.25,
+        "gross_r": -1.0,
+        "net_r": -1.0790921875000001,
+        "stress_r": -1.1506121874999997,
+        "net_pct": -1.8258751057529734,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-24T18:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 11392,
+        "entry": 1.0411,
+        "exit": 1.076,
+        "stop": 1.076,
+        "target": 0.9712999999999996,
+        "reason": "SL",
+        "hours": 46.5,
+        "gross_r": -1.0,
+        "net_r": -1.053736371776504,
+        "stress_r": -1.090133506446991,
+        "net_pct": -3.5323599438094537,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-25T17:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 14554,
+        "entry": 1.0707,
+        "exit": 1.0898,
+        "stop": 1.0898,
+        "target": 1.0324999999999998,
+        "reason": "SL",
+        "hours": 15.5,
+        "gross_r": -1.0,
+        "net_r": -1.078730268324607,
+        "stress_r": -1.1465993782722506,
+        "net_pct": -1.9243250326888957,
+        "symbol": "XRPUSDT",
+        "time": "2026-07-29T23:15:00+00:00",
+        "month": 7,
+        "side": -1
+      },
+      {
+        "exit_index": 16637,
+        "entry": 1.2537,
+        "exit": 1.3217,
+        "stop": 1.2197,
+        "target": 1.3217,
+        "reason": "TP2",
+        "hours": 10.25,
+        "gross_r": 2.0,
+        "net_r": 1.94982734375,
+        "stress_r": 1.9043791084558825,
+        "net_pct": 5.287878255364117,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-20T21:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16706,
+        "entry": 1.3843,
+        "exit": 1.4801000000000002,
+        "stop": 1.3364,
+        "target": 1.4801000000000002,
+        "reason": "TP2",
+        "hours": 12.0,
+        "gross_r": 2.0,
+        "net_r": 1.9597852818371606,
+        "stress_r": 1.9239055323590815,
+        "net_pct": 6.781312937946986,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-21T12:45:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16965,
+        "entry": 1.5039,
+        "exit": 1.4708,
+        "stop": 1.4708,
+        "target": 1.5700999999999998,
+        "reason": "SL",
+        "hours": 3.25,
+        "gross_r": -1.0,
+        "net_r": -1.055767853096677,
+        "stress_r": -1.1096899074773416,
+        "net_pct": -2.323686145189164,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-24T14:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 17023,
+        "entry": 1.5136,
+        "exit": 1.4817,
+        "stop": 1.4817,
+        "target": 1.5774000000000001,
+        "reason": "SL",
+        "hours": 3.0,
+        "gross_r": -1.0,
+        "net_r": -1.0581172413793103,
+        "stress_r": -1.114455172413793,
+        "net_pct": -2.230043604651161,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-25T05:00:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4623,
+        "entry": 0.10052,
+        "exit": 0.09838,
+        "stop": 0.09838,
+        "target": 0.1048,
+        "reason": "SL",
+        "hours": 12.0,
+        "gross_r": -1.0,
+        "net_r": -1.06281214953271,
+        "stress_r": -1.1185785046728969,
+        "net_pct": -2.2626522085157244,
+        "symbol": "DOGEUSDT",
+        "time": "2026-04-17T16:00:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 7108,
+        "entry": 0.11097,
+        "exit": 0.11457,
+        "stop": 0.1062,
+        "target": 0.12050999999999999,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.7547169811320773,
+        "net_r": 0.7054094339622659,
+        "stress_r": 0.6770396226415112,
+        "net_pct": 3.032173560421746,
+        "symbol": "DOGEUSDT",
+        "time": "2026-05-11T01:15:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 7846,
+        "entry": 0.10402,
+        "exit": 0.10613,
+        "stop": 0.1064,
+        "target": 0.09926000000000001,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": -0.8865546218487423,
+        "net_r": -0.9788689075630282,
+        "stress_r": -1.0318478991596671,
+        "net_pct": -2.2396731397808116,
+        "symbol": "DOGEUSDT",
+        "time": "2026-05-18T17:45:00+00:00",
+        "month": 5,
+        "side": -1
+      },
+      {
+        "exit_index": 9226,
+        "entry": 0.08987,
+        "exit": 0.08651,
+        "stop": 0.09155,
+        "target": 0.08651,
+        "reason": "TP2",
+        "hours": 21.5,
+        "gross_r": 2.0,
+        "net_r": 1.9226306175595238,
+        "stress_r": 1.8596377604166667,
+        "net_pct": 3.5941019667297223,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-04T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9439,
+        "entry": 0.08219,
+        "exit": 0.08487,
+        "stop": 0.08487,
+        "target": 0.07683,
+        "reason": "SL",
+        "hours": 38.5,
+        "gross_r": -1.0,
+        "net_r": -1.0521604244402984,
+        "stress_r": -1.0895619169776118,
+        "net_pct": -3.430818758364767,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-05T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9975,
+        "entry": 0.08827,
+        "exit": 0.08662,
+        "stop": 0.08662,
+        "target": 0.09157,
+        "reason": "SL",
+        "hours": 5.25,
+        "gross_r": -1.0,
+        "net_r": -1.0671071022727272,
+        "stress_r": -1.1307034659090909,
+        "net_pct": -1.9947056970091697,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-12T16:45:00+00:00",
+        "month": 6,
+        "side": 1
+      },
+      {
+        "exit_index": 11230,
+        "entry": 0.07363,
+        "exit": 0.07524,
+        "stop": 0.07524,
+        "target": 0.07041,
+        "reason": "SL",
+        "hours": 3.0,
+        "gross_r": -1.0,
+        "net_r": -1.0571944875776398,
+        "stress_r": -1.1126739906832297,
+        "net_pct": -2.311670684503595,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-25T20:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16692,
+        "entry": 0.08393,
+        "exit": 0.08761000000000002,
+        "stop": 0.08209,
+        "target": 0.08761000000000002,
+        "reason": "TP2",
+        "hours": 11.5,
+        "gross_r": 2.0,
+        "net_r": 1.937506012228261,
+        "stress_r": 1.881569055706522,
+        "net_pct": 4.247600455736953,
+        "symbol": "DOGEUSDT",
+        "time": "2026-08-21T09:45:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 17315,
+        "entry": 0.08863,
+        "exit": 0.08708,
+        "stop": 0.08708,
+        "target": 0.09172999999999999,
+        "reason": "SL",
+        "hours": 18.5,
+        "gross_r": -1.0,
+        "net_r": -1.081239798387097,
+        "stress_r": -1.1492565725806456,
+        "net_pct": -1.8909192006092652,
+        "symbol": "DOGEUSDT",
+        "time": "2026-08-27T14:30:00+00:00",
+        "month": 8,
+        "side": 1
+      }
+    ],
+    "economic_cmf": [
+      {
+        "exit_index": 4652,
+        "entry": 77409.9,
+        "exit": 76023.0,
+        "stop": 76023.0,
+        "target": 80183.69999999998,
+        "reason": "SL",
+        "hours": 17.5,
+        "gross_r": -1.0,
+        "net_r": -1.078587609506814,
+        "stress_r": -1.1449656756975994,
+        "net_pct": -1.93243132419109,
+        "symbol": "BTCUSDT",
+        "time": "2026-04-17T17:45:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 9439,
+        "entry": 61034.6,
+        "exit": 62310.0,
+        "stop": 62310.0,
+        "target": 58483.799999999996,
+        "reason": "SL",
+        "hours": 38.75,
+        "gross_r": -1.0,
+        "net_r": -1.0812062054061469,
+        "stress_r": -1.139232518719617,
+        "net_pct": -2.259325684734566,
+        "symbol": "BTCUSDT",
+        "time": "2026-06-05T17:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9241,
+        "entry": 1731.76,
+        "exit": 1652.0400000000002,
+        "stop": 1771.62,
+        "target": 1652.0400000000002,
+        "reason": "TP2",
+        "hours": 1.25,
+        "gross_r": 2.0,
+        "net_r": 1.9483858818364272,
+        "stress_r": 1.8974506083793272,
+        "net_pct": 4.484608793943722,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 1683.9,
+        "exit": 1557.7000000000003,
+        "stop": 1747.0,
+        "target": 1557.7000000000003,
+        "reason": "TP2",
+        "hours": 6.75,
+        "gross_r": 2.0,
+        "net_r": 1.9669248959984151,
+        "stress_r": 1.9361014411648176,
+        "net_pct": 7.370566003770995,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T09:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9413,
+        "entry": 1561.27,
+        "exit": 1587.99,
+        "stop": 1587.99,
+        "target": 1507.83,
+        "reason": "SL",
+        "hours": 12.0,
+        "gross_r": -1.0,
+        "net_r": -1.0794815306886227,
+        "stress_r": -1.1501984468562874,
+        "net_pct": -1.8474540918611142,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-06T13:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 13184,
+        "entry": 1918.83,
+        "exit": 1884.0,
+        "stop": 1884.0,
+        "target": 1988.4899999999998,
+        "reason": "SL",
+        "hours": 15.25,
+        "gross_r": -1.0,
+        "net_r": -1.0760113399009477,
+        "stress_r": -1.141520900624462,
+        "net_pct": -1.9531420172057907,
+        "symbol": "ETHUSDT",
+        "time": "2026-07-15T17:00:00+00:00",
+        "month": 7,
+        "side": 1
+      },
+      {
+        "exit_index": 16643,
+        "entry": 2320.18,
+        "exit": 2419.72,
+        "stop": 2270.41,
+        "target": 2419.72,
+        "reason": "TP2",
+        "hours": 13.75,
+        "gross_r": 2.0,
+        "net_r": 1.9348458722624071,
+        "stress_r": 1.8777042206650592,
+        "net_pct": 4.15042277161685,
+        "symbol": "ETHUSDT",
+        "time": "2026-08-20T19:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 17149,
+        "entry": 2436.12,
+        "exit": 2453.31,
+        "stop": 2387.0,
+        "target": 2534.3599999999997,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.34995928338762405,
+        "net_r": 0.24559922638436651,
+        "stress_r": 0.1858749185667768,
+        "net_pct": 0.4952068863602858,
+        "symbol": "ETHUSDT",
+        "time": "2026-08-23T15:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4491,
+        "entry": 85.34,
+        "exit": 88.62,
+        "stop": 83.7,
+        "target": 88.62,
+        "reason": "TP2",
+        "hours": 4.0,
+        "gross_r": 2.0,
+        "net_r": 1.933754268292683,
+        "stress_r": 1.8701103658536584,
+        "net_pct": 3.7161436606515066,
+        "symbol": "SOLUSDT",
+        "time": "2026-04-16T15:00:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 7058,
+        "entry": 95.46,
+        "exit": 93.37,
+        "stop": 93.37,
+        "target": 99.63999999999997,
+        "reason": "SL",
+        "hours": 62.5,
+        "gross_r": -1.0,
+        "net_r": -1.08989288277512,
+        "stress_r": -1.1441024521531107,
+        "net_pct": -2.3862100618059854,
+        "symbol": "SOLUSDT",
+        "time": "2026-05-10T22:15:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 67.18,
+        "exit": 63.420000000000016,
+        "stop": 69.06,
+        "target": 63.420000000000016,
+        "reason": "TP2",
+        "hours": 11.5,
+        "gross_r": 2.0,
+        "net_r": 1.9531823803191488,
+        "stress_r": 1.9115015292553188,
+        "net_pct": 5.465886982732937,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T04:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9328,
+        "entry": 64.24,
+        "exit": 61.9376114046167,
+        "stop": 65.39119429769164,
+        "target": 61.9376114046167,
+        "reason": "TP2",
+        "hours": 6.0,
+        "gross_r": 2.0,
+        "net_r": 1.9300512806532863,
+        "stress_r": 1.8642877800916735,
+        "net_pct": 3.458692447914882,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T22:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9421,
+        "entry": 62.18,
+        "exit": 63.91,
+        "stop": 63.91,
+        "target": 58.720000000000006,
+        "reason": "SL",
+        "hours": 20.5,
+        "gross_r": -1.0,
+        "net_r": -1.052940823699422,
+        "stress_r": -1.0966714595375724,
+        "net_pct": -2.929539441942736,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-06T07:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 11229,
+        "entry": 66.05,
+        "exit": 67.33,
+        "stop": 67.33,
+        "target": 63.489999999999995,
+        "reason": "SL",
+        "hours": 5.25,
+        "gross_r": -1.0,
+        "net_r": -1.0659082275390623,
+        "stress_r": -1.1284301025390624,
+        "net_pct": -2.065651069265719,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-25T18:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 13884,
+        "entry": 77.51,
+        "exit": 76.06,
+        "stop": 76.06,
+        "target": 80.41000000000001,
+        "reason": "SL",
+        "hours": 67.75,
+        "gross_r": -1.0,
+        "net_r": -1.1088160560344824,
+        "stress_r": -1.172362262931034,
+        "net_pct": -2.074291422074574,
+        "symbol": "SOLUSDT",
+        "time": "2026-07-20T19:30:00+00:00",
+        "month": 7,
+        "side": 1
+      },
+      {
+        "exit_index": 16713,
+        "entry": 91.51,
+        "exit": 95.05000000000003,
+        "stop": 89.74,
+        "target": 95.05000000000003,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9302967514124296,
+        "stress_r": 1.8670560734463284,
+        "net_pct": 3.733608622008553,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-21T16:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16802,
+        "entry": 93.87,
+        "exit": 98.99000000000001,
+        "stop": 91.31,
+        "target": 98.99000000000001,
+        "reason": "TP2",
+        "hours": 10.25,
+        "gross_r": 2.0,
+        "net_r": 1.9501003540039064,
+        "stress_r": 1.9048987915039064,
+        "net_pct": 5.318266652018758,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-22T14:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16992,
+        "entry": 95.64,
+        "exit": 99.72000000000001,
+        "stop": 93.6,
+        "target": 99.72000000000001,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9366808823529413,
+        "stress_r": 1.8792220588235298,
+        "net_pct": 4.130937892095381,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-24T14:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 9291,
+        "entry": 589.31,
+        "exit": 561.4299999999998,
+        "stop": 603.25,
+        "target": 561.4299999999998,
+        "reason": "TP2",
+        "hours": 10.75,
+        "gross_r": 2.0,
+        "net_r": 1.9447896319045912,
+        "stress_r": 1.8952599331958397,
+        "net_pct": 4.600357616322496,
+        "symbol": "BNBUSDT",
+        "time": "2026-06-05T08:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16819,
+        "entry": 705.34,
+        "exit": 684.0,
+        "stop": 684.0,
+        "target": 748.0200000000001,
+        "reason": "SL",
+        "hours": 21.5,
+        "gross_r": -1.0,
+        "net_r": -1.0479458352858482,
+        "stress_r": -1.0870088156044986,
+        "net_pct": -3.170550957694166,
+        "symbol": "BNBUSDT",
+        "time": "2026-08-22T07:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 7221,
+        "entry": 1.5074,
+        "exit": 1.464,
+        "stop": 1.464,
+        "target": 1.5942000000000003,
+        "reason": "SL",
+        "hours": 8.5,
+        "gross_r": -1.0,
+        "net_r": -1.0447696140552993,
+        "stress_r": -1.0858488767281103,
+        "net_pct": -3.0080271493963235,
+        "symbol": "XRPUSDT",
+        "time": "2026-05-14T21:00:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 1.128,
+        "exit": 1.0869999999999995,
+        "stop": 1.1485,
+        "target": 1.0869999999999995,
+        "reason": "TP2",
+        "hours": 8.0,
+        "gross_r": 2.0,
+        "net_r": 1.9296682926829274,
+        "stress_r": 1.864839024390245,
+        "net_pct": 3.5069326241135124,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T08:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9441,
+        "entry": 1.1007,
+        "exit": 1.1374,
+        "stop": 1.1374,
+        "target": 1.0273,
+        "reason": "SL",
+        "hours": 39.0,
+        "gross_r": -1.0,
+        "net_r": -1.051211205722071,
+        "stress_r": -1.087801396457766,
+        "net_pct": -3.5049923912055996,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9959,
+        "entry": 1.1376,
+        "exit": 1.1316,
+        "stop": 1.1629,
+        "target": 1.0869999999999997,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.23715415019762773,
+        "net_r": 0.14287114624505895,
+        "stress_r": 0.08905612648221331,
+        "net_pct": 0.31774261603375437,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-09T18:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 11392,
+        "entry": 1.0411,
+        "exit": 1.076,
+        "stop": 1.076,
+        "target": 0.9712999999999996,
+        "reason": "SL",
+        "hours": 46.5,
+        "gross_r": -1.0,
+        "net_r": -1.053736371776504,
+        "stress_r": -1.090133506446991,
+        "net_pct": -3.5323599438094537,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-25T17:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16706,
+        "entry": 1.3843,
+        "exit": 1.4801000000000002,
+        "stop": 1.3364,
+        "target": 1.4801000000000002,
+        "reason": "TP2",
+        "hours": 12.0,
+        "gross_r": 2.0,
+        "net_r": 1.9597852818371606,
+        "stress_r": 1.9239055323590815,
+        "net_pct": 6.781312937946986,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-21T12:45:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16965,
+        "entry": 1.5039,
+        "exit": 1.4708,
+        "stop": 1.4708,
+        "target": 1.5700999999999998,
+        "reason": "SL",
+        "hours": 3.25,
+        "gross_r": -1.0,
+        "net_r": -1.055767853096677,
+        "stress_r": -1.1096899074773416,
+        "net_pct": -2.323686145189164,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-24T14:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4623,
+        "entry": 0.10052,
+        "exit": 0.09838,
+        "stop": 0.09838,
+        "target": 0.1048,
+        "reason": "SL",
+        "hours": 12.0,
+        "gross_r": -1.0,
+        "net_r": -1.06281214953271,
+        "stress_r": -1.1185785046728969,
+        "net_pct": -2.2626522085157244,
+        "symbol": "DOGEUSDT",
+        "time": "2026-04-17T16:00:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 9345,
+        "entry": 0.08033,
+        "exit": 0.08195,
+        "stop": 0.08195,
+        "target": 0.07709,
+        "reason": "SL",
+        "hours": 1.5,
+        "gross_r": -1.0,
+        "net_r": -1.061033449074074,
+        "stress_r": -1.1211371527777778,
+        "net_pct": -2.1397661988049177,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-06T07:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16692,
+        "entry": 0.08393,
+        "exit": 0.08761000000000002,
+        "stop": 0.08209,
+        "target": 0.08761000000000002,
+        "reason": "TP2",
+        "hours": 11.5,
+        "gross_r": 2.0,
+        "net_r": 1.937506012228261,
+        "stress_r": 1.881569055706522,
+        "net_pct": 4.247600455736953,
+        "symbol": "DOGEUSDT",
+        "time": "2026-08-21T09:45:00+00:00",
+        "month": 8,
+        "side": 1
+      }
+    ],
+    "economic_vwap": [
+      {
+        "exit_index": 9278,
+        "entry": 62501.4,
+        "exit": 60154.4,
+        "stop": 63674.9,
+        "target": 60154.4,
+        "reason": "TP2",
+        "hours": 7.0,
+        "gross_r": 2.0,
+        "net_r": 1.9326268832552196,
+        "stress_r": 1.869914075415424,
+        "net_pct": 3.628618954935413,
+        "symbol": "BTCUSDT",
+        "time": "2026-06-05T08:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9439,
+        "entry": 61034.6,
+        "exit": 62310.0,
+        "stop": 62310.0,
+        "target": 58483.799999999996,
+        "reason": "SL",
+        "hours": 38.75,
+        "gross_r": -1.0,
+        "net_r": -1.0812062054061469,
+        "stress_r": -1.139232518719617,
+        "net_pct": -2.259325684734566,
+        "symbol": "BTCUSDT",
+        "time": "2026-06-05T17:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 11798,
+        "entry": 59583.6,
+        "exit": 60758.3,
+        "stop": 60758.3,
+        "target": 57234.19999999999,
+        "reason": "SL",
+        "hours": 53.25,
+        "gross_r": -1.0,
+        "net_r": -1.0952289722907973,
+        "stress_r": -1.1566958489401542,
+        "net_pct": -2.1592610613490972,
+        "symbol": "BTCUSDT",
+        "time": "2026-06-29T16:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 1683.9,
+        "exit": 1557.7000000000003,
+        "stop": 1747.0,
+        "target": 1557.7000000000003,
+        "reason": "TP2",
+        "hours": 6.75,
+        "gross_r": 2.0,
+        "net_r": 1.9669248959984151,
+        "stress_r": 1.9361014411648176,
+        "net_pct": 7.370566003770995,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T09:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9328,
+        "entry": 1591.69,
+        "exit": 1537.3700000000003,
+        "stop": 1618.85,
+        "target": 1537.3700000000003,
+        "reason": "TP2",
+        "hours": 5.0,
+        "gross_r": 2.0,
+        "net_r": 1.927212200846833,
+        "stress_r": 1.8580871640279815,
+        "net_pct": 3.288522474539621,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T23:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 13184,
+        "entry": 1918.83,
+        "exit": 1884.0,
+        "stop": 1884.0,
+        "target": 1988.4899999999998,
+        "reason": "SL",
+        "hours": 15.25,
+        "gross_r": -1.0,
+        "net_r": -1.0760113399009477,
+        "stress_r": -1.141520900624462,
+        "net_pct": -1.9531420172057907,
+        "symbol": "ETHUSDT",
+        "time": "2026-07-15T17:00:00+00:00",
+        "month": 7,
+        "side": 1
+      },
+      {
+        "exit_index": 17160,
+        "entry": 2444.15,
+        "exit": 2466.38,
+        "stop": 2387.0,
+        "target": 2558.4500000000003,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.3889763779527556,
+        "net_r": 0.29893170603674524,
+        "stress_r": 0.24737758530183715,
+        "net_pct": 0.6989729353763172,
+        "symbol": "ETHUSDT",
+        "time": "2026-08-23T18:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4491,
+        "entry": 85.34,
+        "exit": 88.62,
+        "stop": 83.7,
+        "target": 88.62,
+        "reason": "TP2",
+        "hours": 4.0,
+        "gross_r": 2.0,
+        "net_r": 1.933754268292683,
+        "stress_r": 1.8701103658536584,
+        "net_pct": 3.7161436606515066,
+        "symbol": "SOLUSDT",
+        "time": "2026-04-16T15:00:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 7058,
+        "entry": 95.46,
+        "exit": 93.37,
+        "stop": 93.37,
+        "target": 99.63999999999997,
+        "reason": "SL",
+        "hours": 62.5,
+        "gross_r": -1.0,
+        "net_r": -1.08989288277512,
+        "stress_r": -1.1441024521531107,
+        "net_pct": -2.3862100618059854,
+        "symbol": "SOLUSDT",
+        "time": "2026-05-10T22:15:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 9164,
+        "entry": 70.32,
+        "exit": 67.47999999999999,
+        "stop": 71.74,
+        "target": 67.47999999999999,
+        "reason": "TP2",
+        "hours": 4.25,
+        "gross_r": 2.0,
+        "net_r": 1.9391438380281691,
+        "stress_r": 1.880918485915493,
+        "net_pct": 3.9157910267349343,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-04T07:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9232,
+        "entry": 69.25,
+        "exit": 66.55000000000001,
+        "stop": 70.6,
+        "target": 66.55000000000001,
+        "reason": "TP2",
+        "hours": 12.0,
+        "gross_r": 2.0,
+        "net_r": 1.9319499999999998,
+        "stress_r": 1.871594444444444,
+        "net_pct": 3.7662563176895194,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-04T16:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9241,
+        "entry": 67.66,
+        "exit": 64.95999999999998,
+        "stop": 69.01,
+        "target": 64.95999999999998,
+        "reason": "TP2",
+        "hours": 1.25,
+        "gross_r": 2.0,
+        "net_r": 1.9402746759259264,
+        "stress_r": 1.8813324537037046,
+        "net_pct": 3.8713727645581106,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9292,
+        "entry": 66.08,
+        "exit": 62.260000000000005,
+        "stop": 67.99,
+        "target": 62.260000000000005,
+        "reason": "TP2",
+        "hours": 9.5,
+        "gross_r": 2.0,
+        "net_r": 1.9555753926701571,
+        "stress_r": 1.9152591623036648,
+        "net_pct": 5.652465193704591,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T09:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9328,
+        "entry": 64.24,
+        "exit": 61.9376114046167,
+        "stop": 65.39119429769164,
+        "target": 61.9376114046167,
+        "reason": "TP2",
+        "hours": 6.0,
+        "gross_r": 2.0,
+        "net_r": 1.9300512806532863,
+        "stress_r": 1.8642877800916735,
+        "net_pct": 3.458692447914882,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T22:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9421,
+        "entry": 62.18,
+        "exit": 63.91,
+        "stop": 63.91,
+        "target": 58.720000000000006,
+        "reason": "SL",
+        "hours": 20.5,
+        "gross_r": -1.0,
+        "net_r": -1.052940823699422,
+        "stress_r": -1.0966714595375724,
+        "net_pct": -2.929539441942736,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-06T07:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 10746,
+        "entry": 71.63,
+        "exit": 74.04999999999998,
+        "stop": 70.42,
+        "target": 74.04999999999998,
+        "reason": "TP2",
+        "hours": 5.75,
+        "gross_r": 2.0,
+        "net_r": 1.9235071022727268,
+        "stress_r": 1.8512690857438008,
+        "net_pct": 3.2492581233421602,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-20T17:00:00+00:00",
+        "month": 6,
+        "side": 1
+      },
+      {
+        "exit_index": 11229,
+        "entry": 66.05,
+        "exit": 67.33,
+        "stop": 67.33,
+        "target": 63.489999999999995,
+        "reason": "SL",
+        "hours": 5.25,
+        "gross_r": -1.0,
+        "net_r": -1.0659082275390623,
+        "stress_r": -1.1284301025390624,
+        "net_pct": -2.065651069265719,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-25T18:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16713,
+        "entry": 91.51,
+        "exit": 95.05000000000003,
+        "stop": 89.74,
+        "target": 95.05000000000003,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9302967514124296,
+        "stress_r": 1.8670560734463284,
+        "net_pct": 3.733608622008553,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-21T16:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16992,
+        "entry": 95.64,
+        "exit": 99.72000000000001,
+        "stop": 93.6,
+        "target": 99.72000000000001,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9366808823529413,
+        "stress_r": 1.8792220588235298,
+        "net_pct": 4.130937892095381,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-24T14:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 9291,
+        "entry": 589.31,
+        "exit": 561.4299999999998,
+        "stop": 603.25,
+        "target": 561.4299999999998,
+        "reason": "TP2",
+        "hours": 10.75,
+        "gross_r": 2.0,
+        "net_r": 1.9447896319045912,
+        "stress_r": 1.8952599331958397,
+        "net_pct": 4.600357616322496,
+        "symbol": "BNBUSDT",
+        "time": "2026-06-05T08:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16819,
+        "entry": 705.34,
+        "exit": 684.0,
+        "stop": 684.0,
+        "target": 748.0200000000001,
+        "reason": "SL",
+        "hours": 21.5,
+        "gross_r": -1.0,
+        "net_r": -1.0479458352858482,
+        "stress_r": -1.0870088156044986,
+        "net_pct": -3.170550957694166,
+        "symbol": "BNBUSDT",
+        "time": "2026-08-22T07:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4564,
+        "entry": 1.4195,
+        "exit": 1.4745000000000001,
+        "stop": 1.392,
+        "target": 1.4745000000000001,
+        "reason": "TP2",
+        "hours": 19.75,
+        "gross_r": 2.0,
+        "net_r": 1.9241149431818185,
+        "stress_r": 1.8609731250000006,
+        "net_pct": 3.7275914714688447,
+        "symbol": "XRPUSDT",
+        "time": "2026-04-16T17:30:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 6967,
+        "entry": 1.4664,
+        "exit": 1.4356,
+        "stop": 1.4356,
+        "target": 1.5279999999999998,
+        "reason": "SL",
+        "hours": 39.5,
+        "gross_r": -1.0,
+        "net_r": -1.0800400974025977,
+        "stress_r": -1.1365725649350653,
+        "net_pct": -2.2684966584833512,
+        "symbol": "XRPUSDT",
+        "time": "2026-05-10T22:30:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 7220,
+        "entry": 1.5023,
+        "exit": 1.4707,
+        "stop": 1.4707,
+        "target": 1.5655000000000001,
+        "reason": "SL",
+        "hours": 7.75,
+        "gross_r": -1.0,
+        "net_r": -1.0610549149525315,
+        "stress_r": -1.117504282041139,
+        "net_pct": -2.231866825034955,
+        "symbol": "XRPUSDT",
+        "time": "2026-05-14T21:30:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 7681,
+        "entry": 1.3988,
+        "exit": 1.3518000000000003,
+        "stop": 1.4223,
+        "target": 1.3518000000000003,
+        "reason": "TP2",
+        "hours": 46.0,
+        "gross_r": 2.0,
+        "net_r": 1.8955459574468079,
+        "stress_r": 1.8253178723404244,
+        "net_pct": 3.1845388904775294,
+        "symbol": "XRPUSDT",
+        "time": "2026-05-18T02:30:00+00:00",
+        "month": 5,
+        "side": -1
+      },
+      {
+        "exit_index": 9157,
+        "entry": 1.1904,
+        "exit": 1.1483999999999996,
+        "stop": 1.2114,
+        "target": 1.1483999999999996,
+        "reason": "TP2",
+        "hours": 4.25,
+        "gross_r": 2.0,
+        "net_r": 1.930165714285715,
+        "stress_r": 1.863342857142858,
+        "net_pct": 3.4050302419355054,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-04T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9240,
+        "entry": 1.1621,
+        "exit": 1.1180999999999999,
+        "stop": 1.1841,
+        "target": 1.1180999999999999,
+        "reason": "TP2",
+        "hours": 6.75,
+        "gross_r": 2.0,
+        "net_r": 1.9333558096590908,
+        "stress_r": 1.8711685369318183,
+        "net_pct": 3.660083281344126,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-04T23:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 1.128,
+        "exit": 1.0869999999999995,
+        "stop": 1.1485,
+        "target": 1.0869999999999995,
+        "reason": "TP2",
+        "hours": 8.0,
+        "gross_r": 2.0,
+        "net_r": 1.9296682926829274,
+        "stress_r": 1.864839024390245,
+        "net_pct": 3.5069326241135124,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T08:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9441,
+        "entry": 1.1007,
+        "exit": 1.1374,
+        "stop": 1.1374,
+        "target": 1.0273,
+        "reason": "SL",
+        "hours": 39.0,
+        "gross_r": -1.0,
+        "net_r": -1.051211205722071,
+        "stress_r": -1.087801396457766,
+        "net_pct": -3.5049923912055996,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 11392,
+        "entry": 1.0411,
+        "exit": 1.076,
+        "stop": 1.076,
+        "target": 0.9712999999999996,
+        "reason": "SL",
+        "hours": 46.5,
+        "gross_r": -1.0,
+        "net_r": -1.053736371776504,
+        "stress_r": -1.090133506446991,
+        "net_pct": -3.5323599438094537,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-25T17:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16637,
+        "entry": 1.2537,
+        "exit": 1.3217,
+        "stop": 1.2197,
+        "target": 1.3217,
+        "reason": "TP2",
+        "hours": 10.25,
+        "gross_r": 2.0,
+        "net_r": 1.94982734375,
+        "stress_r": 1.9043791084558825,
+        "net_pct": 5.287878255364117,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-20T21:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16965,
+        "entry": 1.507,
+        "exit": 1.4769,
+        "stop": 1.4769,
+        "target": 1.5671999999999995,
+        "reason": "SL",
+        "hours": 1.25,
+        "gross_r": -1.0,
+        "net_r": -1.0602620224252495,
+        "stress_r": -1.1197417566445191,
+        "net_pct": -2.117709812541458,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-24T16:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 7108,
+        "entry": 0.11097,
+        "exit": 0.11457,
+        "stop": 0.1062,
+        "target": 0.12050999999999999,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.7547169811320773,
+        "net_r": 0.7054094339622659,
+        "stress_r": 0.6770396226415112,
+        "net_pct": 3.032173560421746,
+        "symbol": "DOGEUSDT",
+        "time": "2026-05-11T01:15:00+00:00",
+        "month": 5,
+        "side": 1
+      },
+      {
+        "exit_index": 7846,
+        "entry": 0.10402,
+        "exit": 0.10613,
+        "stop": 0.1064,
+        "target": 0.09926000000000001,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": -0.8865546218487423,
+        "net_r": -0.9788689075630282,
+        "stress_r": -1.0318478991596671,
+        "net_pct": -2.2396731397808116,
+        "symbol": "DOGEUSDT",
+        "time": "2026-05-18T17:45:00+00:00",
+        "month": 5,
+        "side": -1
+      },
+      {
+        "exit_index": 9226,
+        "entry": 0.08987,
+        "exit": 0.08651,
+        "stop": 0.09155,
+        "target": 0.08651,
+        "reason": "TP2",
+        "hours": 21.5,
+        "gross_r": 2.0,
+        "net_r": 1.9226306175595238,
+        "stress_r": 1.8596377604166667,
+        "net_pct": 3.5941019667297223,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-04T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9439,
+        "entry": 0.08219,
+        "exit": 0.08487,
+        "stop": 0.08487,
+        "target": 0.07683,
+        "reason": "SL",
+        "hours": 38.5,
+        "gross_r": -1.0,
+        "net_r": -1.0521604244402984,
+        "stress_r": -1.0895619169776118,
+        "net_pct": -3.430818758364767,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-05T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9975,
+        "entry": 0.08827,
+        "exit": 0.08662,
+        "stop": 0.08662,
+        "target": 0.09157,
+        "reason": "SL",
+        "hours": 5.25,
+        "gross_r": -1.0,
+        "net_r": -1.0671071022727272,
+        "stress_r": -1.1307034659090909,
+        "net_pct": -1.9947056970091697,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-12T16:45:00+00:00",
+        "month": 6,
+        "side": 1
+      },
+      {
+        "exit_index": 11230,
+        "entry": 0.07363,
+        "exit": 0.07524,
+        "stop": 0.07524,
+        "target": 0.07041,
+        "reason": "SL",
+        "hours": 3.0,
+        "gross_r": -1.0,
+        "net_r": -1.0571944875776398,
+        "stress_r": -1.1126739906832297,
+        "net_pct": -2.311670684503595,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-25T20:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16692,
+        "entry": 0.08449,
+        "exit": 0.08818999999999998,
+        "stop": 0.08264,
+        "target": 0.08818999999999998,
+        "reason": "TP2",
+        "hours": 4.75,
+        "gross_r": 2.0,
+        "net_r": 1.941284003378378,
+        "stress_r": 1.8852796790540536,
+        "net_pct": 4.250651445437318,
+        "symbol": "DOGEUSDT",
+        "time": "2026-08-21T16:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 17315,
+        "entry": 0.08863,
+        "exit": 0.08708,
+        "stop": 0.08708,
+        "target": 0.09172999999999999,
+        "reason": "SL",
+        "hours": 18.5,
+        "gross_r": -1.0,
+        "net_r": -1.081239798387097,
+        "stress_r": -1.1492565725806456,
+        "net_pct": -1.8909192006092652,
+        "symbol": "DOGEUSDT",
+        "time": "2026-08-27T14:30:00+00:00",
+        "month": 8,
+        "side": 1
+      }
+    ],
+    "economic_squeeze": [
+      {
+        "exit_index": 17160,
+        "entry": 2444.15,
+        "exit": 2466.38,
+        "stop": 2387.0,
+        "target": 2558.4500000000003,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.3889763779527556,
+        "net_r": 0.29893170603674524,
+        "stress_r": 0.24737758530183715,
+        "net_pct": 0.6989729353763172,
+        "symbol": "ETHUSDT",
+        "time": "2026-08-23T18:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4491,
+        "entry": 85.34,
+        "exit": 88.62,
+        "stop": 83.7,
+        "target": 88.62,
+        "reason": "TP2",
+        "hours": 4.0,
+        "gross_r": 2.0,
+        "net_r": 1.933754268292683,
+        "stress_r": 1.8701103658536584,
+        "net_pct": 3.7161436606515066,
+        "symbol": "SOLUSDT",
+        "time": "2026-04-16T15:00:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 9239,
+        "entry": 69.17,
+        "exit": 66.31000000000002,
+        "stop": 70.6,
+        "target": 66.31000000000002,
+        "reason": "TP2",
+        "hours": 12.5,
+        "gross_r": 2.0,
+        "net_r": 1.9355973339160837,
+        "stress_r": 1.8787525786713282,
+        "net_pct": 4.001596338730646,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-04T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9329,
+        "entry": 64.86,
+        "exit": 60.999999999999986,
+        "stop": 66.79,
+        "target": 60.999999999999986,
+        "reason": "TP2",
+        "hours": 11.0,
+        "gross_r": 2.0,
+        "net_r": 1.9562516839378241,
+        "stress_r": 1.917124222797928,
+        "net_pct": 5.821100447116892,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16713,
+        "entry": 91.51,
+        "exit": 95.05000000000003,
+        "stop": 89.74,
+        "target": 95.05000000000003,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9302967514124296,
+        "stress_r": 1.8670560734463284,
+        "net_pct": 3.733608622008553,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-21T16:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16992,
+        "entry": 95.97,
+        "exit": 99.43,
+        "stop": 94.24,
+        "target": 99.43,
+        "reason": "TP2",
+        "hours": 6.0,
+        "gross_r": 2.0,
+        "net_r": 1.9280706647398846,
+        "stress_r": 1.8603018786127172,
+        "net_pct": 3.4756301448369413,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-24T18:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 9441,
+        "entry": 1.1007,
+        "exit": 1.1374,
+        "stop": 1.1374,
+        "target": 1.0273,
+        "reason": "SL",
+        "hours": 39.0,
+        "gross_r": -1.0,
+        "net_r": -1.051211205722071,
+        "stress_r": -1.087801396457766,
+        "net_pct": -3.5049923912055996,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T17:30:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16643,
+        "entry": 1.3115,
+        "exit": 1.3669000000000002,
+        "stop": 1.2838,
+        "target": 1.3669000000000002,
+        "reason": "TP2",
+        "hours": 1.75,
+        "gross_r": 2.0,
+        "net_r": 1.940948409296029,
+        "stress_r": 1.8829325248194948,
+        "net_pct": 4.099448794319499,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-21T07:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 16965,
+        "entry": 1.507,
+        "exit": 1.4769,
+        "stop": 1.4769,
+        "target": 1.5671999999999995,
+        "reason": "SL",
+        "hours": 1.25,
+        "gross_r": -1.0,
+        "net_r": -1.0602620224252495,
+        "stress_r": -1.1197417566445191,
+        "net_pct": -2.117709812541458,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-24T16:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 9238,
+        "entry": 0.08857,
+        "exit": 0.08541,
+        "stop": 0.09015,
+        "target": 0.08541,
+        "reason": "TP2",
+        "hours": 11.5,
+        "gross_r": 2.0,
+        "net_r": 1.925873457278481,
+        "stress_r": 1.859805102848101,
+        "net_pct": 3.4355651603251616,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-04T18:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16692,
+        "entry": 0.08425,
+        "exit": 0.08763000000000003,
+        "stop": 0.08256,
+        "target": 0.08763000000000003,
+        "reason": "TP2",
+        "hours": 8.5,
+        "gross_r": 2.0,
+        "net_r": 1.9336807322485212,
+        "stress_r": 1.872658247041421,
+        "net_pct": 3.878837314540077,
+        "symbol": "DOGEUSDT",
+        "time": "2026-08-21T12:45:00+00:00",
+        "month": 8,
+        "side": 1
+      }
+    ],
+    "economic_rvol": [
+      {
+        "exit_index": 9241,
+        "entry": 1731.76,
+        "exit": 1652.0400000000002,
+        "stop": 1771.62,
+        "target": 1652.0400000000002,
+        "reason": "TP2",
+        "hours": 1.25,
+        "gross_r": 2.0,
+        "net_r": 1.9483858818364272,
+        "stress_r": 1.8974506083793272,
+        "net_pct": 4.484608793943722,
+        "symbol": "ETHUSDT",
+        "time": "2026-06-05T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 17149,
+        "entry": 2436.12,
+        "exit": 2453.31,
+        "stop": 2387.0,
+        "target": 2534.3599999999997,
+        "reason": "TIME",
+        "hours": 72.0,
+        "gross_r": 0.34995928338762405,
+        "net_r": 0.24559922638436651,
+        "stress_r": 0.1858749185667768,
+        "net_pct": 0.4952068863602858,
+        "symbol": "ETHUSDT",
+        "time": "2026-08-23T15:30:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 4491,
+        "entry": 85.34,
+        "exit": 88.62,
+        "stop": 83.7,
+        "target": 88.62,
+        "reason": "TP2",
+        "hours": 4.0,
+        "gross_r": 2.0,
+        "net_r": 1.933754268292683,
+        "stress_r": 1.8701103658536584,
+        "net_pct": 3.7161436606515066,
+        "symbol": "SOLUSDT",
+        "time": "2026-04-16T15:00:00+00:00",
+        "month": 4,
+        "side": 1
+      },
+      {
+        "exit_index": 9280,
+        "entry": 67.18,
+        "exit": 63.420000000000016,
+        "stop": 69.06,
+        "target": 63.420000000000016,
+        "reason": "TP2",
+        "hours": 11.5,
+        "gross_r": 2.0,
+        "net_r": 1.9531823803191488,
+        "stress_r": 1.9115015292553188,
+        "net_pct": 5.465886982732937,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T04:45:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9328,
+        "entry": 64.24,
+        "exit": 61.9376114046167,
+        "stop": 65.39119429769164,
+        "target": 61.9376114046167,
+        "reason": "TP2",
+        "hours": 6.0,
+        "gross_r": 2.0,
+        "net_r": 1.9300512806532863,
+        "stress_r": 1.8642877800916735,
+        "net_pct": 3.458692447914882,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-05T22:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9421,
+        "entry": 62.18,
+        "exit": 63.91,
+        "stop": 63.91,
+        "target": 58.720000000000006,
+        "reason": "SL",
+        "hours": 20.5,
+        "gross_r": -1.0,
+        "net_r": -1.052940823699422,
+        "stress_r": -1.0966714595375724,
+        "net_pct": -2.929539441942736,
+        "symbol": "SOLUSDT",
+        "time": "2026-06-06T07:00:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16992,
+        "entry": 95.64,
+        "exit": 99.72000000000001,
+        "stop": 93.6,
+        "target": 99.72000000000001,
+        "reason": "TP2",
+        "hours": 10.0,
+        "gross_r": 2.0,
+        "net_r": 1.9366808823529413,
+        "stress_r": 1.8792220588235298,
+        "net_pct": 4.130937892095381,
+        "symbol": "SOLUSDT",
+        "time": "2026-08-24T14:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 9157,
+        "entry": 1.1904,
+        "exit": 1.1483999999999996,
+        "stop": 1.2114,
+        "target": 1.1483999999999996,
+        "reason": "TP2",
+        "hours": 4.25,
+        "gross_r": 2.0,
+        "net_r": 1.930165714285715,
+        "stress_r": 1.863342857142858,
+        "net_pct": 3.4050302419355054,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-04T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9291,
+        "entry": 1.1247,
+        "exit": 1.0829000000000002,
+        "stop": 1.1456,
+        "target": 1.0829000000000002,
+        "reason": "TP2",
+        "hours": 7.75,
+        "gross_r": 2.0,
+        "net_r": 1.9314107505980858,
+        "stress_r": 1.8680346740430616,
+        "net_pct": 3.5890890626389083,
+        "symbol": "XRPUSDT",
+        "time": "2026-06-05T11:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 16965,
+        "entry": 1.5039,
+        "exit": 1.4708,
+        "stop": 1.4708,
+        "target": 1.5700999999999998,
+        "reason": "SL",
+        "hours": 3.25,
+        "gross_r": -1.0,
+        "net_r": -1.055767853096677,
+        "stress_r": -1.1096899074773416,
+        "net_pct": -2.323686145189164,
+        "symbol": "XRPUSDT",
+        "time": "2026-08-24T14:15:00+00:00",
+        "month": 8,
+        "side": 1
+      },
+      {
+        "exit_index": 9226,
+        "entry": 0.08987,
+        "exit": 0.08651,
+        "stop": 0.09155,
+        "target": 0.08651,
+        "reason": "TP2",
+        "hours": 21.5,
+        "gross_r": 2.0,
+        "net_r": 1.9226306175595238,
+        "stress_r": 1.8596377604166667,
+        "net_pct": 3.5941019667297223,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-04T05:15:00+00:00",
+        "month": 6,
+        "side": -1
+      },
+      {
+        "exit_index": 9370,
+        "entry": 0.0811,
+        "exit": 0.08254,
+        "stop": 0.08254,
+        "target": 0.07822000000000001,
+        "reason": "SL",
+        "hours": 2.25,
+        "gross_r": -1.0,
+        "net_r": -1.0697673177083336,
+        "stress_r": -1.137950651041667,
+        "net_pct": -1.8994635480887807,
+        "symbol": "DOGEUSDT",
+        "time": "2026-06-06T12:30:00+00:00",
+        "month": 6,
+        "side": -1
+      }
+    ]
+  },
+  "results": {
+    "economic_baseline": {
+      "all": {
+        "n": 55,
+        "median_hours": 12.0,
+        "gross_r": {
+          "mean": 0.49288104472033417,
+          "sum": 27.10845745961838,
+          "win_pct": 52.72727272727272,
+          "profit_factor": 2.047202219670374
+        },
+        "net_r": {
+          "mean": 0.42456330201371734,
+          "sum": 23.350981610754452,
+          "win_pct": 50.90909090909091,
+          "profit_factor": 1.8396209015179583
+        },
+        "stress_r": {
+          "mean": 0.3682385980789165,
+          "sum": 20.253122894340407,
+          "win_pct": 50.90909090909091,
+          "profit_factor": 1.6904895825435282
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 5,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 0.2,
+            "sum": 1.0,
+            "win_pct": 40.0,
+            "profit_factor": 1.3333333333333333
+          },
+          "net_r": {
+            "mean": 0.12872221460203961,
+            "sum": 0.643611073010198,
+            "win_pct": 40.0,
+            "profit_factor": 1.200236273903533
+          },
+          "stress_r": {
+            "mean": 0.0651606109904376,
+            "sum": 0.325803054952188,
+            "win_pct": 40.0,
+            "profit_factor": 1.0956758367144406
+          }
+        },
+        "5": {
+          "n": 7,
+          "median_hours": 50.75,
+          "gross_r": {
+            "mean": 0.12402319418333356,
+            "sum": 0.868162359283335,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 1.223375828658847
+          },
+          "net_r": {
+            "mean": 0.04467201994471835,
+            "sum": 0.31270413961302845,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 1.0745674992018381
+          },
+          "stress_r": {
+            "mean": -0.007578006856288256,
+            "sum": -0.0530460479940178,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 0.9879396170922318
+          }
+        },
+        "6": {
+          "n": 27,
+          "median_hours": 8.0,
+          "gross_r": {
+            "mean": 0.7124871907480603,
+            "sum": 19.23715415019763,
+            "win_pct": 59.25925925925925,
+            "profit_factor": 2.7488321954725112
+          },
+          "net_r": {
+            "mean": 0.6468098453670658,
+            "sum": 17.463865824910776,
+            "win_pct": 59.25925925925925,
+            "profit_factor": 2.4881523379847854
+          },
+          "stress_r": {
+            "mean": 0.5902520036734293,
+            "sum": 15.936804099182591,
+            "win_pct": 59.25925925925925,
+            "profit_factor": 2.2922381085760506
+          }
+        },
+        "7": {
+          "n": 3,
+          "median_hours": 15.5,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -3.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0878525547533455,
+            "sum": -3.263557664260037,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.153494180609249,
+            "sum": -3.4604825418277465,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "8": {
+          "n": 13,
+          "median_hours": 11.5,
+          "gross_r": {
+            "mean": 0.6925493038567242,
+            "sum": 9.003140950137414,
+            "win_pct": 61.53846153846154,
+            "profit_factor": 2.8006281900274828
+          },
+          "net_r": {
+            "mean": 0.6303352490369604,
+            "sum": 8.194358237480484,
+            "win_pct": 53.84615384615385,
+            "profit_factor": 2.51615854742357
+          },
+          "stress_r": {
+            "mean": 0.5772341792328766,
+            "sum": 7.504044330027396,
+            "win_pct": 53.84615384615385,
+            "profit_factor": 2.3085351887292425
+          }
+        }
+      },
+      "by_symbol": {
+        "BNBUSDT": {
+          "n": 2,
+          "median_hours": 16.125,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4484218983093715,
+            "sum": 0.896843796618743,
+            "win_pct": 50.0,
+            "profit_factor": 1.8558112131569386
+          },
+          "stress_r": {
+            "mean": 0.4041255587956706,
+            "sum": 0.8082511175913412,
+            "win_pct": 50.0,
+            "profit_factor": 1.7435552554758842
+          }
+        },
+        "BTCUSDT": {
+          "n": 4,
+          "median_hours": 28.125,
+          "gross_r": {
+            "mean": -0.25,
+            "sum": -1.0,
+            "win_pct": 25.0,
+            "profit_factor": 0.6666666666666666
+          },
+          "net_r": {
+            "mean": -0.33059897598713467,
+            "sum": -1.3223959039485387,
+            "win_pct": 25.0,
+            "profit_factor": 0.5937368213988607
+          },
+          "stress_r": {
+            "mean": -0.3927449919854867,
+            "sum": -1.5709799679419467,
+            "win_pct": 25.0,
+            "profit_factor": 0.5434384354337455
+          }
+        },
+        "DOGEUSDT": {
+          "n": 9,
+          "median_hours": 18.5,
+          "gross_r": {
+            "mean": -0.12575973785740724,
+            "sum": -1.131837640716665,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.807724940406448
+          },
+          "net_r": {
+            "mean": -0.1926485340026056,
+            "sum": -1.7338368060234504,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.7247608469167724
+          },
+          "stress_r": {
+            "mean": -0.24604176791316024,
+            "sum": -2.214375911218442,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.6661387013502932
+          }
+        },
+        "ETHUSDT": {
+          "n": 8,
+          "median_hours": 9.375,
+          "gross_r": {
+            "mean": 0.6253926187671768,
+            "sum": 5.003140950137414,
+            "win_pct": 62.5,
+            "profit_factor": 2.6677136500458047
+          },
+          "net_r": {
+            "mean": 0.5564565827232048,
+            "sum": 4.451652661785638,
+            "win_pct": 50.0,
+            "profit_factor": 2.3385545875194205
+          },
+          "stress_r": {
+            "mean": 0.49763626845952313,
+            "sum": 3.981090147676185,
+            "win_pct": 50.0,
+            "profit_factor": 2.1094785762717665
+          }
+        },
+        "SOLUSDT": {
+          "n": 16,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 1.0625,
+            "sum": 17.0,
+            "win_pct": 68.75,
+            "profit_factor": 4.4
+          },
+          "net_r": {
+            "mean": 0.993428013280659,
+            "sum": 15.894848212490544,
+            "win_pct": 68.75,
+            "profit_factor": 3.9534409992249944
+          },
+          "stress_r": {
+            "mean": 0.935491769710129,
+            "sum": 14.967868315362065,
+            "win_pct": 68.75,
+            "profit_factor": 3.6440098427948393
+          }
+        },
+        "XRPUSDT": {
+          "n": 16,
+          "median_hours": 11.125,
+          "gross_r": {
+            "mean": 0.3898221343873517,
+            "sum": 6.237154150197627,
+            "win_pct": 50.0,
+            "profit_factor": 1.7796442687747034
+          },
+          "net_r": {
+            "mean": 0.32274185311446957,
+            "sum": 5.163869649831513,
+            "win_pct": 50.0,
+            "profit_factor": 1.6074093991410043
+          },
+          "stress_r": {
+            "mean": 0.2675793245544504,
+            "sum": 4.281269192871206,
+            "win_pct": 50.0,
+            "profit_factor": 1.4798707599716459
+          }
+        }
+      }
+    },
+    "economic_cmf": {
+      "all": {
+        "n": 30,
+        "median_hours": 11.75,
+        "gross_r": {
+          "mean": 0.3862371144528417,
+          "sum": 11.587113433585252,
+          "win_pct": 50.0,
+          "profit_factor": 1.7724742289056836
+        },
+        "net_r": {
+          "mean": 0.32114403347734033,
+          "sum": 9.63432100432021,
+          "win_pct": 50.0,
+          "profit_factor": 1.60176440337909
+        },
+        "stress_r": {
+          "mean": 0.2677051826886724,
+          "sum": 8.031155480660171,
+          "win_pct": 50.0,
+          "profit_factor": 1.4775423563474164
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 3,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.06921516358228041,
+            "sum": -0.20764549074684124,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.9030328224002527
+          },
+          "stress_r": {
+            "mean": -0.13114460483894597,
+            "sum": -0.3934338145168379,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8261868189149103
+          }
+        },
+        "5": {
+          "n": 2,
+          "median_hours": 35.5,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -2.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0673312484152095,
+            "sum": -2.134662496830419,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.1149756644406104,
+            "sum": -2.2299513288812207,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "6": {
+          "n": 14,
+          "median_hours": 11.125,
+          "gross_r": {
+            "mean": 0.3740824392998306,
+            "sum": 5.237154150197628,
+            "win_pct": 50.0,
+            "profit_factor": 1.748164878599661
+          },
+          "net_r": {
+            "mean": 0.31216826398099656,
+            "sum": 4.370355695733952,
+            "win_pct": 50.0,
+            "profit_factor": 1.5869780725756228
+          },
+          "stress_r": {
+            "mean": 0.26034941854459726,
+            "sum": 3.6448918596243614,
+            "win_pct": 50.0,
+            "profit_factor": 1.4664802039507117
+          }
+        },
+        "7": {
+          "n": 2,
+          "median_hours": 41.5,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -2.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.092413697967715,
+            "sum": -2.18482739593543,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.156941581777748,
+            "sum": -2.313883163555496,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "8": {
+          "n": 9,
+          "median_hours": 11.5,
+          "gross_r": {
+            "mean": 1.1499954759319584,
+            "sum": 10.349959283387625,
+            "win_pct": 77.77777777777779,
+            "profit_factor": 6.174979641693812
+          },
+          "net_r": {
+            "mean": 1.087900076899883,
+            "sum": 9.791100692098947,
+            "win_pct": 77.77777777777779,
+            "profit_factor": 5.654198309479554
+          },
+          "stress_r": {
+            "mean": 1.0359479919988184,
+            "sum": 9.323531927989364,
+            "win_pct": 77.77777777777779,
+            "profit_factor": 5.244338028707456
+          }
+        }
+      },
+      "by_symbol": {
+        "BNBUSDT": {
+          "n": 2,
+          "median_hours": 16.125,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4484218983093715,
+            "sum": 0.896843796618743,
+            "win_pct": 50.0,
+            "profit_factor": 1.8558112131569386
+          },
+          "stress_r": {
+            "mean": 0.4041255587956706,
+            "sum": 0.8082511175913412,
+            "win_pct": 50.0,
+            "profit_factor": 1.7435552554758842
+          }
+        },
+        "BTCUSDT": {
+          "n": 2,
+          "median_hours": 28.125,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -2.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0798969074564804,
+            "sum": -2.1597938149129607,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.1420990972086082,
+            "sum": -2.2841981944172165,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "DOGEUSDT": {
+          "n": 3,
+          "median_hours": 11.5,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.06211319545950763,
+            "sum": -0.18633958637852288,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.9122631200211733
+          },
+          "stress_r": {
+            "mean": -0.1193822005813842,
+            "sum": -0.3581466017441526,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8400928258224493
+          }
+        },
+        "ETHUSDT": {
+          "n": 6,
+          "median_hours": 12.875,
+          "gross_r": {
+            "mean": 0.7249932138979372,
+            "sum": 4.349959283387624,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 3.174979641693812
+          },
+          "net_r": {
+            "mean": 0.6567105009820077,
+            "sum": 3.940263005892046,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.8280102243225262
+          },
+          "stress_r": {
+            "mean": 0.6009019735492053,
+            "sum": 3.6054118412952314,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.573234456155638
+          }
+        },
+        "SOLUSDT": {
+          "n": 10,
+          "median_hours": 10.125,
+          "gross_r": {
+            "mean": 0.8,
+            "sum": 8.0,
+            "win_pct": 60.0,
+            "profit_factor": 3.0
+          },
+          "net_r": {
+            "mean": 0.7316507926986308,
+            "sum": 7.316507926986308,
+            "win_pct": 60.0,
+            "profit_factor": 2.6945940144523273
+          },
+          "stress_r": {
+            "mean": 0.6755510321813636,
+            "sum": 6.755510321813635,
+            "win_pct": 60.0,
+            "profit_factor": 2.4874846935046677
+          }
+        },
+        "XRPUSDT": {
+          "n": 7,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 0.03387916431394682,
+            "sum": 0.23715415019762776,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 1.0592885375494068
+          },
+          "net_r": {
+            "mean": -0.024737189126486352,
+            "sum": -0.17316032388540448,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 0.9588251243205188
+          },
+          "stress_r": {
+            "mean": -0.07081042912552414,
+            "sum": -0.49567300387866897,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 0.886663773617857
+          }
+        }
+      }
+    },
+    "economic_vwap": {
+      "all": {
+        "n": 40,
+        "median_hours": 10.125,
+        "gross_r": {
+          "mean": 0.6564284684309023,
+          "sum": 26.25713873723609,
+          "win_pct": 57.49999999999999,
+          "profit_factor": 2.5549139137751156
+        },
+        "net_r": {
+          "mean": 0.5892928001534891,
+          "sum": 23.571712006139563,
+          "win_pct": 57.49999999999999,
+          "profit_factor": 2.305766643331797
+        },
+        "stress_r": {
+          "mean": 0.5335077061462863,
+          "sum": 21.340308245851453,
+          "win_pct": 57.49999999999999,
+          "profit_factor": 2.125575774044708
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 2,
+          "median_hours": 11.875,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 4.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.9289346057372507,
+            "sum": 3.8578692114745015,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8655417454268295,
+            "sum": 3.731083490853659,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "5": {
+          "n": 6,
+          "median_hours": 54.25,
+          "gross_r": {
+            "mean": -0.18863960678611083,
+            "sum": -1.131837640716665,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.7087812340642528
+          },
+          "net_r": {
+            "mean": -0.26815023521403397,
+            "sum": -1.608901411284204,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.6178251454408377
+          },
+          "stress_r": {
+            "mean": -0.32127828388450774,
+            "sum": -1.9276697033070465,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.5648627836751038
+          }
+        },
+        "6": {
+          "n": 23,
+          "median_hours": 7.0,
+          "gross_r": {
+            "mean": 0.8260869565217391,
+            "sum": 19.0,
+            "win_pct": 60.86956521739131,
+            "profit_factor": 3.111111111111111
+          },
+          "net_r": {
+            "mean": 0.7622253267399088,
+            "sum": 17.531182515017903,
+            "win_pct": 60.86956521739131,
+            "profit_factor": 2.830609064380772
+          },
+          "stress_r": {
+            "mean": 0.706569912985971,
+            "sum": 16.251107998677334,
+            "win_pct": 60.86956521739131,
+            "profit_factor": 2.6199425019046454
+          }
+        },
+        "7": {
+          "n": 1,
+          "median_hours": 15.25,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -1.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0760113399009477,
+            "sum": -1.0760113399009477,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.141520900624462,
+            "sum": -1.141520900624462,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "8": {
+          "n": 8,
+          "median_hours": 10.125,
+          "gross_r": {
+            "mean": 0.6736220472440945,
+            "sum": 5.388976377952756,
+            "win_pct": 62.5,
+            "profit_factor": 2.796325459317585
+          },
+          "net_r": {
+            "mean": 0.6084466288540376,
+            "sum": 4.8675730308323,
+            "win_pct": 62.5,
+            "profit_factor": 2.526149213179763
+          },
+          "stress_r": {
+            "mean": 0.553413420031496,
+            "sum": 4.427307360251968,
+            "win_pct": 62.5,
+            "profit_factor": 2.319218693283408
+          }
+        }
+      },
+      "by_symbol": {
+        "BNBUSDT": {
+          "n": 2,
+          "median_hours": 16.125,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4484218983093715,
+            "sum": 0.896843796618743,
+            "win_pct": 50.0,
+            "profit_factor": 1.8558112131569386
+          },
+          "stress_r": {
+            "mean": 0.4041255587956706,
+            "sum": 0.8082511175913412,
+            "win_pct": 50.0,
+            "profit_factor": 1.7435552554758842
+          }
+        },
+        "BTCUSDT": {
+          "n": 3,
+          "median_hours": 38.75,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.08126943148057486,
+            "sum": -0.24380829444172458,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8879781502614211
+          },
+          "stress_r": {
+            "mean": -0.1420047640814491,
+            "sum": -0.4260142922443473,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8144479164745975
+          }
+        },
+        "DOGEUSDT": {
+          "n": 8,
+          "median_hours": 20.0,
+          "gross_r": {
+            "mean": -0.01647970508958313,
+            "sum": -0.13183764071666504,
+            "win_pct": 37.5,
+            "profit_factor": 0.9730203280390659
+          },
+          "net_r": {
+            "mean": -0.08340583316757784,
+            "sum": -0.6672466653406227,
+            "win_pct": 37.5,
+            "profit_factor": 0.8725794606837771
+          },
+          "stress_r": {
+            "mean": -0.1365108478997517,
+            "sum": -1.0920867831980137,
+            "win_pct": 37.5,
+            "profit_factor": 0.8019444868711291
+          }
+        },
+        "ETHUSDT": {
+          "n": 4,
+          "median_hours": 11.0,
+          "gross_r": {
+            "mean": 0.8472440944881889,
+            "sum": 3.3889763779527557,
+            "win_pct": 75.0,
+            "profit_factor": 4.388976377952756
+          },
+          "net_r": {
+            "mean": 0.7792643657452614,
+            "sum": 3.1170574629810455,
+            "win_pct": 75.0,
+            "profit_factor": 3.8968630230867145
+          },
+          "stress_r": {
+            "mean": 0.7250113224675435,
+            "sum": 2.900045289870174,
+            "win_pct": 75.0,
+            "profit_factor": 3.5405100233239026
+          }
+        },
+        "SOLUSDT": {
+          "n": 12,
+          "median_hours": 7.75,
+          "gross_r": {
+            "mean": 1.25,
+            "sum": 15.0,
+            "win_pct": 75.0,
+            "profit_factor": 6.0
+          },
+          "net_r": {
+            "mean": 1.1843743547995598,
+            "sum": 14.212492257594716,
+            "win_pct": 75.0,
+            "profit_factor": 5.429303618012448
+          },
+          "stress_r": {
+            "mean": 1.125987158008046,
+            "sum": 13.511845896096553,
+            "win_pct": 75.0,
+            "profit_factor": 5.010397066793707
+          }
+        },
+        "XRPUSDT": {
+          "n": 11,
+          "median_hours": 10.25,
+          "gross_r": {
+            "mean": 0.6363636363636364,
+            "sum": 7.0,
+            "win_pct": 54.54545454545454,
+            "profit_factor": 2.4
+          },
+          "net_r": {
+            "mean": 0.5687612226115824,
+            "sum": 6.256373448727405,
+            "win_pct": 54.54545454545454,
+            "profit_factor": 2.1790452877978326
+          },
+          "stress_r": {
+            "mean": 0.5125697288850681,
+            "sum": 5.63826701773575,
+            "win_pct": 54.54545454545454,
+            "profit_factor": 2.015583096603367
+          }
+        }
+      }
+    },
+    "economic_squeeze": {
+      "all": {
+        "n": 11,
+        "median_hours": 10.0,
+        "gross_r": {
+          "mean": 1.3080887616320687,
+          "sum": 14.388976377952755,
+          "win_pct": 81.81818181818183,
+          "profit_factor": 8.194488188976377
+        },
+        "net_r": {
+          "mean": 1.242902889001033,
+          "sum": 13.671931779011363,
+          "win_pct": 81.81818181818183,
+          "profit_factor": 7.4750675484564795
+        },
+        "stress_r": {
+          "mean": 1.1862341296627754,
+          "sum": 13.04857542629053,
+          "win_pct": 81.81818181818183,
+          "profit_factor": 6.910903896919624
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 1,
+          "median_hours": 4.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 2.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.933754268292683,
+            "sum": 1.933754268292683,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8701103658536584,
+            "sum": 1.8701103658536584,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "5": {
+          "n": 0
+        },
+        "6": {
+          "n": 4,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 1.25,
+            "sum": 5.0,
+            "win_pct": 75.0,
+            "profit_factor": 6.0
+          },
+          "net_r": {
+            "mean": 1.1916278173525794,
+            "sum": 4.7665112694103176,
+            "win_pct": 75.0,
+            "profit_factor": 5.534304089858163
+          },
+          "stress_r": {
+            "mean": 1.1419701269648979,
+            "sum": 4.567880507859591,
+            "win_pct": 75.0,
+            "profit_factor": 5.1991861039469995
+          }
+        },
+        "7": {
+          "n": 0
+        },
+        "8": {
+          "n": 6,
+          "median_hours": 7.25,
+          "gross_r": {
+            "mean": 1.2314960629921259,
+            "sum": 7.388976377952756,
+            "win_pct": 83.33333333333334,
+            "profit_factor": 8.388976377952755
+          },
+          "net_r": {
+            "mean": 1.1619443735513932,
+            "sum": 6.97166624130836,
+            "win_pct": 83.33333333333334,
+            "profit_factor": 7.575418239881243
+          },
+          "stress_r": {
+            "mean": 1.1017640920962133,
+            "sum": 6.610584552577279,
+            "win_pct": 83.33333333333334,
+            "profit_factor": 6.903668871282363
+          }
+        }
+      },
+      "by_symbol": {
+        "DOGEUSDT": {
+          "n": 2,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 4.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.9297770947635011,
+            "sum": 3.8595541895270022,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.866231674944761,
+            "sum": 3.732463349889522,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "ETHUSDT": {
+          "n": 1,
+          "median_hours": 72.0,
+          "gross_r": {
+            "mean": 0.3889763779527556,
+            "sum": 0.3889763779527556,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 0.29893170603674524,
+            "sum": 0.29893170603674524,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 0.24737758530183715,
+            "sum": 0.24737758530183715,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "SOLUSDT": {
+          "n": 5,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 10.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.9367941404597808,
+            "sum": 9.683970702298904,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8786690238763917,
+            "sum": 9.393345119381959,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "XRPUSDT": {
+          "n": 3,
+          "median_hours": 1.75,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.056841606283763856,
+            "sum": -0.17052481885129156,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.9192389386812562
+          },
+          "stress_r": {
+            "mean": -0.1082035427609301,
+            "sum": -0.3246106282827903,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8529538922821911
+          }
+        }
+      }
+    },
+    "economic_rvol": {
+      "all": {
+        "n": 12,
+        "median_hours": 6.875,
+        "gross_r": {
+          "mean": 1.1124966069489688,
+          "sum": 13.349959283387625,
+          "win_pct": 75.0,
+          "profit_factor": 5.449986427795875
+        },
+        "net_r": {
+          "mean": 1.0461154173148122,
+          "sum": 12.553385007777745,
+          "win_pct": 75.0,
+          "profit_factor": 4.9494981335339565
+        },
+        "stress_r": {
+          "mean": 0.9879292112096909,
+          "sum": 11.85515053451629,
+          "win_pct": 75.0,
+          "profit_factor": 4.544869758117085
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 1,
+          "median_hours": 4.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 2.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.933754268292683,
+            "sum": 1.933754268292683,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8701103658536584,
+            "sum": 1.8701103658536584,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "5": {
+          "n": 0
+        },
+        "6": {
+          "n": 8,
+          "median_hours": 6.875,
+          "gross_r": {
+            "mean": 1.25,
+            "sum": 10.0,
+            "win_pct": 75.0,
+            "profit_factor": 6.0
+          },
+          "net_r": {
+            "mean": 1.1866398104805538,
+            "sum": 9.49311848384443,
+            "win_pct": 75.0,
+            "profit_factor": 5.472173210561441
+          },
+          "stress_r": {
+            "mean": 1.1287041373437083,
+            "sum": 9.029633098749667,
+            "win_pct": 75.0,
+            "profit_factor": 5.040787503176133
+          }
+        },
+        "7": {
+          "n": 0
+        },
+        "8": {
+          "n": 3,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 0.4499864277958747,
+            "sum": 1.3499592833876242,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.349959283387624
+          },
+          "net_r": {
+            "mean": 0.37550408521354367,
+            "sum": 1.126512255640631,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.0670075361136004
+          },
+          "stress_r": {
+            "mean": 0.31846902330432164,
+            "sum": 0.9554070699129649,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 1.8609676121907714
+          }
+        }
+      },
+      "by_symbol": {
+        "DOGEUSDT": {
+          "n": 2,
+          "median_hours": 11.875,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4264316499255951,
+            "sum": 0.8528632998511902,
+            "win_pct": 50.0,
+            "profit_factor": 1.7972418728197854
+          },
+          "stress_r": {
+            "mean": 0.36084355468749985,
+            "sum": 0.7216871093749997,
+            "win_pct": 50.0,
+            "profit_factor": 1.6341989511710158
+          }
+        },
+        "ETHUSDT": {
+          "n": 2,
+          "median_hours": 36.625,
+          "gross_r": {
+            "mean": 1.174979641693812,
+            "sum": 2.349959283387624,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.0969925541103969,
+            "sum": 2.1939851082207937,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.041662763473052,
+            "sum": 2.083325526946104,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "SOLUSDT": {
+          "n": 5,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 1.4,
+            "sum": 7.0,
+            "win_pct": 80.0,
+            "profit_factor": 8.0
+          },
+          "net_r": {
+            "mean": 1.3401455975837275,
+            "sum": 6.700727987918638,
+            "win_pct": 80.0,
+            "profit_factor": 7.3638220088914155
+          },
+          "stress_r": {
+            "mean": 1.2856900548973216,
+            "sum": 6.428450274486608,
+            "win_pct": 80.0,
+            "profit_factor": 6.86178314259884
+          }
+        },
+        "XRPUSDT": {
+          "n": 3,
+          "median_hours": 4.25,
+          "gross_r": {
+            "mean": 1.0,
+            "sum": 3.0,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 4.0
+          },
+          "net_r": {
+            "mean": 0.9352695372623746,
+            "sum": 2.805808611787124,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 3.6575999672251767
+          },
+          "stress_r": {
+            "mean": 0.8738958745695259,
+            "sum": 2.6216876237085778,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 3.362540747683703
+          }
+        }
+      }
+    }
+  },
+  "indicator_protocol": "Exploratory indicator ablation; fixed before this run, not independent validation.\n\nSame six coins and March-August2026 data as prior studies. Each extra filter\nis tested separately against economic reclaim; no combinations or tuning.\nCMF is candle-based money-flow proxy, NOT actual order flow or a heatmap.\n",
+  "uncertainty": {
+    "economic_baseline": {
+      "n": 55,
+      "entry_days": 27,
+      "mean_ci95_r": [
+        -0.2631598505353239,
+        0.8941127681571757
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_cmf": {
+      "n": 30,
+      "entry_days": 15,
+      "mean_ci95_r": [
+        -0.5043052697996692,
+        0.9007034712758154
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_vwap": {
+      "n": 40,
+      "entry_days": 19,
+      "mean_ci95_r": [
+        -0.21252432279561703,
+        1.0795195033310199
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_squeeze": {
+      "n": 11,
+      "entry_days": 6,
+      "mean_ci95_r": [
+        0.5754248133666634,
+        1.79712327855271
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_rvol": {
+      "n": 12,
+      "entry_days": 6,
+      "mean_ci95_r": [
+        -0.1619702858381636,
+        1.8150719103701018
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    }
+  }
+}
