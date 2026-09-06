@@ -140,7 +140,8 @@ def build_router(
             return
         async with search_lock:
             progress = await message.answer(
-                "⏳ Единый поиск: ранний отбор → PRIME-проверки → свежая цена.",
+                "⏳ Единый поиск: ранний отбор → PRIME-проверки → свежая цена.\n"
+                "На сканирование — до 60 секунд, включая ожидание фонового поиска.",
                 reply_markup=main_keyboard(),
             )
             try:
@@ -164,6 +165,13 @@ def build_router(
                 for item in candidates[:3]:
                     checked = await refresh_prime_entry(item, exchange, settings)
                     await message.answer(format_prime_setup(checked))
+            except TimeoutError:
+                health.last_error = "PRIME scan exceeded 60 seconds"
+                await progress.edit_text(
+                    "⚠️ Биржевые запросы или очередь сканирования не уложились в 60 секунд.\n"
+                    "Поиск остановлен, вход не подтверждён. Это сбой получения данных, "
+                    "а не результат «подходящих монет нет». Фоновый поиск попробует снова."
+                )
             except Exception as exc:
                 health.last_error = type(exc).__name__
                 await progress.edit_text(
@@ -264,11 +272,21 @@ def build_router(
         last = scanner.last_report
         last_scan = last.finished_at.strftime("%d.%m.%Y %H:%M UTC") if last else "ещё не было"
         active_paper = await store.active_paper_count()
+        prime_finished = (
+            smart_money.last_report.finished_at.strftime('%d.%m %H:%M UTC')
+            if smart_money.last_report else 'ещё не было'
+        )
         await message.answer(
             "<b>Состояние системы</b>\n"
             f"Версия: <code>{html.escape(release_label())}</code>\n"
             f"Telegram: ✅ @{html.escape(health.bot_username)}\n"
             f"{exchange.name} API: {'✅' if api_ok else '❌'}\n"
+            f"PRIME автопоиск: {'✅' if settings.smart_money_auto_scan_enabled else '❌'} "
+            f"· интервал {settings.smart_money_scan_interval_seconds} сек\n"
+            f"PRIME автоуведомления: {'✅' if settings.prime_alerts_enabled else '❌'} "
+            f"· максимум {settings.prime_max_alerts_per_day}/сутки\n"
+            f"Последний завершённый PRIME-скан: "
+            f"{prime_finished}\n"
             f"Фоновый контроль: ✅ каждые {settings.scan_interval_seconds // 60} мин\n"
             f"Обычные trend-auto алерты: "
             f"{'✅' if settings.standard_auto_alerts_enabled else '❌ (PRIME-first)'}\n"
