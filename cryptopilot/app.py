@@ -30,7 +30,11 @@ from cryptopilot.live_radar import (
 )
 from cryptopilot.models import EarlySetup, Signal
 from cryptopilot.scanner import MarketScanner
-from cryptopilot.smart_money import SmartMoneyScanner, refresh_smart_money_watchlist
+from cryptopilot.smart_money import (
+    SmartMoneyScanner,
+    SmartMoneySetup,
+    refresh_smart_money_watchlist,
+)
 from cryptopilot.squeeze_lab import SqueezeLab
 from cryptopilot.storage import SignalStore
 from cryptopilot.telegram import (
@@ -110,7 +114,8 @@ async def run() -> None:
             f"Монет под наблюдением: {live.watching}\n"
             f"Последняя сделка в потоке: {age}\n"
             f"Пересечения: {live.delivered} · пропущено: {live.dropped}\n"
-            f"Flow до BOS: {live.flow_delivered} · пропущено: {live.flow_dropped}\n"
+            f"Flow наблюдений: {live.flow_observed} · уведомлено: {live.flow_delivered} · "
+            f"пропущено: {live.flow_dropped}\n"
             f"Ранний refresh: {settings.live_watchlist_interval_seconds} сек\n"
             f"Smart Money refresh: {settings.smart_money_scan_interval_seconds} сек\n\n"
             f"{validation}\n\n"
@@ -172,7 +177,7 @@ async def run() -> None:
                 await bot.send_message(
                     chat_id,
                     f"✅ <b>CryptoPilot {release_label()} запущен</b>\n"
-                    "Smart Money Radar усилен realtime CVD, OI acceleration и absorption.\n"
+                    "Режим PRIME: редкие pre-move кандидаты; обычный Flow анализируется тихо.\n"
                     "Если панель скрыта, отправьте /menu.",
                     reply_markup=main_keyboard(),
                     disable_notification=True,
@@ -208,6 +213,95 @@ async def run() -> None:
             if successes == 0:
                 raise RuntimeError("No configured Telegram chat accepted the early alert")
             health.alerts_total += 1
+
+        async def send_prime_candidate(item: SmartMoneySetup) -> None:
+            if not settings.prime_alerts_enabled or not item.prime_ready:
+                return
+            if item.prime_score < settings.prime_min_score:
+                return
+
+            fingerprint = f"PRIME:{item.symbol}:{item.bias.value}"
+            symbol_allowed = await store.strict_alert_allowed(
+                fingerprint,
+                settings.prime_symbol_cooldown_minutes,
+            )
+            budget_allowed = await store.notification_budget_available(
+                "prime",
+                cooldown_minutes=settings.prime_global_cooldown_minutes,
+                max_per_day=settings.prime_max_alerts_per_day,
+            )
+            if not symbol_allowed or not budget_allowed:
+                return
+
+            reasons = "\n".join(
+                f"• {html.escape(value)}" for value in item.prime_reasons
+            )
+            oi = (
+                f"{item.oi_change_pct:+.2f}%"
+                if item.oi_change_pct is not None
+                else "н/д"
+            )
+            flow_state = []
+            if item.live_delta_ratio_60s is not None:
+                flow_state.append(f"Δ60s {item.live_delta_ratio_60s:+.0%}")
+            if item.live_volume_burst_ratio is not None:
+                flow_state.append(f"burst {item.live_volume_burst_ratio:.2f}×")
+            if item.live_oi_acceleration_pct_per_min is not None:
+                flow_state.append(
+                    f"OI accel {item.live_oi_acceleration_pct_per_min:+.3f}%/мин"
+                )
+            flow_text = " · ".join(flow_state) if flow_state else "ещё нет достаточного live-потока"
+
+            message_text = (
+                f"🎯 <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
+                f"Сценарий: <b>{item.bias.value}</b> · Prime score: "
+                f"<b>{item.prime_score}/100</b>\n"
+                f"Цена сейчас: <code>{item.price:.8g}</code>\n"
+                f"Структурный trigger: <code>{item.trigger_price:.8g}</code> · "
+                f"до него {item.distance_to_trigger_pct:.2f}%\n"
+                f"Инвалидация сценария: <code>{item.invalidation_price:.8g}</code>\n"
+                f"Структура: 15m {html.escape(item.structure_15m)} · "
+                f"1h {html.escape(item.structure_1h)}\n"
+                f"RVOL: {item.rvol:.2f}× · OI: {oi} · "
+                f"funding: {item.funding_pct:+.3f}%\n"
+                f"Live: {html.escape(flow_text)}\n\n"
+                f"<b>Почему это TOP-кандидат до потока</b>\n{reasons}\n\n"
+                "🟢 Это редкий ранний кандидат: система специально требует, чтобы "
+                "цена ещё не ускорилась и основной поток не был разогнан. "
+                "Prime score — внутренний рейтинг, а не процент гарантии. "
+                "Если цена уже резко ушла, сообщение нельзя использовать для погони за входом."
+            )
+
+            successes = 0
+            for chat_id in settings.allowed_chat_ids:
+                try:
+                    await bot.send_message(chat_id, message_text)
+                    successes += 1
+                except Exception:
+                    log.exception("Prime candidate delivery failed")
+            if successes == 0:
+                raise RuntimeError("No prime alert recipients accepted the message")
+
+            await store.mark_event_alerted(fingerprint, item.price)
+            await store.mark_notification_budget("prime")
+            if settings.flow_validation_enabled:
+                await store.record_flow_observation(
+                    symbol=item.symbol,
+                    bias=item.bias,
+                    score=item.prime_score,
+                    event_type="PRIME_PREMOVE",
+                    event_price=item.price,
+                    trigger_price=item.trigger_price,
+                    created_at=item.created_at,
+                    window_minutes=settings.flow_validation_window_minutes,
+                )
+            health.alerts_total += 1
+
+        async def handle_smart_money_report(_report) -> None:
+            candidates = smart_money.prime_candidates()
+            if not candidates:
+                return
+            await send_prime_candidate(candidates[0])
 
         async def send_flow_event(event: FlowPressureEvent) -> None:
             snapshot = event.snapshot
@@ -280,6 +374,8 @@ async def run() -> None:
                         smart_money,
                         stop_event,
                         settings.smart_money_scan_interval_seconds,
+                        10,
+                        handle_smart_money_report,
                     ),
                     name="smart-money-watchlist-refresh",
                 )
@@ -322,7 +418,7 @@ async def run() -> None:
                         settings.min_early_auto_readiness,
                         2 * settings.live_watchlist_interval_seconds,
                     )
-                    if settings.early_radar_enabled
+                    if settings.early_radar_enabled and settings.early_auto_alerts
                     else []
                 ),
                 send_crossing,
@@ -338,6 +434,7 @@ async def run() -> None:
                         settings.smart_money_scan_interval_seconds,
                     ),
                     smart_money.flow_watchlist(),
+                    settings.flow_watchlist_limit,
                 ),
                 send_flow=send_flow_event,
                 settings=settings,
