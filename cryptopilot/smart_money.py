@@ -150,7 +150,12 @@ class SmartMoneyScanner:
         # Hard deadline for callers. asyncio.wait returns on time even when
         # cancellation cleanup in a slow socket is delayed.
         task = asyncio.create_task(self._scan())
-        done, _ = await asyncio.wait({task}, timeout=SCAN_TIMEOUT_SECONDS)
+        try:
+            done, _ = await asyncio.wait({task}, timeout=SCAN_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            _cancel_detached((task,))
+            await asyncio.sleep(0)
+            raise
         if task not in done:
             _cancel_detached((task,))
             await asyncio.sleep(0)
