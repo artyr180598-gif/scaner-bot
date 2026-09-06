@@ -39,7 +39,7 @@ def _add_directional_flow(tracker: FlowTracker, now_ms: int) -> None:
         tracker.add_trade(
             "TESTUSDT",
             "Buy",
-            99.55 + index * 0.06,
+            99.72 + index * 0.015,
             50,
             now_ms - offset * 1_000,
         )
