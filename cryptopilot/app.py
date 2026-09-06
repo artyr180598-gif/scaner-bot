@@ -116,6 +116,7 @@ async def run() -> None:
                 BotCommand(command="menu", description="Обновить главное меню"),
                 BotCommand(command="scan", description="Сканировать рынок"),
                 BotCommand(command="early", description="Радар до импульса"),
+                BotCommand(command="smartmoney", description="Крупный поток: структура + объём + OI"),
                 BotCommand(command="analyze", description="Анализ монеты"),
                 BotCommand(command="best", description="Последние сильные сигналы"),
                 BotCommand(command="performance", description="Paper-статистика"),
@@ -137,7 +138,7 @@ async def run() -> None:
                 await bot.send_message(
                     chat_id,
                     f"✅ <b>CryptoPilot {release_label()} запущен</b>\n"
-                    "Меню обновлено. Кнопка «⚡ До импульса» находится во второй строке.\n"
+                    "Меню обновлено. Добавлен «🐋 Крупный капитал» — отдельный Smart Money Radar.\n"
                     "Если панель скрыта, отправьте /menu.",
                     reply_markup=main_keyboard(),
                     disable_notification=True,
