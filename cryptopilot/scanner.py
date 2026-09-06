@@ -44,7 +44,7 @@ class MarketScanner:
             tickers = await self.exchange.tickers()
             universe = self._universe(tickers)
             ticker_map = {item.symbol: item for item in universe}
-            quick_tf = self.settings.timeframe_list[1]
+            quick_tf = self.settings.timeframe_list[0]
 
             quick_results = await asyncio.gather(
                 *(self._quick(item.symbol, quick_tf) for item in universe), return_exceptions=True
@@ -89,7 +89,14 @@ class MarketScanner:
                     await self.store.save(result)
                     signals.append(result)
 
-            signals.sort(key=lambda item: (item.confidence, abs(item.score)), reverse=True)
+            signals.sort(
+                key=lambda item: (
+                    item.market_context.get("premove_readiness", 0.0),
+                    item.confidence,
+                    abs(item.score),
+                ),
+                reverse=True,
+            )
             report = ScanReport(
                 exchange=self.exchange.name,
                 started_at=started,
@@ -281,13 +288,14 @@ class MarketScanner:
                     refresh.expired,
                     refresh.errors,
                 )
-            for signal in await self.auto_candidates():
-                await callback(signal)
-                await self.store.mark_alerted(
-                    signal,
-                    track_paper=self.settings.paper_tracking_enabled,
-                    max_holding_hours=self.settings.paper_max_holding_hours,
-                )
+            if self.settings.standard_auto_alerts_enabled:
+                for signal in await self.auto_candidates():
+                    await callback(signal)
+                    await self.store.mark_alerted(
+                        signal,
+                        track_paper=self.settings.paper_tracking_enabled,
+                        max_holding_hours=self.settings.paper_max_holding_hours,
+                    )
             if self.settings.early_radar_enabled and self.settings.early_auto_alerts:
                 for setup in await self.auto_early_candidates():
                     await early_callback(setup)
@@ -315,7 +323,7 @@ class MarketScanner:
 
     async def _quick(self, symbol: str, timeframe: str) -> tuple[float, list[Candle]]:
         series = await self.exchange.candles(symbol, timeframe, 240)
-        return self.engine.quick_score(series), series
+        return self.engine.quick_opportunity_score(series), series
 
     async def _quick_early(
         self, symbol: str, timeframe: str
