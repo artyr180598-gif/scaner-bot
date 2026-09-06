@@ -133,8 +133,9 @@ def test_matching_absorption_is_not_treated_as_flow_conflict(candle_factory) -> 
         trade_count_60s=100,
     )
 
+    baseline, _, _ = _direction_score(Side.LONG, f15, f1h, market)
     score, reasons, warnings = _direction_score(Side.LONG, f15, f1h, market, flow)
 
-    assert score >= 60
+    assert score > baseline
     assert any("поглощ" in reason.lower() for reason in reasons)
     assert not any("delta сейчас против" in warning for warning in warnings)
