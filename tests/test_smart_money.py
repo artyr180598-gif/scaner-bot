@@ -70,11 +70,6 @@ def test_entry_stage_requires_confirmed_breakout(candle_factory) -> None:
 def test_live_flow_strengthens_matching_direction(candle_factory) -> None:
     f15 = compute_features(candle_factory(direction=1))
     f1h = compute_features(candle_factory(interval="60", direction=1))
-    f4h = replace(
-        raw4h,
-        close=max(raw4h.close, raw4h.ema50 * 1.02),
-        supertrend_direction=1,
-    )
     market = replace(
         _ticker(f15.close, bullish=True),
         open_interest_change_pct=None,
@@ -166,6 +161,11 @@ def test_prime_pre_move_rewards_coiled_market_before_flow(candle_factory) -> Non
     f1h = replace(
         raw1h,
         close=max(raw1h.close, raw1h.ema50 * 1.02, raw1h.ema200 * 1.03),
+        supertrend_direction=1,
+    )
+    f4h = replace(
+        raw4h,
+        close=max(raw4h.close, raw4h.ema50 * 1.02),
         supertrend_direction=1,
     )
     market = replace(
