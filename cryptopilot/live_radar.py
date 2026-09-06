@@ -448,6 +448,7 @@ class LiveRadar:
                             price,
                             float(trade["v"]),
                             event_ms,
+                            trade_id=str(trade.get("i") or "") or None,
                         )
                         if self.settings and self.settings.flow_validation_enabled:
                             await self._resolve_live_flow_validation(
