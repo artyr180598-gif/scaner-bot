@@ -232,11 +232,8 @@ async def refresh_smart_money_watchlist(
             else float("inf")
         )
         if age >= interval_seconds and not scanner._lock.locked():
-            try:
+            with suppress(Exception):
                 await scanner.scan()
-            except Exception:
-                # The caller's process logger will still keep the bot alive; a later cycle retries.
-                pass
         with suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=30)
 
