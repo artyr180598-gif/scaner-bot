@@ -140,6 +140,7 @@ class Settings(BaseSettings):
     prime_max_directional_liquidation_ratio: float = Field(default=0.25, ge=0.05, le=2.0)
 
     prime_cross_exchange_enabled: bool = True
+    prime_cross_exchange_required: bool = True
     prime_cross_exchange_min_confirmations: int = Field(default=2, ge=1, le=4)
     prime_cross_exchange_max_price_divergence_bps: float = Field(
         default=35.0, ge=5.0, le=200.0
