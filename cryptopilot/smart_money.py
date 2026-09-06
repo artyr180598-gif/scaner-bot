@@ -194,8 +194,17 @@ class SmartMoneyScanner:
                 if result is not None:
                     setups.append(result)
 
-            stage_rank = {"ENTRY": 3, "ARMED": 2, "WATCH": 1}
-            setups.sort(key=lambda item: (stage_rank.get(item.stage, 0), item.score), reverse=True)
+            # User-facing ranking is deliberately pre-move first. ENTRY is confirmation
+            # after the structural break and must never outrank ARMED/WATCH candidates.
+            stage_rank = {"ARMED": 3, "WATCH": 2, "ENTRY": 0}
+            setups.sort(
+                key=lambda item: (
+                    item.prime_score if item.stage != "ENTRY" else -1,
+                    stage_rank.get(item.stage, 0),
+                    item.score,
+                ),
+                reverse=True,
+            )
             self._prime_candidates = tuple(
                 sorted(
                     (item for item in setups if item.prime_ready),
@@ -216,13 +225,18 @@ class SmartMoneyScanner:
                     reverse=True,
                 )[:6]
             )
+            visible_setups = (
+                setups
+                if self.settings.smart_money_include_post_breakout
+                else [item for item in setups if item.stage != "ENTRY"]
+            )
             report = SmartMoneyReport(
                 exchange=self.exchange.name,
                 started_at=started,
                 finished_at=datetime.now(UTC),
                 universe_count=len(universe),
                 analyzed_count=len(candidates),
-                setups=tuple(setups[:8]),
+                setups=tuple(visible_setups[:8]),
                 errors=tuple(errors[:12]),
             )
             self.last_report = report
@@ -239,6 +253,37 @@ class SmartMoneyScanner:
     def shadow_candidates(self) -> tuple[SmartMoneySetup, ...]:
         """Broader silent sample used only to learn which PRIME patterns work later."""
         return self._shadow_candidates
+
+    async def analyze_symbol(self, symbol: str) -> SmartMoneySetup | None:
+        """Run the full pre-move stack for one requested symbol."""
+        normalized = symbol.upper().replace("/", "").replace("-", "")
+        if not normalized.endswith("USDT"):
+            normalized += "USDT"
+        tickers = await self.exchange.tickers()
+        ticker = next((item for item in tickers if item.symbol == normalized), None)
+        if ticker is None:
+            raise ValueError(
+                f"{normalized} is not an active USDT perpetual on {self.exchange.name}"
+            )
+        confirmation_ticker: Ticker | None = None
+        if (
+            self.settings.prime_cross_exchange_enabled
+            and self.confirmation_exchange is not None
+        ):
+            try:
+                secondary = await self.confirmation_exchange.tickers()
+                confirmation_ticker = next(
+                    (item for item in secondary if item.symbol == normalized),
+                    None,
+                )
+            except Exception as exc:
+                log.debug(
+                    "Secondary exchange unavailable for %s manual analysis: %s",
+                    normalized,
+                    type(exc).__name__,
+                )
+        feature15 = await self._quick(ticker)
+        return await self._deep(ticker, feature15, confirmation_ticker)
 
     @staticmethod
     def _build_flow_watchlist(
@@ -1161,19 +1206,22 @@ def format_smart_money_report(report: SmartMoneyReport) -> str:
             "Сейчас нет монет, где одновременно совпали структура, объём и деривативный поток. "
             "Это лучше, чем выдавать слабый сигнал."
         )
-    entry = sum(item.stage == "ENTRY" for item in report.setups)
     armed = sum(item.stage == "ARMED" for item in report.setups)
+    watching = sum(item.stage == "WATCH" for item in report.setups)
+    prime = sum(item.prime_ready for item in report.setups)
     return (
-        "<b>🐋 Smart Money Radar</b>\n"
+        "<b>🐋 Smart Money Radar · PRE-MOVE</b>\n"
         f"Биржа: {html.escape(report.exchange)} · рынок: {report.universe_count} · "
         f"глубокий анализ: {report.analyzed_count}\n"
-        f"ENTRY: {entry} · ARMED: {armed} · показано: {len(report.setups)}\n\n"
-        "Это поиск следа крупного потока по публичным данным, а не идентификация конкретных китов."
+        f"PRIME-ready: {prime} · ARMED: {armed} · WATCH: {watching} · "
+        f"показано: {len(report.setups)}\n\n"
+        "Пробитые/уже разогнанные ENTRY-сценарии по умолчанию скрыты. "
+        "Радар ищет признаки подготовки по публичным данным, а не идентифицирует конкретных китов."
     )
 
 
 def format_smart_money_setup(item: SmartMoneySetup) -> str:
-    stage_icon = {"ENTRY": "🟢", "ARMED": "🟡", "WATCH": "🔵"}.get(item.stage, "⚪")
+    stage_icon = {"ENTRY": "⚪", "ARMED": "🟡", "WATCH": "🔵"}.get(item.stage, "⚪")
     side_icon = "↗️" if item.bias is Side.LONG else "↘️"
     oi = "н/д" if item.oi_change_pct is None else f"{item.oi_change_pct:+.1f}%"
     taker = "н/д" if item.taker_buy_ratio is None else f"{item.taker_buy_ratio:.0%} buy"
@@ -1195,9 +1243,9 @@ def format_smart_money_setup(item: SmartMoneySetup) -> str:
         live_parts.append(item.live_absorption)
     live_line = " · ".join(live_parts)
     stage_text = {
-        "ENTRY": "подтверждение уже есть; всё равно не гнаться за свечой",
-        "ARMED": "сетап готовится; ждать закрытого 15m подтверждения уровня",
-        "WATCH": "наблюдение; вход пока не подтверждён",
+        "ENTRY": "пробой уже произошёл; это позднее подтверждение, а не новый вход",
+        "ARMED": "сетап поджат к trigger; ищем вход до основного ускорения",
+        "WATCH": "раннее наблюдение; ждём усиления факторов без погони за ценой",
     }.get(item.stage, "наблюдение")
     return (
         f"{stage_icon} <b>{html.escape(item.symbol)} · {item.stage} · "
