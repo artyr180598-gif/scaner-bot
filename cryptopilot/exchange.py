@@ -53,7 +53,7 @@ class JsonClient:
         await self.start()
         assert self.session is not None
         last_error: Exception | None = None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 async with (
                     self.semaphore,
@@ -65,8 +65,8 @@ class JsonClient:
                     return await response.json()
             except (aiohttp.ClientError, TimeoutError, MarketDataError) as exc:
                 last_error = exc
-                if attempt < 2:
-                    await asyncio.sleep(0.5 * (2**attempt))
+                if attempt < 1:
+                    await asyncio.sleep(0.4 * (2**attempt))
         raise MarketDataError(f"GET {path} failed after retries: {last_error}")
 
 
