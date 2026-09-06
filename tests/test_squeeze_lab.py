@@ -75,3 +75,39 @@ async def check_persistence(tmp_path):
     restarted = SqueezeLab(None, SimpleNamespace(path=lab.path), None)
     assert len(await restarted.rows()) == 1
     assert "CENSORED_GAP" in await restarted.report()
+
+
+def test_cycle_records_fresh_entry_once_without_alerts(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import cryptopilot.squeeze_lab as module
+
+    class Exchange:
+        name = "BYBIT"
+
+        async def candles(self, symbol, interval, limit):
+            return []
+
+        async def tickers(self):
+            return [Ticker("BTCUSDT", 100.0, 99.99, 100.01, 1e9, 1e6)]
+
+    monkeypatch.setattr(module, "SYMBOLS", ("BTCUSDT",))
+    monkeypatch.setattr(module.time, "time", lambda: 900.01)
+    monkeypatch.setattr(
+        module,
+        "detect",
+        lambda *args: dict(side=1, close=100.0, atr=2.0, swing=97.0, signal_ms=900000),
+    )
+
+    async def scenario():
+        store = SimpleNamespace(path=tmp_path / "cycle.db")
+        settings = SimpleNamespace(max_spread_bps=10, min_volume_usdt=1e6)
+        lab = SqueezeLab(Exchange(), store, settings)
+        await lab.initialize()
+        await lab.cycle()
+        assert len(await lab.rows()) == 1
+        restarted = SqueezeLab(Exchange(), store, settings)
+        await restarted.cycle()
+        assert len(await restarted.rows()) == 1
+
+    asyncio.run(scenario())
