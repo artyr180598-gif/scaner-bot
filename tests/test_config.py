@@ -40,6 +40,7 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.prime_min_score >= 88
     assert config.prime_spot_confirmation_enabled
     assert config.prime_min_spot_taker_ratio >= 0.60
+    assert config.prime_min_spot_confirmations >= 2
     assert config.prime_max_directional_perp_basis_bps <= 20
     assert config.max_auto_signals_per_scan == 1
     assert not config.early_auto_alerts
