@@ -8,11 +8,16 @@ from dataclasses import dataclass
 from cryptopilot.models import Side
 
 
-@dataclass(frozen=True, slots=True)
-class TradePoint:
-    ts_ms: int
-    price: float
+@dataclass(slots=True)
+class TradeBucket:
+    """One-second aggregation keeps 5m flow stable even on very busy symbols."""
+
+    second_ms: int
+    first_price: float
+    last_price: float
     signed_notional: float
+    total_notional: float
+    trade_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,17 +70,19 @@ class FlowPressureEvent:
 
 
 class FlowTracker:
-    """Rolling public-trade CVD proxy and ticker OI monitor.
+    """Rolling public-trade CVD proxy plus streaming open-interest acceleration.
 
-    Bybit publicTrade reports the taker side. Signed taker notional is therefore a useful
-    public CVD proxy, but it is not a full exchange footprint and does not identify traders.
+    Bybit publicTrade exposes taker side, so signed taker notional is useful as a CVD proxy.
+    It still cannot identify a whale/institution and is not a full order-book footprint.
     """
 
     def __init__(self) -> None:
-        self._trades: dict[str, deque[TradePoint]] = defaultdict(lambda: deque(maxlen=20_000))
+        self._trades: dict[str, deque[TradeBucket]] = defaultdict(
+            lambda: deque(maxlen=420)
+        )
         self._oi: dict[str, deque[OIPoint]] = defaultdict(lambda: deque(maxlen=1_200))
         self._last_price: dict[str, float] = {}
-        self._last_oi_value: dict[str, float] = {}
+        self._last_trade_ms: dict[str, int] = {}
         self._last_oi_sample_ms: dict[str, int] = {}
         self._last_event_ms: dict[str, int] = {}
 
@@ -95,15 +102,38 @@ class FlowTracker:
             or size <= 0
         ):
             return
+        sign = 1.0 if side == "Buy" else -1.0 if side == "Sell" else 0.0
+        if sign == 0:
+            return
+
         normalized = symbol.upper()
-        signed = price * size * (1.0 if side == "Buy" else -1.0 if side == "Sell" else 0.0)
-        if signed == 0:
+        second_ms = ts_ms - ts_ms % 1_000
+        notional = price * size
+        buckets = self._trades[normalized]
+        if buckets and second_ms < buckets[-1].second_ms:
             return
-        points = self._trades[normalized]
-        if points and ts_ms < points[-1].ts_ms:
-            return
-        points.append(TradePoint(ts_ms, price, signed))
+        if buckets and second_ms == buckets[-1].second_ms:
+            bucket = buckets[-1]
+            bucket.last_price = price
+            bucket.signed_notional += sign * notional
+            bucket.total_notional += notional
+            bucket.trade_count += 1
+        else:
+            buckets.append(
+                TradeBucket(
+                    second_ms=second_ms,
+                    first_price=price,
+                    last_price=price,
+                    signed_notional=sign * notional,
+                    total_notional=notional,
+                    trade_count=1,
+                )
+            )
         self._last_price[normalized] = price
+        self._last_trade_ms[normalized] = max(
+            ts_ms,
+            self._last_trade_ms.get(normalized, 0),
+        )
         self._trim_trades(normalized, ts_ms)
 
     def add_ticker(
@@ -129,7 +159,6 @@ class FlowTracker:
         if value is None or not math.isfinite(value) or value <= 0:
             return
 
-        self._last_oi_value[normalized] = value
         last_sample = self._last_oi_sample_ms.get(normalized, 0)
         if ts_ms - last_sample < 1_000:
             return
@@ -142,38 +171,54 @@ class FlowTracker:
 
     def snapshot(self, symbol: str, now_ms: int | None = None) -> FlowSnapshot | None:
         normalized = symbol.upper()
-        trades = self._trades.get(normalized)
-        if not trades:
+        buckets = self._trades.get(normalized)
+        if not buckets:
             return None
         current_ms = now_ms if now_ms is not None else int(time.time() * 1000)
         self._trim_trades(normalized, current_ms)
         self._trim_oi(normalized, current_ms)
-        trades = self._trades.get(normalized)
-        if not trades:
+        buckets = self._trades.get(normalized)
+        if not buckets:
             return None
 
-        latest = trades[-1]
-        current_60 = [p for p in trades if current_ms - 60_000 < p.ts_ms <= current_ms]
-        previous_60 = [
-            p for p in trades if current_ms - 120_000 < p.ts_ms <= current_ms - 60_000
+        current_60 = [
+            item for item in buckets if current_ms - 60_000 < item.second_ms <= current_ms
         ]
-        current_5m = [p for p in trades if current_ms - 300_000 < p.ts_ms <= current_ms]
+        previous_60 = [
+            item
+            for item in buckets
+            if current_ms - 120_000 < item.second_ms <= current_ms - 60_000
+        ]
+        current_5m = [
+            item for item in buckets if current_ms - 300_000 < item.second_ms <= current_ms
+        ]
         if not current_60:
             return None
 
-        total_60 = sum(abs(p.signed_notional) for p in current_60)
-        total_prev_60 = sum(abs(p.signed_notional) for p in previous_60)
-        total_5m = sum(abs(p.signed_notional) for p in current_5m)
-        delta_60 = sum(p.signed_notional for p in current_60)
-        cvd_5m = sum(p.signed_notional for p in current_5m)
+        total_60 = sum(item.total_notional for item in current_60)
+        total_prev_60 = sum(item.total_notional for item in previous_60)
+        total_5m = sum(item.total_notional for item in current_5m)
+        delta_60 = sum(item.signed_notional for item in current_60)
+        cvd_5m = sum(item.signed_notional for item in current_5m)
         delta_ratio = delta_60 / total_60 if total_60 > 0 else 0.0
         cvd_ratio = cvd_5m / total_5m if total_5m > 0 else 0.0
-        burst = total_60 / total_prev_60 if total_prev_60 > 0 else None
-        price_change = _price_change(current_60)
 
+        burst = None
+        if (
+            total_prev_60 > 0
+            and _bucket_span_ms(current_60) >= 30_000
+            and _bucket_span_ms(previous_60) >= 30_000
+        ):
+            burst = total_60 / total_prev_60
+
+        price_change = _price_change(current_60)
         oi_points = list(self._oi.get(normalized, ()))
         oi_current = _window_change(oi_points, current_ms - 120_000, current_ms)
-        oi_previous = _window_change(oi_points, current_ms - 240_000, current_ms - 120_000)
+        oi_previous = _window_change(
+            oi_points,
+            current_ms - 240_000,
+            current_ms - 120_000,
+        )
         acceleration = None
         if oi_current is not None and oi_previous is not None:
             acceleration = (oi_current - oi_previous) / 2.0
@@ -185,11 +230,12 @@ class FlowTracker:
             elif delta_ratio >= 0.18 and price_change <= 0.08:
                 absorption = "SELL_ABSORPTION"
 
+        last_trade_ms = self._last_trade_ms.get(normalized, current_60[-1].second_ms)
         return FlowSnapshot(
             symbol=normalized,
             created_ms=current_ms,
-            age_ms=max(0, current_ms - latest.ts_ms),
-            price=latest.price,
+            age_ms=max(0, current_ms - last_trade_ms),
+            price=current_60[-1].last_price,
             notional_60s=total_60,
             notional_prev_60s=total_prev_60,
             notional_5m=total_5m,
@@ -203,7 +249,7 @@ class FlowTracker:
             oi_change_prev_2m_pct=oi_previous,
             oi_acceleration_pct_per_min=acceleration,
             absorption=absorption,
-            trade_count_60s=len(current_60),
+            trade_count_60s=sum(item.trade_count for item in current_60),
         )
 
     def pressure_event(
@@ -222,13 +268,15 @@ class FlowTracker:
     ) -> FlowPressureEvent | None:
         current_ms = now_ms if now_ms is not None else int(time.time() * 1000)
         snapshot = self.snapshot(symbol, current_ms)
-        if snapshot is None or not snapshot.fresh or snapshot.notional_60s < min_notional_60s:
+        if snapshot is None or not snapshot.fresh:
+            return None
+        if snapshot.notional_60s < min_notional_60s:
             return None
         if trigger_price <= 0 or snapshot.price <= 0:
             return None
 
         bullish = bias is Side.LONG
-        # This event is specifically meant to arrive before the structural trigger.
+        # This event is intentionally pre-BOS; once trigger is crossed, the normal path owns it.
         if bullish and snapshot.price >= trigger_price:
             return None
         if not bullish and snapshot.price <= trigger_price:
@@ -252,11 +300,13 @@ class FlowTracker:
         )
 
         score = 0
+        confirmations = 0
         reasons: list[str] = []
         event_type = "FLOW_BUILDUP"
 
         if directional_delta >= delta_threshold:
             score += 25
+            confirmations += 1
             reasons.append(
                 f"60s taker delta {directional_delta:+.0%} в сторону {bias.value}"
             )
@@ -265,6 +315,7 @@ class FlowTracker:
 
         if directional_cvd >= 0.08:
             score += 12
+            confirmations += 1
             reasons.append(f"5m CVD proxy {directional_cvd:+.0%} поддерживает направление")
         elif directional_cvd <= -0.12:
             score -= 8
@@ -272,11 +323,13 @@ class FlowTracker:
         burst = snapshot.volume_burst_ratio
         if burst is not None and burst >= burst_threshold:
             score += 15
+            confirmations += 1
             reasons.append(f"Поток сделок ускорился: {burst:.2f}× к прошлой минуте")
 
         oi_change = snapshot.oi_change_2m_pct
         if oi_change is not None and oi_change >= min_oi_change_pct:
             score += 18
+            confirmations += 1
             reasons.append(f"OI +{oi_change:.2f}% за ~2 мин: новые позиции нарастают")
         elif oi_change is not None and oi_change <= -min_oi_change_pct:
             score -= 10
@@ -290,6 +343,7 @@ class FlowTracker:
 
         if matching_absorption:
             score += 24
+            confirmations += 1
             event_type = "ABSORPTION"
             reasons.append(
                 "Агрессивный поток поглощается, а цена удерживается — возможен пассивный набор"
@@ -299,11 +353,16 @@ class FlowTracker:
 
         if distance_pct <= 0.6:
             score += 10
+            confirmations += 1
             reasons.append(f"До структурного trigger осталось {distance_pct:.2f}%")
         elif distance_pct <= 1.0:
             score += 6
 
         score = max(0, min(score, 100))
+        # Avoid a one-metric alert: require independent agreement even with a high raw score.
+        if confirmations < 3:
+            return None
+
         key = f"{symbol.upper()}:{bias.value}:{event_type}"
         previous = self._last_event_ms.get(key, 0)
         if score < min_score or current_ms - previous < cooldown_seconds * 1000:
@@ -322,12 +381,12 @@ class FlowTracker:
         )
 
     def _trim_trades(self, symbol: str, now_ms: int) -> None:
-        points = self._trades.get(symbol)
-        if not points:
+        buckets = self._trades.get(symbol)
+        if not buckets:
             return
         cutoff = now_ms - 360_000
-        while points and points[0].ts_ms < cutoff:
-            points.popleft()
+        while buckets and buckets[0].second_ms < cutoff:
+            buckets.popleft()
 
     def _trim_oi(self, symbol: str, now_ms: int) -> None:
         points = self._oi.get(symbol)
@@ -338,17 +397,23 @@ class FlowTracker:
             points.popleft()
 
 
-def _price_change(points: list[TradePoint]) -> float | None:
-    if len(points) < 2 or points[0].price <= 0:
+def _price_change(buckets: list[TradeBucket]) -> float | None:
+    if len(buckets) < 2 or buckets[0].first_price <= 0:
         return None
-    return (points[-1].price / points[0].price - 1) * 100
+    return (buckets[-1].last_price / buckets[0].first_price - 1) * 100
+
+
+def _bucket_span_ms(buckets: list[TradeBucket]) -> int:
+    if len(buckets) < 2:
+        return 0
+    return buckets[-1].second_ms - buckets[0].second_ms
 
 
 def _window_change(points: list[OIPoint], start_ms: int, end_ms: int) -> float | None:
-    values = [p for p in points if start_ms <= p.ts_ms <= end_ms]
+    values = [item for item in points if start_ms <= item.ts_ms <= end_ms]
     if len(values) < 2 or values[0].value_usdt <= 0:
         return None
     duration = values[-1].ts_ms - values[0].ts_ms
-    if duration < 30_000:
+    if duration < 60_000:
         return None
     return (values[-1].value_usdt / values[0].value_usdt - 1) * 100
