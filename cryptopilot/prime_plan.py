@@ -34,6 +34,24 @@ def build_prime_plan(
         return PrimePlanResult(None, ("Некорректные данные для PRIME-плана",))
 
     now = now or datetime.now(UTC)
+    trigger_distance_pct = abs(price / trigger_price - 1) * 100
+    if trigger_distance_pct < settings.prime_min_trigger_distance_pct:
+        return PrimePlanResult(
+            None,
+            (
+                f"До trigger осталось только {trigger_distance_pct:.2f}% — "
+                "ранняя зона входа уже потеряна",
+            ),
+        )
+    if trigger_distance_pct > settings.prime_max_trigger_distance_pct:
+        return PrimePlanResult(
+            None,
+            (
+                f"Trigger находится слишком далеко: {trigger_distance_pct:.2f}% — "
+                "план пока преждевременный",
+            ),
+        )
+
     atr = max(feature15.atr14, price * 0.001)
     trigger_buffer = max(0.06 * atr, price * 0.00035)
 
