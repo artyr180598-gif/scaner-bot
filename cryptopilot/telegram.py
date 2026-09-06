@@ -28,14 +28,12 @@ from cryptopilot.models import (
     Side,
     Signal,
 )
+from cryptopilot.prime_delivery import refresh_prime_entry
 from cryptopilot.scanner import MarketScanner
-from cryptopilot.smart_money import (
-    SmartMoneyScanner,
-    format_smart_money_report,
-    format_smart_money_setup,
-)
+from cryptopilot.smart_money import SmartMoneyScanner
 from cryptopilot.storage import SignalStore
 
+UNIFIED = "🎯 Единый поиск"
 SCAN = "🔎 Лучшие до движения"
 ANALYZE = "🪙 Анализ монеты"
 EARLY = "⚡ До импульса"
@@ -82,9 +80,8 @@ class AuthorizationMiddleware(BaseMiddleware):
 def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=SCAN), KeyboardButton(text=ANALYZE)],
-            [KeyboardButton(text=EARLY), KeyboardButton(text=SMART_MONEY)],
-            [KeyboardButton(text=PRIME), KeyboardButton(text=BEST)],
+            [KeyboardButton(text=UNIFIED), KeyboardButton(text=ANALYZE)],
+            [KeyboardButton(text=EARLY), KeyboardButton(text=BEST)],
             [KeyboardButton(text=BACKTEST), KeyboardButton(text=PERFORMANCE)],
             [KeyboardButton(text=STATUS), KeyboardButton(text=HELP)],
         ],
@@ -104,6 +101,7 @@ def build_router(
     router = Router(name="cryptopilot")
     router.message.middleware(AuthorizationMiddleware(settings.allowed_chat_ids))
     smart_money = smart_money or SmartMoneyScanner(exchange, settings)
+    search_lock = asyncio.Lock()
 
     @router.message(CommandStart())
     async def start(message: Message, state: FSMContext) -> None:
@@ -125,31 +123,58 @@ def build_router(
             reply_markup=main_keyboard(),
         )
 
+    @router.message(Command("search"))
     @router.message(Command("scan"))
-    @router.message(F.text == SCAN)
-    async def scan(message: Message, state: FSMContext) -> None:
-        await state.clear()
-        progress = await message.answer(
-            "⏳ PRE-MOVE скан: ищу сжатие, поджатие к trigger, OI и направление до ускорения…"
+    @router.message(Command("prime"))
+    @router.message(Command("smartmoney"))
+    @router.message(Command("best"))
+    @router.message(
+        F.text.in_(
+            {UNIFIED, SCAN, PRIME, SMART_MONEY, BEST, "🔎 Сканировать рынок", "⭐ Лучшие сигналы"}
         )
-        try:
-            report = await scanner.scan_market()
-            health.scans_total += 1
-            await progress.edit_text(format_scan(report, settings.min_manual_confidence))
-            for signal in report.signals[:3]:
-                if signal.confidence >= settings.min_manual_confidence:
-                    await message.answer(format_signal(signal))
-        except Exception as exc:
-            health.last_error = str(exc)
-            await progress.edit_text(f"⚠️ Сканирование не завершено: {html.escape(str(exc))}")
+    )
+    async def unified_search(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        if search_lock.locked():
+            await message.answer("Поиск уже идёт. Дождитесь общего результата.")
+            return
+        async with search_lock:
+            progress = await message.answer(
+                "⏳ Единый поиск: ранний отбор → PRIME-проверки → свежая цена.",
+                reply_markup=main_keyboard(),
+            )
+            try:
+                report = await smart_money.scan()
+                health.scans_total += 1
+                candidates = smart_money.prime_candidates()
+                await progress.edit_text(
+                    f"🎯 <b>Единый поиск · {report.finished_at:%H:%M:%S} UTC</b>\n"
+                    f"Монет в отборе: {report.universe_count} · "
+                    f"глубоко проверено: {report.analyzed_count} · "
+                    f"ошибок данных: {len(report.errors)}\n"
+                    "PRIME и «Крупный капитал» теперь используют один результат. "
+                    "Рейтинг не является вероятностью прибыли."
+                )
+                if not candidates:
+                    await message.answer(
+                        "⚪ <b>NO TRADE — подтверждённого PRIME-входа нет.</b>\n"
+                        "Ранний радар доступен для наблюдения; его кандидаты не являются входами."
+                    )
+                    return
+                for item in candidates[:3]:
+                    checked = await refresh_prime_entry(item, exchange, settings)
+                    await message.answer(format_prime_setup(checked))
+            except Exception as exc:
+                health.last_error = type(exc).__name__
+                await progress.edit_text(
+                    "⚠️ Поиск не завершён. Вход не подтверждён: " + html.escape(type(exc).__name__)
+                )
 
     @router.message(Command("early"))
     @router.message(F.text == EARLY)
     async def early(message: Message, state: FSMContext) -> None:
         await state.clear()
-        progress = await message.answer(
-            "⏳ Ищу сжатие волатильности до выхода цены из диапазона…"
-        )
+        progress = await message.answer("⏳ Ищу сжатие волатильности до выхода цены из диапазона…")
         try:
             report = await scanner.scan_early_moves()
             await progress.edit_text(format_early_scan(report))
@@ -157,57 +182,7 @@ def build_router(
                 await message.answer(format_early_setup(setup))
         except Exception as exc:
             health.last_error = str(exc)
-            await progress.edit_text(
-                f"⚠️ Ранний радар не завершён: {html.escape(str(exc))}"
-            )
-
-    @router.message(Command("smartmoney"))
-    @router.message(F.text == SMART_MONEY)
-    async def smart_money_scan(message: Message, state: FSMContext) -> None:
-        await state.clear()
-        progress = await message.answer(
-            "⏳ Smart Money PRE-MOVE: ищу структуру, OI, spot/flow и поджатие до пробоя…"
-        )
-        try:
-            report = await smart_money.scan()
-            await progress.edit_text(format_smart_money_report(report))
-            for setup in report.setups[:5]:
-                await message.answer(format_smart_money_setup(setup))
-        except Exception as exc:
-            health.last_error = str(exc)
-            await progress.edit_text(
-                f"⚠️ Smart Money Radar не завершён: {html.escape(str(exc))}"
-            )
-
-    @router.message(Command("prime"))
-    @router.message(F.text == PRIME)
-    async def prime_scan(message: Message, state: FSMContext) -> None:
-        await state.clear()
-        progress = await message.answer(
-            "⏳ PRIME: ищу редкие pre-move кандидаты до разгона цены и основного потока…"
-        )
-        try:
-            await smart_money.scan()
-            candidates = smart_money.prime_candidates()
-            if not candidates:
-                await progress.edit_text(
-                    "🎯 <b>PRIME</b>\n\n"
-                    "Сейчас нет кандидата, который прошёл все жёсткие фильтры. "
-                    "Это нормальный результат: слабые варианты бот специально не показывает."
-                )
-                return
-            await progress.edit_text(
-                f"🎯 <b>PRIME поиск завершён</b>\n"
-                f"Прошли строгий pre-move фильтр: {len(candidates)}\n"
-                "Ниже — лучшие кандидаты. Авто-режим всё равно пришлёт только самый сильный."
-            )
-            for setup in candidates[:3]:
-                await message.answer(format_prime_setup(setup))
-        except Exception as exc:
-            health.last_error = str(exc)
-            await progress.edit_text(
-                f"⚠️ PRIME поиск не завершён: {html.escape(str(exc))}"
-            )
+            await progress.edit_text(f"⚠️ Ранний радар не завершён: {html.escape(str(exc))}")
 
     @router.message(Command("analyze"))
     async def analyze_command(message: Message, state: FSMContext) -> None:
@@ -253,48 +228,6 @@ def build_router(
     async def backtest_input(message: Message, state: FSMContext) -> None:
         await state.clear()
         await run_backtest(message, exchange, message.text or "")
-
-    @router.message(Command("best"))
-    @router.message(F.text == BEST)
-    async def best(message: Message) -> None:
-        progress = await message.answer(
-            "⏳ Ищу один лучший актуальный PRE-MOVE вариант прямо сейчас…"
-        )
-        try:
-            smart_report = await smart_money.scan()
-            prime = smart_money.prime_candidates()
-            if prime:
-                await progress.edit_text(
-                    "🎯 <b>Лучший вариант сейчас — PRIME</b>\n"
-                    "Он прошёл самый строгий набор ранних фильтров."
-                )
-                await message.answer(format_prime_setup(prime[0]))
-                return
-            if smart_report.setups:
-                await progress.edit_text(
-                    "🟡 <b>PRIME пока нет.</b> Ниже лучший ранний Smart Money кандидат; "
-                    "это наблюдение, а не готовый вход."
-                )
-                await message.answer(format_smart_money_setup(smart_report.setups[0]))
-                return
-            early_report = await scanner.scan_early_moves()
-            if early_report.setups:
-                await progress.edit_text(
-                    "🔵 <b>Сильного Smart Money подтверждения пока нет.</b> "
-                    "Ниже лучший ранний кандидат по сжатию."
-                )
-                await message.answer(format_early_setup(early_report.setups[0]))
-                return
-            await progress.edit_text(
-                "⚪ <b>NO TRADE</b>\n"
-                "Сейчас нет варианта, который стоит показывать до движения. "
-                "Бот не подменяет отсутствие сетапа поздним сигналом."
-            )
-        except Exception as exc:
-            health.last_error = str(exc)
-            await progress.edit_text(
-                f"⚠️ Поиск лучшего варианта не завершён: {html.escape(str(exc))}"
-            )
 
     @router.message(Command("performance"))
     @router.message(F.text == PERFORMANCE)
@@ -360,12 +293,12 @@ def build_router(
             "• Вероятность появляется отдельно после накопления paper-статистики.\n"
             "• Вход действителен только внутри указанной зоны и до срока истечения.\n"
             "• Стоп нельзя отодвигать после входа. Размер позиции уже ограничен заданным риском.\n"
-            "• Ступени 50/30/20 — не мартингейл: добавляться можно только до отмены сценария.\n"
+            "• В PRIME-плане усреднение не предусмотрено.\n"
             "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
             "• Уже разогнанная цена не превращается в сигнал: "
             "такой сценарий блокируется как поздний.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
-            "Команды: /menu, /scan, /early, /smartmoney, /prime, /analyze BTC, "
+            "Команды: /menu, /search, /scan, /early, /smartmoney, /prime, /analyze BTC, "
             "/backtest BTC, /best, /primestats, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
@@ -392,17 +325,23 @@ async def run_analysis(
     try:
         smart_setup = await smart_money.analyze_symbol(symbol)
         if smart_setup is not None and smart_setup.prime_ready:
-            await progress.edit_text(format_prime_setup(smart_setup))
-            return
-        if smart_setup is not None and smart_setup.stage != "ENTRY":
-            await progress.edit_text(
-                format_smart_money_setup(smart_setup)
-                + "\n\n⚪ Точный PRIME-план пока не выдан: "
-                "для входа не хватает части строгих подтверждений."
+            checked = await refresh_prime_entry(
+                smart_setup, smart_money.exchange, smart_money.settings
             )
-            return
-        signal = await scanner.analyze_symbol(symbol)
-        await progress.edit_text(format_signal(signal))
+            await progress.edit_text(format_prime_setup(checked))
+        else:
+            await progress.edit_text(
+                f"⚪ <b>{html.escape(symbol)} · NO TRADE</b>\n"
+                "Строгий PRIME-вход не подтверждён."
+                + (
+                    "\n"
+                    + "\n".join(
+                        "• " + html.escape(reason) for reason in smart_setup.prime_blockers[:5]
+                    )
+                    if smart_setup is not None
+                    else ""
+                )
+            )
     except Exception as exc:
         await progress.edit_text(f"⚠️ Анализ не завершён: {html.escape(str(exc))}")
 
@@ -412,9 +351,7 @@ async def run_backtest(message: Message, exchange: ExchangeClient, raw_symbol: s
     if not symbol:
         await message.answer("Не удалось распознать тикер. Пример: <code>BTC</code>.")
         return
-    progress = await message.answer(
-        f"⏳ Исторический trend-baseline <b>{html.escape(symbol)}</b>…"
-    )
+    progress = await message.answer(f"⏳ Исторический trend-baseline <b>{html.escape(symbol)}</b>…")
     try:
         candles = await exchange.candles(symbol, "60", 1000)
         result = WalkForwardBacktester().run(symbol, "1h", candles)
@@ -622,9 +559,7 @@ def format_early_setup(setup: EarlySetup) -> str:
         or "• Дополнительных рисков радар не выделил"
     )
     stage = (
-        "ARMED PRE-MOVE — ДО 15m ПРОБОЯ"
-        if setup.stage == "ARMED_PREMOVE"
-        else "РАННЕЕ НАБЛЮДЕНИЕ"
+        "ARMED PRE-MOVE — ДО 15m ПРОБОЯ" if setup.stage == "ARMED_PREMOVE" else "РАННЕЕ НАБЛЮДЕНИЕ"
     )
     metrics = setup.metrics
     taker = metrics.get("taker_buy_ratio", -1)
@@ -668,10 +603,18 @@ def format_early_setup(setup: EarlySetup) -> str:
 
 
 def format_prime_setup(item) -> str:
+    if not item.prime_ready or item.plan is None or item.plan.expires_at <= datetime.now(UTC):
+        reasons = item.prime_blockers or ("Подтверждённого актуального плана нет",)
+        return (
+            f"⚪ <b>{html.escape(item.symbol)} · НАБЛЮДАТЬ, НЕ ВХОДИТЬ</b>\n"
+            + "\n".join("• " + html.escape(reason) for reason in reasons[:5])
+            + "\nПлан входа не выдан. Нужна новая проверка."
+        )
     side_icon = "🟢" if item.bias is Side.LONG else "🔴"
-    reasons = "\n".join(
-        f"• {html.escape(value)}" for value in item.prime_reasons
-    ) or "• Совпали строгие pre-move фильтры"
+    reasons = (
+        "\n".join(f"• {html.escape(value)}" for value in item.prime_reasons)
+        or "• Совпали строгие pre-move фильтры"
+    )
 
     spot_parts: list[str] = []
     if item.spot_taker_buy_ratio is not None:
@@ -693,11 +636,7 @@ def format_prime_setup(item) -> str:
         live_parts.append(f"burst {item.live_volume_burst_ratio:.2f}×")
     if item.live_oi_acceleration_pct_per_min is not None:
         live_parts.append(f"OI accel {item.live_oi_acceleration_pct_per_min:+.3f}%/мин")
-    live_line = (
-        " · ".join(live_parts)
-        if live_parts
-        else "основной live-поток ещё не разогнан"
-    )
+    live_line = " · ".join(live_parts) if live_parts else "основной live-поток ещё не разогнан"
     if item.bias is Side.LONG:
         wall_ratio = item.bid_wall_ratio
         wall_seconds = item.bid_wall_persistence_seconds
@@ -707,8 +646,7 @@ def format_prime_setup(item) -> str:
         wall_seconds = item.ask_wall_persistence_seconds
         replenishment = item.ask_replenishment_usdt_60s
     liquidity_line = (
-        f"wall {wall_ratio:.1f}×/{wall_seconds:.0f}с · "
-        f"replenishment ${replenishment:,.0f}/60с"
+        f"wall {wall_ratio:.1f}×/{wall_seconds:.0f}с · replenishment ${replenishment:,.0f}/60с"
         if wall_ratio is not None
         else "устойчивая liquidity-wall пока не подтверждена"
     )
@@ -748,8 +686,7 @@ def format_prime_setup(item) -> str:
             "Точный вход не выдан: условия для безопасной зоны входа не прошли."
         )
     tradingview_url = (
-        f"https://www.tradingview.com/symbols/{item.symbol}.P/"
-        f"?exchange={item.exchange}"
+        f"https://www.tradingview.com/symbols/{item.symbol}.P/?exchange={item.exchange}"
     )
 
     return (
@@ -774,6 +711,7 @@ def format_prime_setup(item) -> str:
         "Это ранний кандидат до очевидного импульса. Prime score — рейтинг качества, "
         "не вероятность прибыли и не гарантия входа крупных денег."
     )
+
 
 def format_backtest(result: BacktestResult) -> str:
     profit_factor = "∞" if math.isinf(result.profit_factor) else f"{result.profit_factor:.2f}"
