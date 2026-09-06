@@ -5,6 +5,34 @@ from cryptopilot.engine import SignalEngine
 from cryptopilot.models import Side, Ticker
 
 
+def test_engine_vetoes_plan_that_only_passes_before_costs(candle_factory, monkeypatch):
+    from dataclasses import replace
+
+    config = settings()
+    series = {tf: candle_factory(interval=tf, direction=1) for tf in config.timeframe_list}
+    actual = series["15"][-1].close
+    market = replace(ticker(), last=actual, bid=actual * 0.99995, ask=actual * 1.00005)
+    engine = SignalEngine(config)
+    original = engine._build_plan
+
+    def tight_plan(*args, **kwargs):
+        plan = original(*args, **kwargs)
+        return replace(
+            plan,
+            entry_low=actual,
+            entry_high=actual,
+            stop_loss=actual * 0.99,
+            take_profit_2=actual * 1.02,
+        )
+
+    monkeypatch.setattr(engine, "_build_plan", tight_plan)
+    result = engine.analyze("TESTUSDT", "BYBIT", market, series, series["240"])
+    assert result.side is Side.NO_TRADE
+    assert any("после расчётных издержек" in r for r in result.blockers)
+    config.paper_one_way_cost_bps = 0
+    assert engine.analyze("TESTUSDT", "BYBIT", market, series, series["240"]).side is Side.LONG
+
+
 def settings() -> Settings:
     return Settings(
         _env_file=None,

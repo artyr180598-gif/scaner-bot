@@ -21,9 +21,12 @@ class WalkForwardBacktester:
         candles: list[Candle],
         score_threshold: float = 45,
         max_holding_bars: int = 48,
+        one_way_cost_bps: float = 6.0,
     ) -> BacktestResult:
         if len(candles) < 260:
             raise ValueError("Backtest needs at least 260 closed candles")
+        if max_holding_bars < 1 or not math.isfinite(one_way_cost_bps) or one_way_cost_bps < 0:
+            raise ValueError("Holding period must be positive and costs finite/nonnegative")
         results_r: list[float] = []
         index = 220
         while index < len(candles) - 2:
@@ -50,27 +53,24 @@ class WalkForwardBacktester:
                 continue
             target = entry + 2 * distance if long else entry - 2 * distance
 
-            exit_index = min(entry_index + max_holding_bars, len(candles) - 1)
-            result = 0.0
+            exit_index = min(entry_index + max_holding_bars - 1, len(candles) - 1)
+            exit_price = candles[exit_index].close
             for cursor in range(entry_index, exit_index + 1):
                 bar = candles[cursor]
                 stop_hit = bar.low <= stop if long else bar.high >= stop
                 target_hit = bar.high >= target if long else bar.low <= target
                 if stop_hit:
-                    result = -1.0
+                    exit_price = min(stop, bar.open) if long else max(stop, bar.open)
                     exit_index = cursor
                     break
                 if target_hit:
-                    result = 2.0
+                    exit_price = target
                     exit_index = cursor
                     break
-            else:
-                last = candles[exit_index].close
-                result = (last - entry) / distance if long else (entry - last) / distance
-                result = max(-1.0, min(2.0, result))
-
-            # Conservative allowance for fees and slippage, expressed in initial risk units.
-            results_r.append(result - 0.06)
+            gross_r = ((exit_price - entry) if long else (entry - exit_price)) / distance
+            # Fees/slippage scale with notional, not a fixed fraction of stop risk.
+            cost_r = (entry + exit_price) * (one_way_cost_bps / 10_000) / distance
+            results_r.append(gross_r - cost_r)
             index = exit_index + 1
 
         wins = sum(value > 0 for value in results_r)
