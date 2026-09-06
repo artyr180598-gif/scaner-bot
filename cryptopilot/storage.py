@@ -669,23 +669,40 @@ class SignalStore:
             )
             await db.commit()
 
-    async def flow_validation_stats(self, limit: int = 200) -> dict[str, float | int | None]:
+    async def flow_validation_stats(
+        self,
+        limit: int = 200,
+        *,
+        event_type: str | None = None,
+    ) -> dict[str, float | int | None]:
         async with aiosqlite.connect(self.path) as db:
+            clauses = ["status IN ('TRIGGERED', 'EXPIRED')"]
+            parameters: list[object] = []
+            pending_clauses = ["status='PENDING'"]
+            pending_parameters: list[object] = []
+            if event_type:
+                clauses.append("event_type=?")
+                parameters.append(event_type)
+                pending_clauses.append("event_type=?")
+                pending_parameters.append(event_type)
+            parameters.append(min(max(limit, 1), 2000))
             rows = await (
                 await db.execute(
-                    """
+                    f"""
                     SELECT status, lead_seconds
                     FROM flow_observations
-                    WHERE status IN ('TRIGGERED', 'EXPIRED')
+                    WHERE {' AND '.join(clauses)}
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (min(max(limit, 1), 2000),),
+                    parameters,
                 )
             ).fetchall()
             pending_row = await (
                 await db.execute(
-                    "SELECT COUNT(*) FROM flow_observations WHERE status='PENDING'"
+                    f"SELECT COUNT(*) FROM flow_observations "
+                    f"WHERE {' AND '.join(pending_clauses)}",
+                    pending_parameters,
                 )
             ).fetchone()
         resolved = len(rows)
