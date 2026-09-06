@@ -628,6 +628,45 @@ def format_prime_setup(item) -> str:
         if wall_ratio is not None
         else "устойчивая liquidity-wall пока не подтверждена"
     )
+    cross_line = (
+        f"{item.cross_exchange}: {item.cross_confirmations} подтвержд. · "
+        f"конфликтов {item.cross_conflicts}"
+        + (
+            f" · расхождение цены {item.cross_price_divergence_bps:.1f} bps"
+            if item.cross_price_divergence_bps is not None
+            else ""
+        )
+        if item.cross_exchange
+        else "вторая биржа временно недоступна"
+    )
+    plan = item.plan
+    if plan is not None:
+        action = "ПОКУПАТЬ" if item.bias is Side.LONG else "ОТКРЫВАТЬ SHORT"
+        exit_action = "продажа" if item.bias is Side.LONG else "откуп SHORT"
+        plan_text = (
+            f"<b>PRIME торговый план</b>\n"
+            f"{action}: <code>{price(plan.entry_low)}–{price(plan.entry_high)}</code>\n"
+            f"Стоп: <code>{price(plan.stop_loss)}</code>\n"
+            f"TP1: <code>{price(plan.take_profit_1)}</code> · "
+            f"TP2: <code>{price(plan.take_profit_2)}</code> · "
+            f"TP3: <code>{price(plan.take_profit_3)}</code>\n"
+            f"TP — это {exit_action}; TP2 R/R после издержек: "
+            f"<b>{plan.risk_reward_2:.2f}</b>\n"
+            f"План входа действителен до: {plan.expires_at:%d.%m %H:%M} UTC\n"
+            f"Риск-модель: до ${plan.risk_amount:.2f} · "
+            f"ориентир позиции ${plan.suggested_notional:.0f} · "
+            f"плечо до {plan.recommended_leverage}x\n"
+            "Не усреднять после выхода из зоны и не догонять цену после trigger."
+        )
+    else:
+        plan_text = (
+            "<b>PRIME торговый план</b>\n"
+            "Точный вход не выдан: условия для безопасной зоны входа не прошли."
+        )
+    tradingview_url = (
+        f"https://www.tradingview.com/symbols/{item.symbol}.P/"
+        f"?exchange={item.exchange}"
+    )
 
     return (
         f"🎯 {side_icon} <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
@@ -643,8 +682,11 @@ def format_prime_setup(item) -> str:
         f"Liquidity: {html.escape(liquidity_line)}\n"
         f"Liquidations 60с: LONG ${item.long_liquidation_usdt_60s:,.0f} · "
         f"SHORT ${item.short_liquidation_usdt_60s:,.0f}\n"
+        f"Cross-exchange: {html.escape(cross_line)}\n"
         f"Live: {html.escape(live_line)}\n\n"
+        f"{plan_text}\n\n"
         f"<b>Почему PRIME</b>\n{reasons}\n\n"
+        f'<a href="{tradingview_url}">📊 Открыть этот контракт в TradingView</a>\n\n'
         "Это ранний кандидат до очевидного импульса. Prime score — рейтинг качества, "
         "не вероятность прибыли и не гарантия входа крупных денег."
     )
