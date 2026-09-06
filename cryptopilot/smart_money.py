@@ -591,7 +591,11 @@ def _pre_move_score(
 
     trigger = f15.range_high20 if bullish else f15.range_low20
     distance_pct = abs(f15.close / trigger - 1) * 100 if trigger > 0 else float("inf")
-    if settings.prime_min_trigger_distance_pct <= distance_pct <= settings.prime_max_trigger_distance_pct:
+    if (
+        settings.prime_min_trigger_distance_pct
+        <= distance_pct
+        <= settings.prime_max_trigger_distance_pct
+    ):
         score += 20
         reasons.append(f"До trigger {distance_pct:.2f}%: есть запас до движения")
     elif distance_pct < settings.prime_min_trigger_distance_pct:
