@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     prime_max_trigger_distance_pct: float = Field(default=1.20, ge=0.20, le=5.0)
     prime_max_price_move_60s_pct: float = Field(default=0.12, ge=0.02, le=2.0)
     prime_max_directional_move_15m_pct: float = Field(default=0.35, ge=0.05, le=3.0)
+    prime_spot_confirmation_enabled: bool = True
+    prime_min_spot_taker_ratio: float = Field(default=0.60, ge=0.50, le=0.90)
+    prime_min_spot_book_imbalance: float = Field(default=0.05, ge=0.0, le=0.80)
+    prime_max_directional_perp_basis_bps: float = Field(default=20.0, ge=1.0, le=200.0)
+    prime_min_spot_block_notional: float = Field(default=50_000, ge=0, le=100_000_000)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
