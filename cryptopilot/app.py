@@ -22,6 +22,7 @@ from cryptopilot.flow import FlowPressureEvent, FlowTracker
 from cryptopilot.flow_validation import FlowForwardValidator
 from cryptopilot.health import RuntimeHealth, start_health_server
 from cryptopilot.liquidity import LiquidityTracker
+from cryptopilot.prime_shadow import PrimeShadowTracker
 from cryptopilot.live_radar import (
     Crossing,
     LiveRadar,
@@ -99,6 +100,11 @@ async def run() -> None:
         if settings.flow_validation_enabled and exchange.name == "BYBIT"
         else None
     )
+    prime_shadow = (
+        PrimeShadowTracker(exchange, store, settings)
+        if settings.prime_shadow_enabled
+        else None
+    )
     bot = Bot(
         settings.telegram_bot_token.strip(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -151,6 +157,17 @@ async def run() -> None:
             "Это не win rate и не доказательство прибыльности."
         )
 
+    @router.message(Command("primestats"))
+    async def prime_stats(message: Message) -> None:
+        stats = await store.prime_shadow_stats()
+        await message.answer(
+            "<b>PRIME Shadow Learning</b>\n"
+            + _format_prime_shadow_stats(stats, settings.prime_shadow_min_samples)
+            + "\n\nЭта статистика считается по молча сохранённым PRIME-планам. "
+            "Она не гарантирует будущий результат, но показывает, даёт ли стратегия "
+            "положительный edge на новых данных."
+        )
+
     dispatcher.include_router(router)
     stop_event = asyncio.Event()
 
@@ -184,6 +201,7 @@ async def run() -> None:
                 BotCommand(command="status", description="Версия и состояние"),
                 BotCommand(command="live", description="Состояние потокового радара"),
                 BotCommand(command="flowstats", description="Forward-проверка ранних Flow алертов"),
+                BotCommand(command="primestats", description="Реальная Shadow-статистика PRIME"),
                 BotCommand(command="lab", description="Лаборатория сжатия: виртуальные сделки"),
                 BotCommand(command="help", description="Как читать сигналы"),
             ]
@@ -284,6 +302,24 @@ async def run() -> None:
             health.alerts_total += 1
 
         async def handle_smart_money_report(_report) -> None:
+            if settings.prime_shadow_enabled:
+                for item in smart_money.shadow_candidates():
+                    if item.plan is None:
+                        continue
+                    await store.record_prime_shadow(
+                        symbol=item.symbol,
+                        exchange=item.exchange,
+                        side=item.bias,
+                        score=item.prime_score,
+                        created_at=item.created_at,
+                        entry_low=item.plan.entry_low,
+                        entry_high=item.plan.entry_high,
+                        stop_loss=item.plan.stop_loss,
+                        take_profit=item.plan.take_profit_2,
+                        entry_expires_at=item.plan.expires_at,
+                        max_holding_hours=settings.prime_shadow_max_holding_hours,
+                        dedup_minutes=settings.prime_shadow_dedup_minutes,
+                    )
             candidates = smart_money.prime_candidates()
             if not candidates:
                 return
@@ -351,6 +387,13 @@ async def run() -> None:
                 asyncio.create_task(
                     flow_validator.run(stop_event),
                     name="flow-forward-validation",
+                )
+            )
+        if prime_shadow is not None:
+            tasks.add(
+                asyncio.create_task(
+                    prime_shadow.run(stop_event),
+                    name="prime-shadow-learning",
                 )
             )
         if settings.smart_money_auto_scan_enabled:
@@ -458,6 +501,37 @@ async def run() -> None:
         await health_runner.cleanup()
         log.info("CryptoPilot stopped")
 
+
+
+def _format_prime_shadow_stats(
+    stats: dict[str, float | int | None],
+    min_samples: int,
+) -> str:
+    sample = int(stats["sample_size"] or 0)
+    resolved = int(stats["resolved"] or 0)
+    pending = int(stats["pending"] or 0)
+    no_entry = int(stats["no_entry"] or 0)
+    if sample < min_samples:
+        return (
+            f"Закрытых PRIME-сделок: {sample}/{min_samples} · "
+            f"resolved {resolved} · no-entry {no_entry} · pending {pending}. "
+            "Пока рано менять веса стратегии по этой выборке."
+        )
+    win = stats["win_rate_pct"]
+    expectancy = stats["expectancy_r"]
+    factor = stats["profit_factor"]
+    win_text = "н/д" if win is None else f"{float(win):.1f}%"
+    expectancy_text = "н/д" if expectancy is None else f"{float(expectancy):+.2f}R"
+    if factor is None:
+        factor_text = "н/д"
+    elif factor == float("inf"):
+        factor_text = "∞"
+    else:
+        factor_text = f"{float(factor):.2f}"
+    return (
+        f"n={sample} · win {win_text} · expectancy {expectancy_text} · "
+        f"PF {factor_text} · no-entry {no_entry} · pending {pending}"
+    )
 
 
 def _format_flow_validation(
