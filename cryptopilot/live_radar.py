@@ -76,6 +76,16 @@ def active_flow_candidates(
 
 
 @dataclass(frozen=True)
+class ActiveFlowValidation:
+    observation_id: int
+    symbol: str
+    bias: Side
+    trigger_price: float
+    created_ms: int
+    expires_ms: int
+
+
+@dataclass(frozen=True)
 class Crossing:
     symbol: str
     direction: str
@@ -159,6 +169,7 @@ class LiveRadar:
         self.flow_queue: asyncio.Queue[FlowPressureEvent] = asyncio.Queue(maxsize=20)
         self.flow_delivered = 0
         self.flow_dropped = 0
+        self._flow_validation_active: dict[int, ActiveFlowValidation] = {}
 
     @property
     def flow_enabled(self) -> bool:
@@ -199,7 +210,7 @@ class LiveRadar:
         await asyncio.wait_for(self.send_flow(event), timeout=5)
         await self.store.mark_event_alerted(event.fingerprint, event.price)
         if self.settings.flow_validation_enabled:
-            await self.store.record_flow_observation(
+            observation_id = await self.store.record_flow_observation(
                 symbol=event.symbol,
                 bias=event.bias,
                 score=event.score,
@@ -209,8 +220,53 @@ class LiveRadar:
                 created_at=datetime.fromtimestamp(event.created_ms / 1000, UTC),
                 window_minutes=self.settings.flow_validation_window_minutes,
             )
+            if observation_id > 0:
+                self._flow_validation_active[observation_id] = ActiveFlowValidation(
+                    observation_id=observation_id,
+                    symbol=event.symbol,
+                    bias=event.bias,
+                    trigger_price=event.trigger_price,
+                    created_ms=event.created_ms,
+                    expires_ms=(
+                        event.created_ms
+                        + self.settings.flow_validation_window_minutes * 60_000
+                    ),
+                )
         self.flow_delivered += 1
         log.info("Flow radar delivered %s score=%d", event.symbol, event.score)
+
+    async def _resolve_live_flow_validation(
+        self,
+        symbol: str,
+        price: float,
+        event_ms: int,
+    ) -> None:
+        if not self._flow_validation_active:
+            return
+        for observation_id, item in list(self._flow_validation_active.items()):
+            if item.symbol != symbol:
+                continue
+            if event_ms <= item.created_ms:
+                continue
+            if event_ms > item.expires_ms:
+                self._flow_validation_active.pop(observation_id, None)
+                continue
+            hit = (
+                price >= item.trigger_price
+                if item.bias is Side.LONG
+                else price <= item.trigger_price
+            )
+            if not hit:
+                continue
+            triggered_at = datetime.fromtimestamp(event_ms / 1000, UTC)
+            await self.store.resolve_flow_observation(
+                observation_id,
+                status="TRIGGERED",
+                resolved_at=datetime.now(UTC),
+                triggered_at=triggered_at,
+                lead_seconds=(event_ms - item.created_ms) / 1000,
+            )
+            self._flow_validation_active.pop(observation_id, None)
 
     async def _sender(self) -> None:
         while True:
@@ -370,46 +426,51 @@ class LiveRadar:
                     continue
 
                 symbol = topic.removeprefix("publicTrade.")
-                trades = payload.get("data", [])
+                trades = [
+                    item
+                    for item in payload.get("data", [])
+                    if item.get("s") == symbol
+                ]
                 if not trades:
                     continue
+                trades.sort(key=lambda item: int(item["T"]))
+                setup = setups.get(symbol)
 
-                if self.flow_enabled and self.flow_tracker is not None:
-                    for trade in trades:
-                        if trade.get("s") != symbol:
-                            continue
+                for trade in trades:
+                    event_ms = int(trade["T"])
+                    price = float(trade["p"])
+                    self.last_trade_ms = event_ms
+
+                    if self.flow_enabled and self.flow_tracker is not None:
                         self.flow_tracker.add_trade(
                             symbol,
                             str(trade.get("S", "")),
-                            float(trade["p"]),
+                            price,
                             float(trade["v"]),
-                            int(trade["T"]),
+                            event_ms,
                         )
+                        if self.settings and self.settings.flow_validation_enabled:
+                            await self._resolve_live_flow_validation(
+                                symbol,
+                                price,
+                                event_ms,
+                            )
 
-                latest = trades[-1]
-                if latest.get("s") != symbol:
-                    continue
-                self.last_trade_ms = int(latest["T"])
-                setup = setups.get(symbol)
-                if setup is not None:
-                    event = self.detector.update(
-                        setup,
-                        float(latest["p"]),
-                        int(latest["T"]),
-                        int(time.time() * 1000),
-                    )
-                    if event is not None:
-                        try:
-                            self.queue.put_nowait(event)
-                        except asyncio.QueueFull:
-                            self.dropped += 1
-                            log.warning("Live radar queue full; dropping event")
+                    if setup is not None:
+                        crossing = self.detector.update(
+                            setup,
+                            price,
+                            event_ms,
+                            int(time.time() * 1000),
+                        )
+                        if crossing is not None:
+                            try:
+                                self.queue.put_nowait(crossing)
+                            except asyncio.QueueFull:
+                                self.dropped += 1
+                                log.warning("Live radar queue full; dropping event")
 
-                if (
-                    self.flow_enabled
-                    and self.flow_tracker is not None
-                    and self.settings is not None
-                ):
+                if self.flow_enabled and self.flow_tracker is not None and self.settings is not None:
                     candidate = flow_map.get(symbol)
                     if candidate is not None:
                         bias, trigger_price = candidate
