@@ -186,6 +186,54 @@ async def run() -> None:
                 raise RuntimeError("No configured Telegram chat accepted the early alert")
             health.alerts_total += 1
 
+        async def send_flow_event(event: FlowPressureEvent) -> None:
+            snapshot = event.snapshot
+            burst = (
+                f"{snapshot.volume_burst_ratio:.2f}×"
+                if snapshot.volume_burst_ratio is not None
+                else "н/д"
+            )
+            oi_change = (
+                f"{snapshot.oi_change_2m_pct:+.2f}%"
+                if snapshot.oi_change_2m_pct is not None
+                else "н/д"
+            )
+            oi_accel = (
+                f"{snapshot.oi_acceleration_pct_per_min:+.3f}%/мин"
+                if snapshot.oi_acceleration_pct_per_min is not None
+                else "н/д"
+            )
+            reasons = "\n".join(f"• {html.escape(item)}" for item in event.reasons)
+            label = "ПОГЛОЩЕНИЕ" if event.event_type == "ABSORPTION" else "НАРАСТАНИЕ ПОТОКА"
+            message_text = (
+                f"⚡ <b>{html.escape(event.symbol)} · {label} ДО BOS</b>\n"
+                f"Сценарий: {event.bias.value} · Flow score: <b>{event.score}/100</b>\n"
+                f"Цена: <code>{event.price:.8g}</code> · "
+                f"структурный trigger: <code>{event.trigger_price:.8g}</code>\n"
+                f"Δ 60s: {snapshot.delta_ratio_60s:+.0%} · "
+                f"CVD proxy 5m: {snapshot.cvd_ratio_5m:+.0%}\n"
+                f"Поток: ${snapshot.notional_60s:,.0f}/60s · burst: {burst}\n"
+                f"OI ~2m: {oi_change} · acceleration: {oi_accel}\n"
+                + (
+                    f"Absorption: {snapshot.absorption}\n"
+                    if snapshot.absorption is not None
+                    else ""
+                )
+                + f"\n<b>Почему сработало</b>\n{reasons}\n\n"
+                "🔵 Это раннее наблюдение ДО структурного пробоя. "
+                "Не входить только из-за этого сообщения: ждём подтверждение структуры/триггера."
+            )
+            successes = 0
+            for chat_id in settings.allowed_chat_ids:
+                try:
+                    await bot.send_message(chat_id, message_text)
+                    successes += 1
+                except Exception:
+                    log.warning("Flow event delivery failed for an authorized chat")
+            if not successes:
+                raise RuntimeError("No flow event recipients accepted the message")
+            health.alerts_total += 1
+
         polling = asyncio.create_task(
             dispatcher.start_polling(bot, handle_signals=False), name="telegram-polling"
         )
@@ -195,6 +243,17 @@ async def run() -> None:
         )
         stopper = asyncio.create_task(stop_event.wait(), name="shutdown-signal")
         tasks = {polling, monitoring, stopper}
+        if settings.smart_money_auto_scan_enabled:
+            tasks.add(
+                asyncio.create_task(
+                    refresh_smart_money_watchlist(
+                        smart_money,
+                        stop_event,
+                        settings.smart_money_scan_interval_seconds,
+                    ),
+                    name="smart-money-watchlist-refresh",
+                )
+            )
         if lab is not None:
             tasks.add(asyncio.create_task(lab.run(stop_event), name="squeeze-forward-lab"))
         if (
