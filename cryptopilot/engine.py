@@ -22,6 +22,29 @@ class SignalEngine:
     def quick_score(self, candles: list[Candle]) -> float:
         return directional_score(compute_features(candles))
 
+    def quick_opportunity_score(self, candles: list[Candle]) -> float:
+        """Rank markets that are directional enough but have not expanded yet."""
+        feature = compute_features(candles)
+        direction = abs(directional_score(feature))
+        bias, readiness, _ = self._early_base(feature)
+        if bias is Side.NO_TRADE:
+            readiness = max(0, readiness - 18)
+        score = readiness * 0.72 + min(direction, 80.0) * 0.28
+        if feature.breakout_up or feature.breakout_down:
+            score -= 38
+        if feature.relative_volume20 > self.settings.main_scan_max_execution_rvol:
+            score -= min(35.0, 18 + (feature.relative_volume20 - 1.5) * 20)
+        if feature.atr_regime_ratio > 1.35:
+            score -= min(28.0, (feature.atr_regime_ratio - 1.35) * 30)
+        if abs(feature.vwap_distance_atr) > 1.8:
+            score -= 18
+        proximity = max(feature.range_position20, 1 - feature.range_position20)
+        if 0.62 <= proximity <= 0.95:
+            score += 8
+        elif proximity > 0.98:
+            score -= 10
+        return max(0.0, score)
+
     def quick_early_score(self, candles: list[Candle]) -> float:
         feature = compute_features(candles)
         bias, readiness, _ = self._early_base(feature)
@@ -312,6 +335,24 @@ class SignalEngine:
         structural = features[ordered[-1]]
         data_age = self._data_age(candles[ordered[0]], ordered[0])
         side = Side.LONG if score > 0 else Side.SHORT
+        (
+            premove_readiness,
+            premove_trigger,
+            premove_distance_pct,
+            recent_move_pct,
+            premove_reasons,
+            premove_blockers,
+        ) = self._main_premove_score(
+            side,
+            execution,
+            primary,
+            structural,
+            ticker,
+            candles[ordered[0]],
+        )
+        if self.settings.main_scan_premove_only:
+            blockers.extend(premove_blockers)
+            reasons.extend(premove_reasons)
 
         if ticker.turnover_24h < self.settings.min_volume_usdt:
             blockers.append("Суточный оборот ниже фильтра ликвидности")
@@ -319,23 +360,37 @@ class SignalEngine:
             blockers.append(f"Спред {ticker.spread_bps:.1f} bps слишком широк")
         if data_age > INTERVAL_MS[ordered[0]] / 1000 * 2.2:
             blockers.append("Последняя закрытая свеча устарела")
-        if not higher_aligned:
+        if not self.settings.main_scan_premove_only and not higher_aligned:
             blockers.append("Старшие таймфреймы не подтверждают одно направление")
-        if primary.atr_pct < 0.22:
-            blockers.append("Волатильность слишком низкая для разумной цели")
+        if primary.atr_pct < 0.18:
+            blockers.append("Волатильность слишком низкая даже для раннего сценария")
         if primary.atr_pct > 7.5:
             blockers.append("Аномально высокая волатильность; стоп получается ненадёжным")
-        if primary.adx14 < self.settings.min_primary_adx:
-            blockers.append(
-                f"ADX {primary.adx14:.1f} ниже адаптивного минимума "
-                f"{self.settings.min_primary_adx:.0f}: тренд недостаточно устойчив"
-            )
-        if primary.efficiency_ratio20 < self.settings.min_efficiency_ratio:
-            blockers.append(
-                f"Рынок слишком шумный: efficiency ratio {primary.efficiency_ratio20:.2f}"
-            )
-        if primary.ema_gap_atr < self.settings.min_ema_gap_atr:
-            blockers.append("EMA20 и EMA50 слишком близко: вероятна переходная фаза")
+        if self.settings.main_scan_premove_only:
+            if primary.adx14 < 10:
+                blockers.append(
+                    f"ADX {primary.adx14:.1f}: направление ещё слишком неопределённое"
+                )
+            elif primary.adx14 > 48:
+                blockers.append(
+                    f"ADX {primary.adx14:.1f}: тренд уже слишком зрелый для pre-move входа"
+                )
+            if primary.efficiency_ratio20 < max(0.08, self.settings.min_efficiency_ratio * 0.65):
+                blockers.append(
+                    f"Рынок слишком шумный: efficiency ratio {primary.efficiency_ratio20:.2f}"
+                )
+        else:
+            if primary.adx14 < self.settings.min_primary_adx:
+                blockers.append(
+                    f"ADX {primary.adx14:.1f} ниже адаптивного минимума "
+                    f"{self.settings.min_primary_adx:.0f}: тренд недостаточно устойчив"
+                )
+            if primary.efficiency_ratio20 < self.settings.min_efficiency_ratio:
+                blockers.append(
+                    f"Рынок слишком шумный: efficiency ratio {primary.efficiency_ratio20:.2f}"
+                )
+            if primary.ema_gap_atr < self.settings.min_ema_gap_atr:
+                blockers.append("EMA20 и EMA50 слишком близко: вероятна переходная фаза")
         if primary.atr_regime_ratio > self.settings.max_atr_regime_ratio:
             blockers.append(
                 f"Всплеск волатильности {primary.atr_regime_ratio:.1f}× нормы; "
@@ -346,7 +401,7 @@ class SignalEngine:
         if side is Side.SHORT and primary.dmi_spread > self.settings.max_countertrend_dmi:
             blockers.append("DMI на 1h не подтверждает давление продавцов")
 
-        threshold = 45.0
+        threshold = 30.0 if self.settings.main_scan_premove_only else 45.0
         if abs(score) < threshold:
             blockers.append(f"Совокупный edge слабый: {abs(score):.1f}/100, нужно {threshold:.0f}+")
 
@@ -370,8 +425,11 @@ class SignalEngine:
                 )
 
         distance_from_ema = abs(ticker.last - execution.ema20) / max(execution.atr14, 1e-12)
-        if distance_from_ema > 2.4:
-            blockers.append("Цена слишком далеко от EMA20: вход означал бы погоню за движением")
+        max_ema_distance = 1.35 if self.settings.main_scan_premove_only else 2.4
+        if distance_from_ema > max_ema_distance:
+            blockers.append(
+                "Цена слишком далеко от EMA20: вход означал бы погоню за уже начавшимся движением"
+            )
 
         funding_pct = ticker.funding_rate * 100
         if side is Side.LONG and funding_pct > 0.10:
@@ -400,6 +458,9 @@ class SignalEngine:
             return result
 
         confidence = self._confidence(score, aligned, regime, side, ticker, primary, risks)
+        if self.settings.main_scan_premove_only:
+            premove_confidence = int(np.clip(58 + premove_readiness * 0.32, 50, 89))
+            confidence = max(confidence, premove_confidence)
         required_confidence = (
             self.settings.min_auto_confidence
             if side is Side.LONG
@@ -465,6 +526,15 @@ class SignalEngine:
             f"при {self.settings.paper_one_way_cost_bps:.1f} bps на исполнение; "
             "funding и гэпы могут ухудшить результат"
         )
+        market_context = self._market_context(ticker)
+        market_context.update(
+            {
+                "premove_readiness": float(premove_readiness),
+                "premove_trigger": float(premove_trigger),
+                "premove_trigger_distance_pct": float(premove_distance_pct),
+                "recent_move_pct": float(recent_move_pct),
+            }
+        )
         return Signal(
             symbol=symbol,
             exchange=exchange,
@@ -480,7 +550,202 @@ class SignalEngine:
             plan=plan,
             data_age_seconds=data_age,
             required_confidence=required_confidence,
-            market_context=self._market_context(ticker),
+            market_context=market_context,
+        )
+
+    def _main_premove_score(
+        self,
+        side: Side,
+        execution: FeatureSet,
+        primary: FeatureSet,
+        structural: FeatureSet,
+        ticker: Ticker,
+        execution_candles: list[Candle],
+    ) -> tuple[int, float, float, float, list[str], list[str]]:
+        bullish = side is Side.LONG
+        score = 34
+        reasons: list[str] = []
+        blockers: list[str] = []
+
+        trigger = execution.range_high20 if bullish else execution.range_low20
+        distance_pct = (
+            abs(ticker.last / trigger - 1) * 100
+            if trigger > 0 and ticker.last > 0
+            else float("inf")
+        )
+        recent_move_pct = 0.0
+        if len(execution_candles) >= 2 and execution_candles[-2].close > 0:
+            recent_move_pct = (
+                execution_candles[-1].close / execution_candles[-2].close - 1
+            ) * 100
+        directional_recent = recent_move_pct if bullish else -recent_move_pct
+
+        primary_breakout = primary.breakout_up or primary.breakout_down
+        execution_direction_breakout = (
+            execution.breakout_up if bullish else execution.breakout_down
+        )
+        execution_opposite_breakout = (
+            execution.breakout_down if bullish else execution.breakout_up
+        )
+        if primary_breakout:
+            blockers.append("1h диапазон уже пробит — основной скачок мог уже начаться")
+        if execution_opposite_breakout:
+            blockers.append("15m пробой произошёл против предполагаемого направления")
+        if (
+            execution_direction_breakout
+            and execution.relative_volume20 > 1.25
+        ):
+            blockers.append("15m пробой уже подтверждён объёмом — ранний вход пропущен")
+
+        structural_aligned = (
+            structural.supertrend_direction > 0
+            if bullish
+            else structural.supertrend_direction < 0
+        )
+        primary_aligned = (
+            primary.supertrend_direction > 0
+            if bullish
+            else primary.supertrend_direction < 0
+        )
+        if structural_aligned:
+            score += 8
+            reasons.append("4h Trend Guard уже указывает нужное направление")
+        else:
+            blockers.append("4h Trend Guard не подтверждает направление")
+        if primary_aligned:
+            score += 6
+            reasons.append("1h Trend Guard согласован со сценарием")
+
+        compression_votes = 0
+        if execution.keltner_squeeze_ratio <= 1.05:
+            score += 12
+            compression_votes += 1
+            reasons.append("15m волатильность сжата внутри/около Keltner")
+        elif execution.keltner_squeeze_ratio <= 1.15:
+            score += 6
+            compression_votes += 1
+        if execution.bb_width_regime_ratio <= 0.95:
+            score += 8
+            compression_votes += 1
+        if execution.atr_regime_ratio <= 1.0:
+            score += 8
+            compression_votes += 1
+            reasons.append("15m ATR ещё не расширился")
+        elif execution.atr_regime_ratio <= 1.15:
+            score += 4
+            compression_votes += 1
+        if primary.atr_regime_ratio <= 1.15:
+            score += 4
+        if execution.ema_gap_atr <= 0.55:
+            score += 5
+        if compression_votes < 2:
+            blockers.append("Недостаточно признаков сжатия перед импульсом")
+
+        directional_position = (
+            execution.range_position20
+            if bullish
+            else 1 - execution.range_position20
+        )
+        if 0.60 <= directional_position <= 0.94:
+            score += 8
+            reasons.append(
+                f"Цена поджата к стороне trigger ({directional_position:.0%} диапазона)"
+            )
+        elif directional_position > 0.98:
+            blockers.append("Цена уже практически на границе пробоя — слишком поздно")
+        elif directional_position < 0.45:
+            blockers.append("Цена ещё не поджата к ожидаемой стороне выхода")
+
+        if (
+            self.settings.main_scan_min_trigger_distance_pct
+            <= distance_pct
+            <= self.settings.main_scan_max_trigger_distance_pct
+        ):
+            score += 12
+            reasons.append(f"До 15m trigger {distance_pct:.2f}% — вход ещё не запоздал")
+        elif distance_pct < self.settings.main_scan_min_trigger_distance_pct:
+            blockers.append(f"До 15m trigger всего {distance_pct:.2f}% — поздний вход")
+        else:
+            blockers.append(f"15m trigger ещё слишком далеко: {distance_pct:.2f}%")
+
+        if directional_recent <= 0.15:
+            score += 8
+            reasons.append(f"Последняя 15m свеча ещё не ускорилась: {recent_move_pct:+.2f}%")
+        elif directional_recent <= self.settings.main_scan_max_recent_move_pct:
+            score += 3
+        else:
+            blockers.append(
+                f"Цена уже прошла {directional_recent:.2f}% по сценарию за последнюю свечу"
+            )
+
+        if execution.relative_volume20 <= 1.25:
+            score += 6
+            reasons.append(f"RVOL {execution.relative_volume20:.2f}×: основной объём ещё не пришёл")
+        elif execution.relative_volume20 <= self.settings.main_scan_max_execution_rvol:
+            score += 2
+        else:
+            blockers.append(
+                f"RVOL {execution.relative_volume20:.2f}×: объёмный импульс уже начался"
+            )
+
+        if abs(execution.vwap_distance_atr) <= 1.4:
+            score += 5
+        elif abs(execution.vwap_distance_atr) > 2.0:
+            blockers.append("Цена уже слишком далеко от VWAP")
+
+        oi = ticker.open_interest_change_pct
+        if oi is not None:
+            if -0.5 <= oi <= 5:
+                score += 6
+                if oi > 0.5:
+                    reasons.append(f"OI {oi:+.1f}% растёт без сильного движения цены")
+            elif oi < -2:
+                blockers.append(f"OI {oi:+.1f}% сокращается")
+            elif oi > 9:
+                blockers.append(f"OI {oi:+.1f}% уже экстремально разогнан")
+
+        funding_pct = ticker.funding_rate * 100
+        directional_funding = funding_pct if bullish else -funding_pct
+        if directional_funding <= 0.05:
+            score += 4
+        elif directional_funding > 0.08:
+            blockers.append(f"Funding {funding_pct:+.3f}% перегрет по направлению")
+
+        if ticker.taker_buy_ratio is not None:
+            directional_taker = (
+                ticker.taker_buy_ratio
+                if bullish
+                else 1 - ticker.taker_buy_ratio
+            )
+            if 0.54 <= directional_taker <= 0.72:
+                score += 5
+                reasons.append(
+                    f"Taker-flow {directional_taker:.0%} поддерживает bias без экстремума"
+                )
+            elif directional_taker < 0.40:
+                blockers.append("Taker-flow заметно против предполагаемого направления")
+        if ticker.orderbook_imbalance is not None:
+            directional_book = (
+                ticker.orderbook_imbalance
+                if bullish
+                else -ticker.orderbook_imbalance
+            )
+            if directional_book >= 0.10:
+                score += 3
+
+        score = int(np.clip(score, 0, 95))
+        if score < self.settings.main_scan_min_premove_readiness:
+            blockers.append(
+                f"Pre-move готовность {score}/100 ниже "
+                f"{self.settings.main_scan_min_premove_readiness}"
+            )
+        return (
+            score,
+            trigger,
+            distance_pct,
+            recent_move_pct,
+            reasons[:6],
+            blockers[:6],
         )
 
     @staticmethod
