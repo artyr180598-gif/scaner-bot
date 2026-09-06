@@ -185,16 +185,24 @@ class SmartMoneyScanner:
                         type(exc).__name__,
                     )
 
-            quick = await asyncio.gather(
-                *(self._quick(item) for item in universe),
-                return_exceptions=True,
+            quick_tasks = {
+                asyncio.create_task(self._quick(item)): item for item in universe
+            }
+            quick_done, quick_pending = await asyncio.wait(
+                set(quick_tasks),
+                timeout=QUICK_STAGE_TIMEOUT_SECONDS,
             )
+            if quick_pending:
+                _cancel_detached(quick_pending)
+                errors.append(f"quick-stage timeout: {len(quick_pending)} markets skipped")
             ranked: list[tuple[float, Ticker, FeatureSet]] = []
-            for ticker, result in zip(universe, quick, strict=True):
-                if isinstance(result, BaseException):
-                    errors.append(f"{ticker.symbol}: {type(result).__name__}")
+            for task in quick_done:
+                ticker = quick_tasks[task]
+                try:
+                    feature = task.result()
+                except BaseException as exc:
+                    errors.append(f"{ticker.symbol}: {type(exc).__name__}")
                     continue
-                feature = result
                 ranked.append((self._pre_score(feature), ticker, feature))
 
             ranked.sort(key=lambda item: item[0], reverse=True)
@@ -206,31 +214,43 @@ class SmartMoneyScanner:
                 key=lambda item: item[0],
                 reverse=True,
             )
-            self._flow_watchlist = self._build_flow_watchlist(prime_ranked[:16])
+            self._flow_watchlist = self._build_flow_watchlist(prime_ranked[:24])
 
-            deep_limit = min(max(self.settings.shortlist_size + 4, 16), 20)
+            # Cheap 15m discovery still sees the full liquid universe. Expensive
+            # spot/OI/order-book/cross-exchange enrichment is reserved for the
+            # strongest eight; live flow watches a wider list and can recheck a
+            # symbol immediately when pressure starts.
+            deep_limit = min(max(self.settings.shortlist_size // 2, 6), 8)
             candidates = self._deep_candidates(
                 prime_ranked,
                 ranked if self.settings.smart_money_include_post_breakout else [],
                 deep_limit,
             )
 
-            deep = await asyncio.gather(
-                *(
+            deep_tasks = {
+                asyncio.create_task(
                     self._deep(
                         ticker,
                         feature15,
                         confirmation_map.get(ticker.symbol),
                     )
-                    for _, ticker, feature15 in candidates
-                ),
-                return_exceptions=True,
+                ): ticker
+                for _, ticker, feature15 in candidates
+            }
+            deep_done, deep_pending = await asyncio.wait(
+                set(deep_tasks),
+                timeout=DEEP_STAGE_TIMEOUT_SECONDS,
             )
+            if deep_pending:
+                _cancel_detached(deep_pending)
+                errors.append(f"deep-stage timeout: {len(deep_pending)} markets skipped")
             setups: list[SmartMoneySetup] = []
-            for candidate, result in zip(candidates, deep, strict=True):
-                ticker = candidate[1]
-                if isinstance(result, BaseException):
-                    errors.append(f"{ticker.symbol}: {type(result).__name__}")
+            for task in deep_done:
+                ticker = deep_tasks[task]
+                try:
+                    result = task.result()
+                except BaseException as exc:
+                    errors.append(f"{ticker.symbol}: {type(exc).__name__}")
                     continue
                 if result is not None:
                     setups.append(result)
