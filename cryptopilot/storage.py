@@ -93,6 +93,31 @@ class SignalStore:
                     ON flow_observations(status, expires_at);
                 CREATE INDEX IF NOT EXISTS idx_flow_observations_created
                     ON flow_observations(created_at DESC);
+                CREATE TABLE IF NOT EXISTS prime_shadow (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    exchange TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    score INTEGER NOT NULL,
+                    entry_low REAL NOT NULL,
+                    entry_high REAL NOT NULL,
+                    stop_loss REAL NOT NULL,
+                    take_profit REAL NOT NULL,
+                    entry_expires_at TEXT NOT NULL,
+                    exit_expires_at TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'WAITING',
+                    entry_price REAL,
+                    entry_at TEXT,
+                    exit_price REAL,
+                    closed_at TEXT,
+                    result_r REAL,
+                    outcome TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_prime_shadow_open
+                    ON prime_shadow(status, exchange, symbol);
+                CREATE INDEX IF NOT EXISTS idx_prime_shadow_stats
+                    ON prime_shadow(side, id DESC);
                 """
             )
             await db.commit()
@@ -325,6 +350,191 @@ class SignalStore:
                 )
             ).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    async def record_prime_shadow(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        side: Side,
+        score: int,
+        created_at: datetime,
+        entry_low: float,
+        entry_high: float,
+        stop_loss: float,
+        take_profit: float,
+        entry_expires_at: datetime,
+        max_holding_hours: int,
+        dedup_minutes: int,
+    ) -> int:
+        threshold = created_at - timedelta(minutes=dedup_minutes)
+        async with aiosqlite.connect(self.path) as db:
+            duplicate = await (
+                await db.execute(
+                    """
+                    SELECT id FROM prime_shadow
+                    WHERE symbol=? AND side=? AND created_at>=?
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (
+                        symbol,
+                        side.value,
+                        threshold.astimezone(UTC).isoformat(),
+                    ),
+                )
+            ).fetchone()
+            if duplicate is not None:
+                return 0
+            exit_expires_at = created_at + timedelta(hours=max_holding_hours)
+            cursor = await db.execute(
+                """
+                INSERT INTO prime_shadow
+                    (created_at, symbol, exchange, side, score, entry_low, entry_high,
+                     stop_loss, take_profit, entry_expires_at, exit_expires_at, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'WAITING')
+                """,
+                (
+                    created_at.astimezone(UTC).isoformat(),
+                    symbol,
+                    exchange,
+                    side.value,
+                    score,
+                    entry_low,
+                    entry_high,
+                    stop_loss,
+                    take_profit,
+                    entry_expires_at.astimezone(UTC).isoformat(),
+                    exit_expires_at.astimezone(UTC).isoformat(),
+                ),
+            )
+            await db.commit()
+            return int(cursor.lastrowid or 0)
+
+    async def open_prime_shadow(self) -> list[dict]:
+        async with aiosqlite.connect(self.path) as db:
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT id, created_at, symbol, exchange, side, score, entry_low,
+                           entry_high, stop_loss, take_profit, entry_expires_at,
+                           exit_expires_at, status, entry_price, entry_at
+                    FROM prime_shadow
+                    WHERE status IN ('WAITING', 'OPEN')
+                    ORDER BY id
+                    """
+                )
+            ).fetchall()
+        return [
+            {
+                "id": int(row[0]),
+                "created_at": datetime.fromisoformat(row[1]),
+                "symbol": str(row[2]),
+                "exchange": str(row[3]),
+                "side": Side(str(row[4])),
+                "score": int(row[5]),
+                "entry_low": float(row[6]),
+                "entry_high": float(row[7]),
+                "stop_loss": float(row[8]),
+                "take_profit": float(row[9]),
+                "entry_expires_at": datetime.fromisoformat(row[10]),
+                "exit_expires_at": datetime.fromisoformat(row[11]),
+                "status": str(row[12]),
+                "entry_price": float(row[13]) if row[13] is not None else None,
+                "entry_at": datetime.fromisoformat(row[14]) if row[14] else None,
+            }
+            for row in rows
+        ]
+
+    async def mark_prime_shadow_entry(
+        self,
+        observation_id: int,
+        entry_price: float,
+        entered_at: datetime,
+    ) -> None:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """
+                UPDATE prime_shadow
+                SET status='OPEN', entry_price=?, entry_at=?
+                WHERE id=? AND status='WAITING'
+                """,
+                (
+                    entry_price,
+                    entered_at.astimezone(UTC).isoformat(),
+                    observation_id,
+                ),
+            )
+            await db.commit()
+
+    async def close_prime_shadow(
+        self,
+        observation_id: int,
+        *,
+        outcome: str,
+        result_r: float | None,
+        exit_price: float | None,
+        closed_at: datetime,
+        status: str = "CLOSED",
+    ) -> None:
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """
+                UPDATE prime_shadow
+                SET status=?, outcome=?, result_r=?, exit_price=?, closed_at=?
+                WHERE id=? AND status IN ('WAITING', 'OPEN')
+                """,
+                (
+                    status,
+                    outcome,
+                    result_r,
+                    exit_price,
+                    closed_at.astimezone(UTC).isoformat(),
+                    observation_id,
+                ),
+            )
+            await db.commit()
+
+    async def prime_shadow_stats(self, limit: int = 300) -> dict[str, float | int | None]:
+        async with aiosqlite.connect(self.path) as db:
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT status, outcome, result_r
+                    FROM prime_shadow
+                    WHERE status IN ('CLOSED', 'EXPIRED')
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (min(max(limit, 1), 2000),),
+                )
+            ).fetchall()
+            pending = await (
+                await db.execute(
+                    "SELECT COUNT(*) FROM prime_shadow WHERE status IN ('WAITING', 'OPEN')"
+                )
+            ).fetchone()
+        resolved = len(rows)
+        no_entry = sum(str(row[1]) == "NO_ENTRY" for row in rows)
+        values = [float(row[2]) for row in rows if row[2] is not None]
+        wins = sum(value > 0 for value in values)
+        losses = sum(value <= 0 for value in values)
+        gross_profit = sum(value for value in values if value > 0)
+        gross_loss = abs(sum(value for value in values if value < 0))
+        return {
+            "resolved": resolved,
+            "sample_size": len(values),
+            "wins": wins,
+            "losses": losses,
+            "no_entry": no_entry,
+            "pending": int(pending[0]) if pending else 0,
+            "win_rate_pct": wins / len(values) * 100 if values else None,
+            "expectancy_r": statistics.fmean(values) if values else None,
+            "profit_factor": (
+                gross_profit / gross_loss
+                if gross_loss > 0
+                else (float("inf") if gross_profit > 0 else None)
+            ),
+        }
 
     async def record_flow_observation(
         self,
