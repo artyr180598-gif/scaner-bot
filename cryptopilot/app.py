@@ -30,6 +30,7 @@ from cryptopilot.live_radar import (
     refresh_watchlist,
 )
 from cryptopilot.models import CURRENT_PRIME_STRATEGY_VERSION, EarlySetup, Signal
+from cryptopilot.prime_delivery import refresh_prime_entry
 from cryptopilot.prime_shadow import PrimeShadowTracker
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.smart_money import (
@@ -101,9 +102,7 @@ async def run() -> None:
         else None
     )
     prime_shadow = (
-        PrimeShadowTracker(exchange, store, settings)
-        if settings.prime_shadow_enabled
-        else None
+        PrimeShadowTracker(exchange, store, settings) if settings.prime_shadow_enabled else None
     )
     bot = Bot(
         settings.telegram_bot_token.strip(),
@@ -169,9 +168,7 @@ async def run() -> None:
 
     @router.message(Command("primestats"))
     async def prime_stats(message: Message) -> None:
-        stats = await store.prime_shadow_stats(
-            strategy_version=CURRENT_PRIME_STRATEGY_VERSION
-        )
+        stats = await store.prime_shadow_stats(strategy_version=CURRENT_PRIME_STRATEGY_VERSION)
         await message.answer(
             "<b>PRIME Shadow Learning</b>\n"
             + _format_prime_shadow_stats(stats, settings.prime_shadow_min_samples)
@@ -197,18 +194,19 @@ async def run() -> None:
         await bot.set_my_commands(
             [
                 BotCommand(command="menu", description="Обновить главное меню"),
-                BotCommand(command="scan", description="Лучшие PRE-MOVE планы до разгона"),
+                BotCommand(command="search", description="Единый поиск подходящих PRIME-монет"),
+                BotCommand(command="scan", description="Единый поиск (тот же результат)"),
                 BotCommand(command="early", description="Радар до импульса"),
                 BotCommand(
                     command="smartmoney",
-                    description="Smart Money до пробоя: структура + OI + flow",
+                    description="Единый поиск (прежняя команда Smart Money)",
                 ),
                 BotCommand(
                     command="prime",
-                    description="Редкий pre-move поиск до разгона цены",
+                    description="Единый поиск (прежняя команда PRIME)",
                 ),
                 BotCommand(command="analyze", description="PRE-MOVE анализ одной монеты"),
-                BotCommand(command="best", description="Один лучший актуальный вариант"),
+                BotCommand(command="best", description="Единый поиск подходящих монет"),
                 BotCommand(command="performance", description="Paper-статистика"),
                 BotCommand(command="status", description="Версия и состояние"),
                 BotCommand(command="live", description="Состояние потокового радара"),
@@ -308,6 +306,10 @@ async def run() -> None:
                 max_per_day=settings.prime_max_alerts_per_day,
             )
             if not symbol_allowed or not budget_allowed:
+                return
+
+            item = await refresh_prime_entry(item, exchange, settings)
+            if not item.prime_ready:
                 return
 
             # Every PRIME that can reach the user must also enter forward Shadow
@@ -538,7 +540,6 @@ async def run() -> None:
             await confirmation_exchange.close()
         await health_runner.cleanup()
         log.info("CryptoPilot stopped")
-
 
 
 def _format_prime_shadow_stats(
