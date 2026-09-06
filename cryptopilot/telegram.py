@@ -39,6 +39,7 @@ SCAN = "🔎 Сканировать рынок"
 ANALYZE = "🪙 Анализ монеты"
 EARLY = "⚡ До импульса"
 SMART_MONEY = "🐋 Крупный капитал"
+PRIME = "🎯 PRIME поиск"
 BEST = "⭐ Лучшие сигналы"
 BACKTEST = "📊 Бэктест"
 STATUS = "⚙️ Статус"
@@ -82,7 +83,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=SCAN), KeyboardButton(text=ANALYZE)],
             [KeyboardButton(text=EARLY), KeyboardButton(text=SMART_MONEY)],
-            [KeyboardButton(text=BEST)],
+            [KeyboardButton(text=PRIME), KeyboardButton(text=BEST)],
             [KeyboardButton(text=BACKTEST), KeyboardButton(text=PERFORMANCE)],
             [KeyboardButton(text=STATUS), KeyboardButton(text=HELP)],
         ],
@@ -173,6 +174,36 @@ def build_router(
             health.last_error = str(exc)
             await progress.edit_text(
                 f"⚠️ Smart Money Radar не завершён: {html.escape(str(exc))}"
+            )
+
+    @router.message(Command("prime"))
+    @router.message(F.text == PRIME)
+    async def prime_scan(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        progress = await message.answer(
+            "⏳ PRIME: ищу редкие pre-move кандидаты до разгона цены и основного потока…"
+        )
+        try:
+            await smart_money.scan()
+            candidates = smart_money.prime_candidates()
+            if not candidates:
+                await progress.edit_text(
+                    "🎯 <b>PRIME</b>\n\n"
+                    "Сейчас нет кандидата, который прошёл все жёсткие фильтры. "
+                    "Это нормальный результат: слабые варианты бот специально не показывает."
+                )
+                return
+            await progress.edit_text(
+                f"🎯 <b>PRIME поиск завершён</b>\n"
+                f"Прошли строгий pre-move фильтр: {len(candidates)}\n"
+                "Ниже — лучшие кандидаты. Авто-режим всё равно пришлёт только самый сильный."
+            )
+            for setup in candidates[:3]:
+                await message.answer(format_prime_setup(setup))
+        except Exception as exc:
+            health.last_error = str(exc)
+            await progress.edit_text(
+                f"⚠️ PRIME поиск не завершён: {html.escape(str(exc))}"
             )
 
     @router.message(Command("analyze"))
@@ -285,7 +316,7 @@ def build_router(
             "• Ступени 50/30/20 — не мартингейл: добавляться можно только до отмены сценария.\n"
             "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
-            "Команды: /menu, /scan, /early, /smartmoney, /analyze BTC, /backtest BTC, /best, "
+            "Команды: /menu, /scan, /early, /smartmoney, /prime, /analyze BTC, /backtest BTC, /best, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
@@ -550,6 +581,50 @@ def format_early_setup(setup: EarlySetup) -> str:
         "⚠️ До подтверждения границы диапазона позицию не открывать."
     )
 
+
+def format_prime_setup(item) -> str:
+    side_icon = "🟢" if item.bias is Side.LONG else "🔴"
+    reasons = "\n".join(
+        f"• {html.escape(value)}" for value in item.prime_reasons
+    ) or "• Совпали строгие pre-move фильтры"
+
+    spot_parts: list[str] = []
+    if item.spot_taker_buy_ratio is not None:
+        spot_parts.append(f"spot BUY {item.spot_taker_buy_ratio:.0%}")
+    if item.spot_orderbook_imbalance is not None:
+        spot_parts.append(f"book {item.spot_orderbook_imbalance:+.0%}")
+    if item.spot_block_trade_notional is not None:
+        spot_parts.append(f"block ${item.spot_block_trade_notional:,.0f}")
+    if item.spot_perp_basis_bps is not None:
+        spot_parts.append(f"perp/spot {item.spot_perp_basis_bps:+.1f} bps")
+    spot_line = " · ".join(spot_parts) if spot_parts else "spot-подтверждение недоступно"
+
+    live_parts: list[str] = []
+    if item.live_delta_ratio_60s is not None:
+        live_parts.append(f"Δ60s {item.live_delta_ratio_60s:+.0%}")
+    if item.live_cvd_ratio_5m is not None:
+        live_parts.append(f"CVD5m {item.live_cvd_ratio_5m:+.0%}")
+    if item.live_volume_burst_ratio is not None:
+        live_parts.append(f"burst {item.live_volume_burst_ratio:.2f}×")
+    if item.live_oi_acceleration_pct_per_min is not None:
+        live_parts.append(f"OI accel {item.live_oi_acceleration_pct_per_min:+.3f}%/мин")
+    live_line = " · ".join(live_parts) if live_parts else "основной live-поток ещё не разогнан"
+
+    return (
+        f"🎯 {side_icon} <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
+        f"Сценарий: <b>{item.bias.value}</b> · Prime score: <b>{item.prime_score}/100</b>\n"
+        f"Цена: <code>{price(item.price)}</code> · trigger: <code>{price(item.trigger_price)}</code>\n"
+        f"До trigger: {item.distance_to_trigger_pct:.2f}% · "
+        f"движение ~15м: {item.recent_move_15m_pct:+.2f}%\n"
+        f"Структура: 15m {html.escape(item.structure_15m)} · "
+        f"1h {html.escape(item.structure_1h)} · 4h {html.escape(item.structure_4h)}\n"
+        f"RVOL {item.rvol:.2f}× · funding {item.funding_pct:+.3f}%\n"
+        f"Spot: {html.escape(spot_line)}\n"
+        f"Live: {html.escape(live_line)}\n\n"
+        f"<b>Почему PRIME</b>\n{reasons}\n\n"
+        "Это ранний кандидат до очевидного импульса. Prime score — рейтинг качества, "
+        "не вероятность прибыли и не гарантия входа крупных денег."
+    )
 
 def format_backtest(result: BacktestResult) -> str:
     profit_factor = "∞" if math.isinf(result.profit_factor) else f"{result.profit_factor:.2f}"
