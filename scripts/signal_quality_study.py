@@ -1,4 +1,4 @@
-"""Fixed quality study, March-August2026; no threshold tuning after results.
+"""Exploratory quality study, March-August2026; economic phase added posthoc.
 
 Hypothesis: buying strength after an observed pullback/reclaim is different from
 ranking mature trends. Compare reclaim with/without volume confirmation. Long
