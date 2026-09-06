@@ -172,6 +172,11 @@ def test_prime_pre_move_rewards_coiled_market_before_flow(candle_factory) -> Non
         _ticker(f15.close, bullish=True),
         open_interest_change_pct=1.0,
         funding_rate=0.0001,
+        spot_taker_buy_ratio=0.68,
+        spot_orderbook_imbalance=0.18,
+        spot_block_trade_buy_ratio=0.80,
+        spot_block_trade_notional=100_000,
+        spot_perp_basis_bps=4.0,
     )
     flow = FlowSnapshot(
         symbol="TESTUSDT",
@@ -208,6 +213,7 @@ def test_prime_pre_move_rewards_coiled_market_before_flow(candle_factory) -> Non
     assert score >= settings.prime_min_score
     assert not blockers
     assert any("ещё не" in reason or "до импульса" in reason for reason in reasons)
+    assert any("Spot" in reason for reason in reasons)
 
 
 def test_prime_pre_move_rejects_market_that_already_accelerated(candle_factory) -> None:
