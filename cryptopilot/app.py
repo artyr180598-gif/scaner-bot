@@ -280,6 +280,24 @@ async def run() -> None:
                 if spot_state
                 else "нет доступного spot-подтверждения"
             )
+            if item.bias.value == "LONG":
+                wall_ratio = item.bid_wall_ratio
+                wall_seconds = item.bid_wall_persistence_seconds
+                replenishment = item.bid_replenishment_usdt_60s
+            else:
+                wall_ratio = item.ask_wall_ratio
+                wall_seconds = item.ask_wall_persistence_seconds
+                replenishment = item.ask_replenishment_usdt_60s
+            wall_text = (
+                f"{wall_ratio:.1f}× / {wall_seconds:.0f}с · replenishment "
+                f"${replenishment:,.0f}/60с"
+                if wall_ratio is not None
+                else "ещё нет устойчивой стены"
+            )
+            liquidation_text = (
+                f"LONG ${item.long_liquidation_usdt_60s:,.0f} · "
+                f"SHORT ${item.short_liquidation_usdt_60s:,.0f}"
+            )
 
             message_text = (
                 f"🎯 <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
@@ -296,6 +314,8 @@ async def run() -> None:
                 f"RVOL: {item.rvol:.2f}× · OI: {oi} · "
                 f"funding: {item.funding_pct:+.3f}%\n"
                 f"Spot: {html.escape(spot_text)}\n"
+                f"Liquidity: {html.escape(wall_text)}\n"
+                f"Liquidations 60с: {html.escape(liquidation_text)}\n"
                 f"Live: {html.escape(flow_text)}\n\n"
                 f"<b>Почему это TOP-кандидат до потока</b>\n{reasons}\n\n"
                 "🟢 Это редкий ранний кандидат: система специально требует, чтобы "
