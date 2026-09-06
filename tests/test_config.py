@@ -35,4 +35,10 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.min_early_auto_readiness >= config.min_early_readiness
     assert config.early_radar_enabled
     assert config.early_auto_alerts
+    assert config.smart_money_auto_scan_enabled
+    assert config.flow_radar_enabled
+    assert config.smart_money_scan_interval_seconds >= 120
+    assert config.flow_min_alert_score >= 70
+    assert config.flow_delta_ratio_threshold >= 0.10
+    assert config.flow_volume_burst_ratio >= 1.0
     assert config.preferred_leverage <= config.max_leverage <= 3
