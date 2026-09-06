@@ -67,3 +67,32 @@ def test_manual_timeout_is_reported_as_data_failure():
     asyncio.run(callback(message, SimpleNamespace(clear=AsyncMock())))
     text = progress.edit_text.call_args.args[0]
     assert "жёсткому дедлайну" in text
+
+
+
+def test_cancelling_scan_wrapper_cancels_inner_owner_and_releases_lock(monkeypatch):
+    monkeypatch.setattr("cryptopilot.smart_money.SCAN_TIMEOUT_SECONDS", 5)
+
+    async def scenario():
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def stall():
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        exchange = SimpleNamespace(name="BYBIT", tickers=AsyncMock(side_effect=stall))
+        scanner = SmartMoneyScanner(exchange, Settings(_env_file=None))
+        task = asyncio.create_task(scanner.scan())
+        await asyncio.wait_for(started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.wait_for(cancelled.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert not scanner._lock.locked()
+
+    asyncio.run(scenario())
