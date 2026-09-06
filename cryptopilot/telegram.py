@@ -21,6 +21,7 @@ from cryptopilot.health import RuntimeHealth
 from cryptopilot.models import (
     BacktestResult,
     CalibrationStats,
+    CURRENT_STRATEGY_VERSION,
     EarlyScanReport,
     EarlySetup,
     ScanReport,
@@ -296,9 +297,20 @@ def build_router(
     @router.message(F.text == PERFORMANCE)
     async def performance(message: Message) -> None:
         overall, longs, shorts, active = await asyncio.gather(
-            store.calibration(limit=settings.calibration_lookback),
-            store.calibration(side=Side.LONG, limit=settings.calibration_lookback),
-            store.calibration(side=Side.SHORT, limit=settings.calibration_lookback),
+            store.calibration(
+                strategy_version=CURRENT_STRATEGY_VERSION,
+                limit=settings.calibration_lookback,
+            ),
+            store.calibration(
+                side=Side.LONG,
+                strategy_version=CURRENT_STRATEGY_VERSION,
+                limit=settings.calibration_lookback,
+            ),
+            store.calibration(
+                side=Side.SHORT,
+                strategy_version=CURRENT_STRATEGY_VERSION,
+                limit=settings.calibration_lookback,
+            ),
             store.active_paper_count(),
         )
         await message.answer(
