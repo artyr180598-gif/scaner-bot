@@ -22,6 +22,7 @@ from cryptopilot.health import RuntimeHealth, start_health_server
 from cryptopilot.live_radar import Crossing, LiveRadar, active_live_setups, refresh_watchlist
 from cryptopilot.models import EarlySetup, Signal
 from cryptopilot.scanner import MarketScanner
+from cryptopilot.squeeze_lab import SqueezeLab
 from cryptopilot.storage import SignalStore
 from cryptopilot.telegram import (
     build_router,
@@ -66,6 +67,15 @@ async def run() -> None:
     dispatcher = Dispatcher(storage=MemoryStorage())
     router = build_router(scanner, exchange, store, settings, health)
     live: LiveRadar | None = None
+    lab = SqueezeLab(exchange, store, settings) if settings.squeeze_lab_enabled else None
+    if lab is not None:
+        await lab.initialize()
+
+    @router.message(Command("lab"))
+    async def lab_status(message: Message) -> None:
+        await message.answer(
+            html.escape(await lab.report()) if lab is not None else "Лаборатория выключена."
+        )
 
     @router.message(Command("live"))
     async def live_status(message: Message) -> None:
@@ -111,6 +121,7 @@ async def run() -> None:
                 BotCommand(command="performance", description="Paper-статистика"),
                 BotCommand(command="status", description="Версия и состояние"),
                 BotCommand(command="live", description="Состояние потокового радара"),
+                BotCommand(command="lab", description="Лаборатория сжатия: виртуальные сделки"),
                 BotCommand(command="help", description="Как читать сигналы"),
             ]
         )
@@ -172,6 +183,8 @@ async def run() -> None:
         )
         stopper = asyncio.create_task(stop_event.wait(), name="shutdown-signal")
         tasks = {polling, monitoring, stopper}
+        if lab is not None:
+            tasks.add(asyncio.create_task(lab.run(stop_event), name="squeeze-forward-lab"))
         if (
             settings.live_radar_enabled
             and settings.early_radar_enabled
