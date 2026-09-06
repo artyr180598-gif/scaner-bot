@@ -18,10 +18,18 @@ from aiogram.types import BotCommand, Message
 from cryptopilot.config import get_settings
 from cryptopilot.engine import SignalEngine
 from cryptopilot.exchange import build_exchange
+from cryptopilot.flow import FlowPressureEvent, FlowTracker
 from cryptopilot.health import RuntimeHealth, start_health_server
-from cryptopilot.live_radar import Crossing, LiveRadar, active_live_setups, refresh_watchlist
+from cryptopilot.live_radar import (
+    Crossing,
+    LiveRadar,
+    active_flow_candidates,
+    active_live_setups,
+    refresh_watchlist,
+)
 from cryptopilot.models import EarlySetup, Signal
 from cryptopilot.scanner import MarketScanner
+from cryptopilot.smart_money import SmartMoneyScanner, refresh_smart_money_watchlist
 from cryptopilot.squeeze_lab import SqueezeLab
 from cryptopilot.storage import SignalStore
 from cryptopilot.telegram import (
@@ -60,12 +68,14 @@ async def run() -> None:
     await store.initialize()
     engine = SignalEngine(settings)
     scanner = MarketScanner(exchange, engine, store, settings)
+    flow_tracker = FlowTracker()
+    smart_money = SmartMoneyScanner(exchange, settings, flow_tracker)
     bot = Bot(
         settings.telegram_bot_token.strip(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
-    router = build_router(scanner, exchange, store, settings, health)
+    router = build_router(scanner, exchange, store, settings, health, smart_money)
     live: LiveRadar | None = None
     lab = SqueezeLab(exchange, store, settings) if settings.squeeze_lab_enabled else None
     if lab is not None:
