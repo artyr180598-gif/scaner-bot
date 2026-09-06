@@ -26,7 +26,8 @@ def test_stalled_scan_cancels_requests_releases_lock_and_can_retry(monkeypatch):
         scanner = SmartMoneyScanner(exchange, Settings(_env_file=None))
         with pytest.raises(TimeoutError):
             await scanner.scan()
-        assert request_cancelled.is_set()
+        await asyncio.wait_for(request_cancelled.wait(), timeout=1)
+        await asyncio.sleep(0)
         assert not scanner._lock.locked()
         assert scanner.prime_candidates() == ()
         exchange.tickers = AsyncMock(return_value=[])
