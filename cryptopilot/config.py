@@ -132,6 +132,13 @@ class Settings(BaseSettings):
     prime_max_directional_perp_basis_bps: float = Field(default=20.0, ge=1.0, le=200.0)
     prime_min_spot_block_notional: float = Field(default=50_000, ge=0, le=100_000_000)
 
+    liquidity_intelligence_enabled: bool = True
+    liquidity_orderbook_watch_limit: int = Field(default=4, ge=1, le=10)
+    prime_min_persistent_wall_ratio: float = Field(default=2.5, ge=1.5, le=20.0)
+    prime_min_wall_persistence_seconds: int = Field(default=10, ge=3, le=120)
+    prime_min_replenishment_notional: float = Field(default=25_000, ge=0, le=100_000_000)
+    prime_max_directional_liquidation_ratio: float = Field(default=0.25, ge=0.05, le=2.0)
+
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
     max_position_pct: float = Field(default=25, gt=0, le=100)
