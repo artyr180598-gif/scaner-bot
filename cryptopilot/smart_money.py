@@ -106,9 +106,27 @@ class SmartMoneyScanner:
                 ranked.append((self._pre_score(feature), ticker, feature))
 
             ranked.sort(key=lambda item: item[0], reverse=True)
-            self._flow_watchlist = self._build_flow_watchlist(ranked[:24])
-            deep_limit = min(max(self.settings.shortlist_size, 12), 24)
-            candidates = ranked[:deep_limit]
+            prime_ranked = sorted(
+                (
+                    (self._prime_pre_score(feature), ticker, feature)
+                    for _, ticker, feature in ranked
+                ),
+                key=lambda item: item[0],
+                reverse=True,
+            )
+            self._flow_watchlist = self._build_flow_watchlist(prime_ranked[:16])
+
+            deep_limit = min(max(self.settings.shortlist_size + 4, 16), 20)
+            candidates: list[tuple[float, Ticker, FeatureSet]] = []
+            seen_symbols: set[str] = set()
+            for candidate in ranked[:8] + prime_ranked[:12]:
+                symbol = candidate[1].symbol
+                if symbol in seen_symbols:
+                    continue
+                candidates.append(candidate)
+                seen_symbols.add(symbol)
+                if len(candidates) >= deep_limit:
+                    break
 
             deep = await asyncio.gather(
                 *(self._deep(ticker, feature15) for _, ticker, feature15 in candidates),
@@ -214,6 +232,36 @@ class SmartMoneyScanner:
             + breakout_proximity * 8
             + max(0.0, 1.2 - feature.keltner_squeeze_ratio) * 6
         )
+
+    @staticmethod
+    def _prime_pre_score(feature: FeatureSet) -> float:
+        """Cheap first pass that prefers compression before volume expansion."""
+        if feature.breakout_up or feature.breakout_down:
+            return 0.0
+        aligned = (
+            feature.close > feature.ema20 > feature.ema50
+            or feature.close < feature.ema20 < feature.ema50
+        )
+        directional_position = max(
+            feature.range_position20,
+            1 - feature.range_position20,
+        )
+        score = 12.0 if aligned else 0.0
+        if 0.65 <= directional_position <= 0.96:
+            score += 10
+        if feature.keltner_squeeze_ratio <= 1.05:
+            score += 12
+        elif feature.keltner_squeeze_ratio <= 1.15:
+            score += 5
+        if feature.bb_width_regime_ratio <= 0.95:
+            score += 6
+        if 0.65 <= feature.relative_volume20 <= 1.25:
+            score += 8
+        elif feature.relative_volume20 > 1.5:
+            score -= 12
+        if abs(feature.vwap_distance_atr) <= 1.5:
+            score += 4
+        return max(0.0, score)
 
     async def _deep(self, ticker: Ticker, feature15: FeatureSet) -> SmartMoneySetup | None:
         enriched, candles_1h, candles_4h, candles_5m = await asyncio.gather(
