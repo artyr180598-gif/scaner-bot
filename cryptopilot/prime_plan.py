@@ -123,6 +123,13 @@ def build_prime_plan(
         tp3 = max(tp3, entry_mid - 4.2 * risk)
 
     worst_entry = entry_high if side is Side.LONG else entry_low
+    worst_risk = (
+        worst_entry - stop
+        if side is Side.LONG
+        else stop - worst_entry
+    )
+    # Entry is a zone, so validate TP2 from the least favorable fill, not the midpoint.
+    # Raise the target only within a bounded 4R envelope; otherwise reject the plan.
     net_rr = net_reward_risk(
         side is Side.LONG,
         worst_entry,
@@ -130,6 +137,29 @@ def build_prime_plan(
         tp2,
         settings.paper_one_way_cost_bps,
     )
+    maximum_tp2 = (
+        worst_entry + 4.0 * worst_risk
+        if side is Side.LONG
+        else worst_entry - 4.0 * worst_risk
+    )
+    step = 0.10 * worst_risk
+    while net_rr < settings.prime_min_plan_rr and step > 0:
+        next_tp2 = tp2 + step if side is Side.LONG else tp2 - step
+        if (
+            side is Side.LONG and next_tp2 > maximum_tp2
+        ) or (
+            side is Side.SHORT and next_tp2 < maximum_tp2
+        ):
+            break
+        tp2 = next_tp2
+        net_rr = net_reward_risk(
+            side is Side.LONG,
+            worst_entry,
+            stop,
+            tp2,
+            settings.paper_one_way_cost_bps,
+        )
+
     if net_rr < settings.prime_min_plan_rr:
         return PrimePlanResult(
             None,
@@ -138,6 +168,11 @@ def build_prime_plan(
                 f"нужно {settings.prime_min_plan_rr:.2f}+",
             ),
         )
+
+    if side is Side.LONG:
+        tp3 = max(tp3, tp2 + 0.8 * worst_risk)
+    else:
+        tp3 = min(tp3, tp2 - 0.8 * worst_risk)
 
     risk_amount = (
         settings.account_equity_usdt
