@@ -36,6 +36,7 @@ from cryptopilot.scanner import MarketScanner
 from cryptopilot.smart_money import (
     SmartMoneyScanner,
     SmartMoneySetup,
+    format_smart_money_setup,
     refresh_smart_money_watchlist,
 )
 from cryptopilot.squeeze_lab import SqueezeLab
@@ -289,6 +290,46 @@ async def run() -> None:
                 dedup_minutes=settings.prime_shadow_dedup_minutes,
             )
 
+        async def send_prepare_candidate(item: SmartMoneySetup) -> None:
+            if (
+                not settings.prepare_alerts_enabled
+                or item.prime_ready
+                or item.prime_score < settings.prepare_min_score
+            ):
+                return
+            fingerprint = f"PREPARE:{item.symbol}:{item.bias.value}"
+            symbol_allowed = await store.strict_alert_allowed(
+                fingerprint,
+                settings.prepare_symbol_cooldown_minutes,
+            )
+            budget_allowed = await store.notification_budget_available(
+                "prepare",
+                cooldown_minutes=settings.prepare_global_cooldown_minutes,
+                max_per_day=settings.prepare_max_alerts_per_day,
+            )
+            if not symbol_allowed or not budget_allowed:
+                return
+
+            text_message = (
+                "🟡 <b>PRE-MOVE ПОДГОТОВКА — ещё не PRIME-вход</b>\n"
+                "Бот нашёл сильную раннюю конфигурацию до структурного пробоя. "
+                "Монета уже под live-наблюдением; усиление Flow/OI запустит "
+                "мгновенный повторный PRIME-анализ.\n\n"
+                + format_smart_money_setup(item)
+            )
+            successes = 0
+            for chat_id in settings.allowed_chat_ids:
+                try:
+                    await bot.send_message(chat_id, text_message)
+                    successes += 1
+                except Exception:
+                    log.warning("Prepare candidate delivery failed for an authorized chat")
+            if not successes:
+                raise RuntimeError("No prepare alert recipients accepted the message")
+            await store.mark_event_alerted(fingerprint, item.price)
+            await store.mark_notification_budget("prepare")
+            health.alerts_total += 1
+
         async def send_prime_candidate(item: SmartMoneySetup) -> None:
             if not settings.prime_alerts_enabled or not item.prime_ready:
                 return
@@ -347,9 +388,12 @@ async def run() -> None:
                 for item in smart_money.shadow_candidates():
                     await record_prime_shadow_candidate(item)
             candidates = smart_money.prime_candidates()
-            if not candidates:
+            if candidates:
+                await send_prime_candidate(candidates[0])
                 return
-            await send_prime_candidate(candidates[0])
+            prepare = smart_money.prepare_candidates()
+            if prepare:
+                await send_prepare_candidate(prepare[0])
 
         async def recheck_prime_from_flow(event: FlowPressureEvent) -> None:
             # FLOW_BUILDUP can already be too late for PRIME. EARLY_PRESSURE and
