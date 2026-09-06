@@ -309,9 +309,11 @@ class FlowTracker:
             return None
         if snapshot.notional_60s < min_notional_60s:
             return None
-        if max_spread_bps is not None:
-            if snapshot.spread_bps is None or snapshot.spread_bps > max_spread_bps:
-                return None
+        if (
+            max_spread_bps is not None
+            and (snapshot.spread_bps is None or snapshot.spread_bps > max_spread_bps)
+        ):
+            return None
         if trigger_price <= 0 or snapshot.price <= 0:
             return None
 
