@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -73,6 +74,25 @@ class SignalStore:
                     ON paper_trades(status, exchange, symbol);
                 CREATE INDEX IF NOT EXISTS idx_paper_calibration
                     ON paper_trades(symbol, side, id DESC);
+                CREATE TABLE IF NOT EXISTS flow_observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    bias TEXT NOT NULL,
+                    score INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    event_price REAL NOT NULL,
+                    trigger_price REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    resolved_at TEXT,
+                    triggered_at TEXT,
+                    lead_seconds REAL
+                );
+                CREATE INDEX IF NOT EXISTS idx_flow_observations_status
+                    ON flow_observations(status, expires_at);
+                CREATE INDEX IF NOT EXISTS idx_flow_observations_created
+                    ON flow_observations(created_at DESC);
                 """
             )
             await db.commit()
@@ -305,6 +325,134 @@ class SignalStore:
                 )
             ).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    async def record_flow_observation(
+        self,
+        *,
+        symbol: str,
+        bias: Side,
+        score: int,
+        event_type: str,
+        event_price: float,
+        trigger_price: float,
+        created_at: datetime,
+        window_minutes: int,
+    ) -> int:
+        expires_at = created_at + timedelta(minutes=window_minutes)
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO flow_observations
+                    (created_at, expires_at, symbol, bias, score, event_type,
+                     event_price, trigger_price, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+                """,
+                (
+                    created_at.astimezone(UTC).isoformat(),
+                    expires_at.astimezone(UTC).isoformat(),
+                    symbol,
+                    bias.value,
+                    score,
+                    event_type,
+                    event_price,
+                    trigger_price,
+                ),
+            )
+            await db.commit()
+            return int(cursor.lastrowid or 0)
+
+    async def pending_flow_observations(self, limit: int = 100) -> list[dict]:
+        async with aiosqlite.connect(self.path) as db:
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT id, created_at, expires_at, symbol, bias, score,
+                           event_type, event_price, trigger_price
+                    FROM flow_observations
+                    WHERE status='PENDING'
+                    ORDER BY id
+                    LIMIT ?
+                    """,
+                    (min(max(limit, 1), 500),),
+                )
+            ).fetchall()
+        return [
+            {
+                "id": int(row[0]),
+                "created_at": datetime.fromisoformat(row[1]),
+                "expires_at": datetime.fromisoformat(row[2]),
+                "symbol": str(row[3]),
+                "bias": Side(str(row[4])),
+                "score": int(row[5]),
+                "event_type": str(row[6]),
+                "event_price": float(row[7]),
+                "trigger_price": float(row[8]),
+            }
+            for row in rows
+        ]
+
+    async def resolve_flow_observation(
+        self,
+        observation_id: int,
+        *,
+        status: str,
+        resolved_at: datetime,
+        triggered_at: datetime | None = None,
+        lead_seconds: float | None = None,
+    ) -> None:
+        if status not in {"TRIGGERED", "EXPIRED"}:
+            raise ValueError("Flow observation status must be TRIGGERED or EXPIRED")
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """
+                UPDATE flow_observations
+                SET status=?, resolved_at=?, triggered_at=?, lead_seconds=?
+                WHERE id=? AND status='PENDING'
+                """,
+                (
+                    status,
+                    resolved_at.astimezone(UTC).isoformat(),
+                    triggered_at.astimezone(UTC).isoformat() if triggered_at else None,
+                    lead_seconds,
+                    observation_id,
+                ),
+            )
+            await db.commit()
+
+    async def flow_validation_stats(self, limit: int = 200) -> dict[str, float | int | None]:
+        async with aiosqlite.connect(self.path) as db:
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT status, lead_seconds
+                    FROM flow_observations
+                    WHERE status IN ('TRIGGERED', 'EXPIRED')
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (min(max(limit, 1), 2000),),
+                )
+            ).fetchall()
+            pending_row = await (
+                await db.execute(
+                    "SELECT COUNT(*) FROM flow_observations WHERE status='PENDING'"
+                )
+            ).fetchone()
+        resolved = len(rows)
+        triggered = sum(str(row[0]) == "TRIGGERED" for row in rows)
+        leads = [
+            float(row[1])
+            for row in rows
+            if str(row[0]) == "TRIGGERED" and row[1] is not None
+        ]
+        return {
+            "resolved": resolved,
+            "triggered": triggered,
+            "expired": resolved - triggered,
+            "pending": int(pending_row[0]) if pending_row else 0,
+            "trigger_rate_pct": triggered / resolved * 100 if resolved else None,
+            "median_lead_seconds": statistics.median(leads) if leads else None,
+        }
 
     async def set_runtime(self, key: str, value: str) -> None:
         now = datetime.now(UTC).isoformat()
