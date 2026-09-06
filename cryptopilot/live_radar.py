@@ -411,6 +411,10 @@ class LiveRadar:
                             burst_threshold=self.settings.flow_volume_burst_ratio,
                             min_oi_change_pct=self.settings.flow_min_oi_change_pct_2m,
                             min_score=self.settings.flow_min_alert_score,
+                            max_spread_bps=self.settings.max_spread_bps,
+                            max_directional_funding_pct=(
+                                self.settings.flow_max_directional_funding_pct
+                            ),
                         )
                         if flow_event is not None:
                             try:
@@ -443,6 +447,9 @@ class LiveRadar:
             last_price=number("lastPrice"),
             open_interest=number("openInterest"),
             open_interest_value=number("openInterestValue"),
+            bid=number("bid1Price"),
+            ask=number("ask1Price"),
+            funding_rate=number("fundingRate"),
         )
 
 
