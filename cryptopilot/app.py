@@ -258,8 +258,8 @@ async def run() -> None:
             tasks.add(asyncio.create_task(lab.run(stop_event), name="squeeze-forward-lab"))
         if (
             settings.live_radar_enabled
-            and settings.early_radar_enabled
             and exchange.name == "BYBIT"
+            and (settings.early_radar_enabled or settings.flow_radar_enabled)
         ):
 
             async def send_crossing(event: Crossing) -> None:
@@ -285,24 +285,42 @@ async def run() -> None:
                     raise RuntimeError("No live event recipients accepted the message")
 
             live = LiveRadar(
-                lambda: active_live_setups(
-                    scanner.last_early_report,
-                    time.time(),
-                    settings.min_early_auto_readiness,
-                    2 * settings.live_watchlist_interval_seconds,
+                lambda: (
+                    active_live_setups(
+                        scanner.last_early_report,
+                        time.time(),
+                        settings.min_early_auto_readiness,
+                        2 * settings.live_watchlist_interval_seconds,
+                    )
+                    if settings.early_radar_enabled
+                    else []
                 ),
                 send_crossing,
                 store,
+                flow_tracker=flow_tracker,
+                flow_candidates=lambda: active_flow_candidates(
+                    scanner.last_early_report,
+                    smart_money.last_report,
+                    time.time(),
+                    2
+                    * max(
+                        settings.live_watchlist_interval_seconds,
+                        settings.smart_money_scan_interval_seconds,
+                    ),
+                ),
+                send_flow=send_flow_event,
+                settings=settings,
             )
             tasks.add(asyncio.create_task(live.run(stop_event), name="live-level-radar"))
-            tasks.add(
-                asyncio.create_task(
-                    refresh_watchlist(
-                        scanner, stop_event, settings.live_watchlist_interval_seconds
-                    ),
-                    name="live-watchlist-refresh",
+            if settings.early_radar_enabled:
+                tasks.add(
+                    asyncio.create_task(
+                        refresh_watchlist(
+                            scanner, stop_event, settings.live_watchlist_interval_seconds
+                        ),
+                        name="live-watchlist-refresh",
+                    )
                 )
-            )
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             if not task.cancelled() and task.exception():
