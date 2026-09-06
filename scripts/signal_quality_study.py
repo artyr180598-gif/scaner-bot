@@ -75,7 +75,9 @@ def summarize(rows):
     return out
 
 
-def run(extra_filters=None, output_path="signal_quality_results.json", loader=load):
+def run(
+    extra_filters=None, output_path="signal_quality_results.json", loader=load, candidate_gate=None
+):
     btc = loader("BTCUSDT")
     btc4 = aggregate_candles(btc, 240)
     fb = feature_arrays(btc4)
@@ -133,6 +135,8 @@ def run(extra_filters=None, output_path="signal_quality_results.json", loader=lo
                 else max(max(c.high for c in bars[i - 17 : i + 1]), entry + 1.45 * atr)
             )
             for name in records:
+                if candidate_gate is not None and not candidate_gate(name, symbol, now, side):
+                    continue
                 if extra_filters is not None and not extra_filters[name](f, i, side):
                     continue
                 if i + 1 < available[name] or ("volume" in name and f.relative_volume20[i] < 1.2):
