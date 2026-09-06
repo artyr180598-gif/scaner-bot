@@ -198,6 +198,17 @@ class LiveRadar:
             return
         await asyncio.wait_for(self.send_flow(event), timeout=5)
         await self.store.mark_event_alerted(event.fingerprint, event.price)
+        if self.settings.flow_validation_enabled:
+            await self.store.record_flow_observation(
+                symbol=event.symbol,
+                bias=event.bias,
+                score=event.score,
+                event_type=event.event_type,
+                event_price=event.price,
+                trigger_price=event.trigger_price,
+                created_at=datetime.fromtimestamp(event.created_ms / 1000, UTC),
+                window_minutes=self.settings.flow_validation_window_minutes,
+            )
         self.flow_delivered += 1
         log.info("Flow radar delivered %s score=%d", event.symbol, event.score)
 
