@@ -420,10 +420,21 @@ def _live_flow_adjustment(
     reasons: list[str] = []
     warnings: list[str] = []
 
+    matching_absorption = (
+        flow.absorption == "BUY_ABSORPTION"
+        if bullish
+        else flow.absorption == "SELL_ABSORPTION"
+    )
+    opposing_absorption = (
+        flow.absorption == "SELL_ABSORPTION"
+        if bullish
+        else flow.absorption == "BUY_ABSORPTION"
+    )
+
     if directional_delta >= 0.18:
         score += 10
         reasons.append(f"Live delta 60s {directional_delta:+.0%} поддерживает {side.value}")
-    elif directional_delta <= -0.22:
+    elif directional_delta <= -0.22 and not matching_absorption:
         score -= 8
         warnings.append("Live taker delta сейчас против сценария")
 
