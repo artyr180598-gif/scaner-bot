@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from cryptopilot.config import Settings
-from cryptopilot.flow import FlowTracker
+from cryptopilot.flow import FlowPressureEvent, FlowSnapshot, FlowTracker
 from cryptopilot.live_radar import Crossing, CrossingDetector, LiveRadar
 from cryptopilot.models import EarlySetup, Side
 
@@ -237,5 +237,78 @@ def test_websocket_feeds_public_trade_and_ticker_into_flow_tracker():
         assert snapshot is not None
         assert snapshot.delta_ratio_60s == 1.0
         assert snapshot.notional_60s > 2_000
+
+    asyncio.run(check())
+
+
+def test_delivered_flow_alert_is_resolved_on_exact_streamed_trigger() -> None:
+    async def check():
+        created_ms = int(time.time() * 1000) - 5_000
+        snapshot = FlowSnapshot(
+            symbol="TESTUSDT",
+            created_ms=created_ms,
+            age_ms=0,
+            price=99.8,
+            notional_60s=100_000,
+            notional_prev_60s=50_000,
+            notional_5m=300_000,
+            delta_60s_usdt=30_000,
+            cvd_5m_usdt=60_000,
+            delta_ratio_60s=0.30,
+            cvd_ratio_5m=0.20,
+            volume_burst_ratio=2.0,
+            price_change_60s_pct=0.05,
+            oi_change_2m_pct=0.20,
+            oi_change_prev_2m_pct=0.05,
+            oi_acceleration_pct_per_min=0.075,
+            absorption=None,
+            trade_count_60s=50,
+            spread_bps=2.0,
+            funding_pct=0.01,
+        )
+        event = FlowPressureEvent(
+            symbol="TESTUSDT",
+            bias=Side.LONG,
+            score=82,
+            price=99.8,
+            trigger_price=100.0,
+            created_ms=created_ms,
+            event_type="FLOW_BUILDUP",
+            snapshot=snapshot,
+            reasons=("test",),
+        )
+        store = SimpleNamespace(
+            should_alert_event=AsyncMock(return_value=True),
+            mark_event_alerted=AsyncMock(),
+            record_flow_observation=AsyncMock(return_value=7),
+            resolve_flow_observation=AsyncMock(),
+        )
+        config = Settings(
+            _env_file=None,
+            telegram_bot_token="test",
+            telegram_chat_id="1",
+            flow_validation_window_minutes=45,
+        )
+        send_flow = AsyncMock()
+        radar = LiveRadar(
+            lambda: [],
+            AsyncMock(),
+            store,
+            flow_tracker=FlowTracker(),
+            flow_candidates=lambda: {"TESTUSDT": (Side.LONG, 100.0)},
+            send_flow=send_flow,
+            settings=config,
+        )
+
+        await radar.deliver_flow(event)
+        assert 7 in radar._flow_validation_active
+        trigger_ms = created_ms + 30_000
+        await radar._resolve_live_flow_validation("TESTUSDT", 100.05, trigger_ms)
+
+        store.resolve_flow_observation.assert_awaited_once()
+        kwargs = store.resolve_flow_observation.await_args.kwargs
+        assert kwargs["status"] == "TRIGGERED"
+        assert kwargs["lead_seconds"] == 30.0
+        assert 7 not in radar._flow_validation_active
 
     asyncio.run(check())
