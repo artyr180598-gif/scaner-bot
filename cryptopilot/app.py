@@ -19,6 +19,7 @@ from cryptopilot.config import get_settings
 from cryptopilot.engine import SignalEngine
 from cryptopilot.exchange import build_exchange
 from cryptopilot.flow import FlowPressureEvent, FlowTracker
+from cryptopilot.flow_validation import FlowForwardValidator
 from cryptopilot.health import RuntimeHealth, start_health_server
 from cryptopilot.live_radar import (
     Crossing,
@@ -70,6 +71,11 @@ async def run() -> None:
     scanner = MarketScanner(exchange, engine, store, settings)
     flow_tracker = FlowTracker()
     smart_money = SmartMoneyScanner(exchange, settings, flow_tracker)
+    flow_validator = (
+        FlowForwardValidator(exchange, store, settings)
+        if settings.flow_validation_enabled and exchange.name == "BYBIT"
+        else None
+    )
     bot = Bot(
         settings.telegram_bot_token.strip(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -97,6 +103,8 @@ async def run() -> None:
             if live.last_trade_ms is not None
             else "ещё не было"
         )
+        stats = await store.flow_validation_stats()
+        validation = _format_flow_validation(stats, settings.flow_validation_min_samples)
         await message.answer(
             f"<b>Потоковый радар</b>\nСоединение: {live.status}\n"
             f"Монет под наблюдением: {live.watching}\n"
@@ -104,8 +112,19 @@ async def run() -> None:
             f"Пересечения: {live.delivered} · пропущено: {live.dropped}\n"
             f"Flow до BOS: {live.flow_delivered} · пропущено: {live.flow_dropped}\n"
             f"Ранний refresh: {settings.live_watchlist_interval_seconds} сек\n"
-            f"Smart Money refresh: {settings.smart_money_scan_interval_seconds} сек\n"
+            f"Smart Money refresh: {settings.smart_money_scan_interval_seconds} сек\n\n"
+            f"{validation}\n\n"
             "Flow использует publicTrade CVD-proxy и streaming OI; это наблюдение, не вход."
+        )
+
+    @router.message(Command("flowstats"))
+    async def flow_stats(message: Message) -> None:
+        stats = await store.flow_validation_stats()
+        await message.answer(
+            "<b>Forward-проверка раннего Flow</b>\n"
+            + _format_flow_validation(stats, settings.flow_validation_min_samples)
+            + "\n\nПроверяется только факт: был ли структурный trigger после раннего алерта. "
+            "Это не win rate и не доказательство прибыльности."
         )
 
     dispatcher.include_router(router)
@@ -136,6 +155,7 @@ async def run() -> None:
                 BotCommand(command="performance", description="Paper-статистика"),
                 BotCommand(command="status", description="Версия и состояние"),
                 BotCommand(command="live", description="Состояние потокового радара"),
+                BotCommand(command="flowstats", description="Forward-проверка ранних Flow алертов"),
                 BotCommand(command="lab", description="Лаборатория сжатия: виртуальные сделки"),
                 BotCommand(command="help", description="Как читать сигналы"),
             ]
@@ -246,6 +266,13 @@ async def run() -> None:
         )
         stopper = asyncio.create_task(stop_event.wait(), name="shutdown-signal")
         tasks = {polling, monitoring, stopper}
+        if flow_validator is not None:
+            tasks.add(
+                asyncio.create_task(
+                    flow_validator.run(stop_event),
+                    name="flow-forward-validation",
+                )
+            )
         if settings.smart_money_auto_scan_enabled:
             tasks.add(
                 asyncio.create_task(
@@ -344,6 +371,28 @@ async def run() -> None:
         await exchange.close()
         await health_runner.cleanup()
         log.info("CryptoPilot stopped")
+
+
+
+def _format_flow_validation(
+    stats: dict[str, float | int | None],
+    min_samples: int,
+) -> str:
+    resolved = int(stats["resolved"] or 0)
+    pending = int(stats["pending"] or 0)
+    if resolved < min_samples:
+        return (
+            f"Forward validation: {resolved}/{min_samples} завершённых наблюдений · "
+            f"pending {pending}. Пока данных мало для оценки качества раннего обнаружения."
+        )
+    rate = stats["trigger_rate_pct"]
+    lead = stats["median_lead_seconds"]
+    rate_text = "н/д" if rate is None else f"{float(rate):.1f}%"
+    lead_text = "н/д" if lead is None else f"{float(lead) / 60:.1f} мин"
+    return (
+        f"Forward validation: n={resolved} · trigger rate {rate_text} · "
+        f"median lead {lead_text} · pending {pending}"
+    )
 
 
 def main() -> None:
