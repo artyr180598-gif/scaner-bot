@@ -21,6 +21,7 @@ from cryptopilot.exchange import build_exchange
 from cryptopilot.flow import FlowPressureEvent, FlowTracker
 from cryptopilot.flow_validation import FlowForwardValidator
 from cryptopilot.health import RuntimeHealth, start_health_server
+from cryptopilot.liquidity import LiquidityTracker
 from cryptopilot.live_radar import (
     Crossing,
     LiveRadar,
@@ -74,7 +75,13 @@ async def run() -> None:
     engine = SignalEngine(settings)
     scanner = MarketScanner(exchange, engine, store, settings)
     flow_tracker = FlowTracker()
-    smart_money = SmartMoneyScanner(exchange, settings, flow_tracker)
+    liquidity_tracker = LiquidityTracker()
+    smart_money = SmartMoneyScanner(
+        exchange,
+        settings,
+        flow_tracker,
+        liquidity_tracker,
+    )
     flow_validator = (
         FlowForwardValidator(exchange, store, settings)
         if settings.flow_validation_enabled and exchange.name == "BYBIT"
@@ -449,6 +456,7 @@ async def run() -> None:
                 send_crossing,
                 store,
                 flow_tracker=flow_tracker,
+                liquidity_tracker=liquidity_tracker,
                 flow_candidates=lambda: active_flow_candidates(
                     scanner.last_early_report,
                     smart_money.last_report,
