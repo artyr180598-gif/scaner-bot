@@ -185,18 +185,18 @@ async def run() -> None:
         await bot.set_my_commands(
             [
                 BotCommand(command="menu", description="Обновить главное меню"),
-                BotCommand(command="scan", description="Сканировать рынок"),
+                BotCommand(command="scan", description="Лучшие PRE-MOVE планы до разгона"),
                 BotCommand(command="early", description="Радар до импульса"),
                 BotCommand(
                     command="smartmoney",
-                    description="Крупный поток: структура + объём + OI",
+                    description="Smart Money до пробоя: структура + OI + flow",
                 ),
                 BotCommand(
                     command="prime",
                     description="Редкий pre-move поиск до разгона цены",
                 ),
-                BotCommand(command="analyze", description="Анализ монеты"),
-                BotCommand(command="best", description="Последние сильные сигналы"),
+                BotCommand(command="analyze", description="PRE-MOVE анализ одной монеты"),
+                BotCommand(command="best", description="Один лучший актуальный вариант"),
                 BotCommand(command="performance", description="Paper-статистика"),
                 BotCommand(command="status", description="Версия и состояние"),
                 BotCommand(command="live", description="Состояние потокового радара"),
@@ -218,7 +218,8 @@ async def run() -> None:
                 await bot.send_message(
                     chat_id,
                     f"✅ <b>CryptoPilot {release_label()} запущен</b>\n"
-                    "Режим PRIME: pre-move + Spot + liquidity + cross-exchange + торговый план.\n"
+                    "Режим: PRE-MOVE first. PRIME = Spot + liquidity + cross-exchange + "
+                    "ранний Flow + торговый план.\n"
                     "Если панель скрыта, отправьте /menu.",
                     reply_markup=main_keyboard(),
                     disable_notification=True,
@@ -325,6 +326,16 @@ async def run() -> None:
                 return
             await send_prime_candidate(candidates[0])
 
+        async def recheck_prime_from_flow(event: FlowPressureEvent) -> None:
+            # FLOW_BUILDUP can already be too late for PRIME. EARLY_PRESSURE and
+            # absorption are the useful event-driven triggers for a fresh symbol check.
+            if event.event_type not in {"EARLY_PRESSURE", "ABSORPTION"}:
+                return
+            setup = await smart_money.analyze_symbol(event.symbol)
+            if setup is None or not setup.prime_ready:
+                return
+            await send_prime_candidate(setup)
+
         async def send_flow_event(event: FlowPressureEvent) -> None:
             snapshot = event.snapshot
             burst = (
@@ -343,7 +354,10 @@ async def run() -> None:
                 else "н/д"
             )
             reasons = "\n".join(f"• {html.escape(item)}" for item in event.reasons)
-            label = "ПОГЛОЩЕНИЕ" if event.event_type == "ABSORPTION" else "НАРАСТАНИЕ ПОТОКА"
+            label = {
+                "ABSORPTION": "ПОГЛОЩЕНИЕ",
+                "EARLY_PRESSURE": "РАННЕЕ ДАВЛЕНИЕ",
+            }.get(event.event_type, "НАРАСТАНИЕ ПОТОКА")
             message_text = (
                 f"⚡ <b>{html.escape(event.symbol)} · {label} ДО BOS</b>\n"
                 f"Сценарий: {event.bias.value} · Flow score: <b>{event.score}/100</b>\n"
@@ -467,6 +481,7 @@ async def run() -> None:
                     settings.flow_watchlist_limit,
                 ),
                 send_flow=send_flow_event,
+                on_flow_observed=recheck_prime_from_flow,
                 settings=settings,
             )
             tasks.add(asyncio.create_task(live.run(stop_event), name="live-level-radar"))
