@@ -45,6 +45,8 @@ class FlowSnapshot:
     oi_change_prev_2m_pct: float | None
     oi_acceleration_pct_per_min: float | None
     absorption: str | None
+    spread_bps: float | None
+    funding_pct: float | None
     trade_count_60s: int
 
     @property
@@ -84,6 +86,8 @@ class FlowTracker:
         self._last_price: dict[str, float] = {}
         self._last_trade_ms: dict[str, int] = {}
         self._last_oi_sample_ms: dict[str, int] = {}
+        self._last_spread_bps: dict[str, float] = {}
+        self._last_funding_pct: dict[str, float] = {}
         self._last_event_ms: dict[str, int] = {}
 
     def add_trade(
@@ -144,12 +148,27 @@ class FlowTracker:
         last_price: float | None = None,
         open_interest: float | None = None,
         open_interest_value: float | None = None,
+        bid: float | None = None,
+        ask: float | None = None,
+        funding_rate: float | None = None,
     ) -> None:
         if ts_ms <= 0:
             return
         normalized = symbol.upper()
         if last_price is not None and math.isfinite(last_price) and last_price > 0:
             self._last_price[normalized] = last_price
+        if (
+            bid is not None
+            and ask is not None
+            and math.isfinite(bid)
+            and math.isfinite(ask)
+            and bid > 0
+            and ask >= bid
+        ):
+            mid = (bid + ask) / 2
+            self._last_spread_bps[normalized] = (ask - bid) / mid * 10_000
+        if funding_rate is not None and math.isfinite(funding_rate):
+            self._last_funding_pct[normalized] = funding_rate * 100
 
         value = open_interest_value
         if value is None and open_interest is not None:
@@ -249,6 +268,8 @@ class FlowTracker:
             oi_change_prev_2m_pct=oi_previous,
             oi_acceleration_pct_per_min=acceleration,
             absorption=absorption,
+            spread_bps=self._last_spread_bps.get(normalized),
+            funding_pct=self._last_funding_pct.get(normalized),
             trade_count_60s=sum(item.trade_count for item in current_60),
         )
 
@@ -263,6 +284,8 @@ class FlowTracker:
         burst_threshold: float,
         min_oi_change_pct: float,
         min_score: int,
+        max_spread_bps: float | None = None,
+        max_directional_funding_pct: float = 0.08,
         cooldown_seconds: int = 180,
         now_ms: int | None = None,
     ) -> FlowPressureEvent | None:
@@ -271,6 +294,12 @@ class FlowTracker:
         if snapshot is None or not snapshot.fresh:
             return None
         if snapshot.notional_60s < min_notional_60s:
+            return None
+        if (
+            max_spread_bps is not None
+            and snapshot.spread_bps is not None
+            and snapshot.spread_bps > max_spread_bps
+        ):
             return None
         if trigger_price <= 0 or snapshot.price <= 0:
             return None
@@ -357,6 +386,15 @@ class FlowTracker:
             reasons.append(f"До структурного trigger осталось {distance_pct:.2f}%")
         elif distance_pct <= 1.0:
             score += 6
+
+        funding_pct = snapshot.funding_pct
+        if funding_pct is not None:
+            directional_funding = funding_pct if bullish else -funding_pct
+            if directional_funding > max_directional_funding_pct:
+                score -= 10
+                reasons.append(
+                    f"Funding {funding_pct:+.3f}% перегрет по направлению — score снижен"
+                )
 
         score = max(0, min(score, 100))
         # Avoid a one-metric alert: require independent agreement even with a high raw score.
