@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     flow_volume_burst_ratio: float = Field(default=1.5, ge=1.0, le=10.0)
     flow_min_oi_change_pct_2m: float = Field(default=0.12, ge=0.0, le=20.0)
     flow_min_alert_score: int = Field(default=84, ge=50, le=95)
+    flow_early_pressure_enabled: bool = True
+    flow_early_pressure_min_score: int = Field(default=82, ge=60, le=95)
+    flow_early_pressure_max_price_move_60s_pct: float = Field(default=0.10, ge=0.02, le=0.30)
+    flow_early_pressure_min_burst_ratio: float = Field(default=1.05, ge=0.80, le=2.0)
+    flow_early_pressure_max_burst_ratio: float = Field(default=1.45, ge=1.0, le=3.0)
     flow_alert_cooldown_minutes: int = Field(default=360, ge=15, le=1440)
     flow_global_cooldown_minutes: int = Field(default=180, ge=30, le=1440)
     flow_max_alerts_per_day: int = Field(default=2, ge=1, le=20)
@@ -211,6 +216,16 @@ class Settings(BaseSettings):
             raise ValueError("PREFERRED_LEVERAGE cannot exceed MAX_LEVERAGE")
         if self.prime_max_leverage > self.max_leverage:
             raise ValueError("PRIME_MAX_LEVERAGE cannot exceed MAX_LEVERAGE")
+        if self.flow_early_pressure_min_burst_ratio > self.flow_early_pressure_max_burst_ratio:
+            raise ValueError(
+                "FLOW_EARLY_PRESSURE_MIN_BURST_RATIO cannot exceed "
+                "FLOW_EARLY_PRESSURE_MAX_BURST_RATIO"
+            )
+        if self.main_scan_min_trigger_distance_pct > self.main_scan_max_trigger_distance_pct:
+            raise ValueError(
+                "MAIN_SCAN_MIN_TRIGGER_DISTANCE_PCT cannot exceed "
+                "MAIN_SCAN_MAX_TRIGGER_DISTANCE_PCT"
+            )
         return self
 
     @property
