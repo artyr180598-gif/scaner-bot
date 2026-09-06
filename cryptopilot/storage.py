@@ -319,6 +319,7 @@ class SignalStore:
         *,
         symbol: str | None = None,
         side: Side | None = None,
+        strategy_version: str | None = None,
         limit: int = 100,
     ) -> CalibrationStats:
         clauses = ["status='CLOSED'", "result_r IS NOT NULL"]
@@ -329,6 +330,9 @@ class SignalStore:
         if side:
             clauses.append("side=?")
             parameters.append(side.value)
+        if strategy_version:
+            clauses.append("strategy_version=?")
+            parameters.append(strategy_version)
         parameters.append(min(max(limit, 1), 1000))
         query = f"""
             SELECT result_r FROM paper_trades
