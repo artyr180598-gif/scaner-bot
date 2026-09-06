@@ -281,3 +281,23 @@ def test_directional_funding_penalty_does_not_fake_a_confirmation() -> None:
     assert normal_event is not None
     assert hot_event is not None
     assert hot_event.score == normal_event.score - 10
+
+
+def test_trade_id_deduplication_prevents_reconnect_double_count() -> None:
+    now_ms = 5_000_000
+    tracker = FlowTracker()
+    for _ in range(2):
+        tracker.add_trade(
+            "TESTUSDT",
+            "Buy",
+            100.0,
+            10.0,
+            now_ms - 1_000,
+            trade_id="same-trade-id",
+        )
+
+    snapshot = tracker.snapshot("TESTUSDT", now_ms)
+
+    assert snapshot is not None
+    assert snapshot.trade_count_60s == 1
+    assert snapshot.notional_60s == 1_000.0
