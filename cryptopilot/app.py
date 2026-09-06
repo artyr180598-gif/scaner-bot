@@ -554,7 +554,7 @@ async def run() -> None:
                 settings=settings,
             )
             tasks.add(asyncio.create_task(live.run(stop_event), name="live-level-radar"))
-            if settings.early_radar_enabled:
+            if settings.early_radar_enabled and settings.early_auto_alerts:
                 tasks.add(
                     asyncio.create_task(
                         refresh_watchlist(
