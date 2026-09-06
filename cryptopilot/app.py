@@ -310,6 +310,7 @@ async def run() -> None:
                         settings.live_watchlist_interval_seconds,
                         settings.smart_money_scan_interval_seconds,
                     ),
+                    smart_money.flow_watchlist(),
                 ),
                 send_flow=send_flow_event,
                 settings=settings,
