@@ -42,7 +42,7 @@ class JsonClient:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
                 timeout=self.timeout,
-                headers={"User-Agent": "CryptoPilot/3.1 market-intelligence"},
+                headers={"User-Agent": "CryptoPilot/3.6 market-intelligence"},
             )
 
     async def close(self) -> None:
