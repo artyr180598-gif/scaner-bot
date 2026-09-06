@@ -89,6 +89,8 @@ class FlowTracker:
         self._last_spread_bps: dict[str, float] = {}
         self._last_funding_pct: dict[str, float] = {}
         self._last_event_ms: dict[str, int] = {}
+        self._seen_trade_ids: dict[str, set[str]] = defaultdict(set)
+        self._trade_id_order: dict[str, deque[str]] = defaultdict(deque)
 
     def add_trade(
         self,
@@ -97,6 +99,7 @@ class FlowTracker:
         price: float,
         size: float,
         ts_ms: int,
+        trade_id: str | None = None,
     ) -> None:
         if (
             ts_ms <= 0
@@ -111,6 +114,16 @@ class FlowTracker:
             return
 
         normalized = symbol.upper()
+        if trade_id:
+            seen = self._seen_trade_ids[normalized]
+            if trade_id in seen:
+                return
+            seen.add(trade_id)
+            order = self._trade_id_order[normalized]
+            order.append(trade_id)
+            while len(order) > 20_000:
+                seen.discard(order.popleft())
+
         second_ms = ts_ms - ts_ms % 1_000
         notional = price * size
         buckets = self._trades[normalized]
