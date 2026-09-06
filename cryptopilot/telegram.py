@@ -19,9 +19,9 @@ from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.health import RuntimeHealth
 from cryptopilot.models import (
+    CURRENT_STRATEGY_VERSION,
     BacktestResult,
     CalibrationStats,
-    CURRENT_STRATEGY_VERSION,
     EarlyScanReport,
     EarlySetup,
     ScanReport,
