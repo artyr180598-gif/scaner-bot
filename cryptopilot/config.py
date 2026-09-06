@@ -45,6 +45,13 @@ class Settings(BaseSettings):
 
     scan_interval_seconds: int = Field(default=900, ge=300, le=86_400)
     run_scan_on_startup: bool = True
+    standard_auto_alerts_enabled: bool = False
+    main_scan_premove_only: bool = True
+    main_scan_min_premove_readiness: int = Field(default=72, ge=50, le=95)
+    main_scan_min_trigger_distance_pct: float = Field(default=0.12, ge=0.03, le=2.0)
+    main_scan_max_trigger_distance_pct: float = Field(default=1.40, ge=0.20, le=5.0)
+    main_scan_max_recent_move_pct: float = Field(default=0.45, ge=0.05, le=3.0)
+    main_scan_max_execution_rvol: float = Field(default=1.55, ge=0.8, le=4.0)
     min_volume_usdt: float = Field(
         default=20_000_000,
         ge=0,
@@ -90,7 +97,7 @@ class Settings(BaseSettings):
     early_radar_enabled: bool = True
     live_radar_enabled: bool = True
     squeeze_lab_enabled: bool = True
-    live_watchlist_interval_seconds: int = Field(default=300, ge=60, le=3600)
+    live_watchlist_interval_seconds: int = Field(default=180, ge=60, le=3600)
     early_auto_alerts: bool = False
     min_early_readiness: int = Field(default=68, ge=50, le=95)
     min_early_auto_readiness: int = Field(default=80, ge=55, le=95)
@@ -99,7 +106,8 @@ class Settings(BaseSettings):
     early_min_squeeze_bars: int = Field(default=2, ge=1, le=20)
 
     smart_money_auto_scan_enabled: bool = True
-    smart_money_scan_interval_seconds: int = Field(default=300, ge=120, le=3600)
+    smart_money_scan_interval_seconds: int = Field(default=180, ge=120, le=3600)
+    smart_money_include_post_breakout: bool = False
     flow_radar_enabled: bool = True
     flow_auto_alerts_enabled: bool = False
     flow_watchlist_limit: int = Field(default=8, ge=3, le=20)
