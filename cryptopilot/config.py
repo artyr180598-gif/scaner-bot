@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     flow_min_oi_change_pct_2m: float = Field(default=0.10, ge=0.0, le=20.0)
     flow_min_alert_score: int = Field(default=70, ge=50, le=95)
     flow_alert_cooldown_minutes: int = Field(default=90, ge=15, le=1440)
+    flow_max_directional_funding_pct: float = Field(default=0.08, ge=0.01, le=1.0)
+    flow_validation_enabled: bool = True
+    flow_validation_window_minutes: int = Field(default=45, ge=10, le=240)
+    flow_validation_min_samples: int = Field(default=20, ge=5, le=500)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
