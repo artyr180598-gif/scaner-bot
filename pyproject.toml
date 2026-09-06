@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cryptopilot"
-version = "3.1.0"
+version = "3.2.0"
 description = "Risk-first Telegram market intelligence for USDT perpetual futures"
 requires-python = ">=3.11"
 dynamic = ["dependencies"]
