@@ -45,8 +45,10 @@ def active_flow_candidates(
     smart_report,
     now_seconds: float,
     max_age: int,
+    preselected: dict[str, tuple[Side, float]] | None = None,
+    limit: int = 24,
 ) -> dict[str, tuple[Side, float]]:
-    """Merge recent smart-money and early-radar candidates for streaming flow collection."""
+    """Merge strongest structural candidates and cap websocket load deterministically."""
     result: dict[str, tuple[Side, float]] = {}
     if smart_report is not None:
         age = now_seconds - smart_report.finished_at.timestamp()
@@ -64,7 +66,13 @@ def active_flow_candidates(
                     and setup.trigger_price > 0
                 ):
                     result.setdefault(setup.symbol, (setup.bias, setup.trigger_price))
-    return result
+    for symbol, candidate in (preselected or {}).items():
+        bias, trigger = candidate
+        if bias is not Side.NO_TRADE and trigger > 0:
+            result.setdefault(symbol, candidate)
+        if len(result) >= limit:
+            break
+    return dict(list(result.items())[: max(1, limit)])
 
 
 @dataclass(frozen=True)
