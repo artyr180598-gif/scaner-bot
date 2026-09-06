@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -210,6 +211,34 @@ class SmartMoneyScanner:
             reasons=tuple(reasons[:5]),
             warnings=tuple(warnings[:4]),
         )
+
+
+
+async def refresh_smart_money_watchlist(
+    scanner: SmartMoneyScanner,
+    stop: asyncio.Event,
+    interval_seconds: int = 300,
+    initial_delay_seconds: int = 45,
+) -> None:
+    """Continuously refresh candidates so streaming flow can watch them before BOS."""
+    if initial_delay_seconds > 0:
+        with suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=initial_delay_seconds)
+    while not stop.is_set():
+        report = scanner.last_report
+        age = (
+            (datetime.now(UTC) - report.finished_at).total_seconds()
+            if report is not None
+            else float("inf")
+        )
+        if age >= interval_seconds and not scanner._lock.locked():
+            try:
+                await scanner.scan()
+            except Exception:
+                # The caller's process logger will still keep the bot alive; a later cycle retries.
+                pass
+        with suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=30)
 
 
 def _structure_score(feature: FeatureSet, side: Side) -> float:
