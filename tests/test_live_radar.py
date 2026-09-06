@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 from cryptopilot.config import Settings
 from cryptopilot.flow import FlowPressureEvent, FlowSnapshot, FlowTracker
+from cryptopilot.liquidity import LiquidityTracker
 from cryptopilot.live_radar import Crossing, CrossingDetector, LiveRadar
 from cryptopilot.models import EarlySetup, Side
 
@@ -323,3 +324,106 @@ def test_delivered_flow_alert_is_resolved_on_exact_streamed_trigger() -> None:
         assert 7 not in radar._flow_validation_active
 
     asyncio.run(check())
+
+
+
+def test_websocket_subscribes_orderbook_and_liquidations_for_top_flow_candidates() -> None:
+    import json
+
+    import aiohttp
+
+    async def check():
+        stop = asyncio.Event()
+        frames = [{"op": "subscribe", "success": True}]
+
+        class Socket:
+            sent = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def send_json(self, value):
+                self.sent.append(value)
+
+            async def receive(self, timeout):
+                item = frames.pop(0)
+                stop.set()
+                return SimpleNamespace(type=aiohttp.WSMsgType.TEXT, data=json.dumps(item))
+
+        socket = Socket()
+        session = SimpleNamespace(ws_connect=lambda *args, **kwargs: socket)
+        config = Settings(
+            _env_file=None,
+            telegram_bot_token="test",
+            telegram_chat_id="1",
+            liquidity_orderbook_watch_limit=1,
+        )
+        radar = LiveRadar(
+            lambda: [],
+            AsyncMock(),
+            None,
+            flow_tracker=FlowTracker(),
+            liquidity_tracker=LiquidityTracker(),
+            flow_candidates=lambda: {
+                "TESTUSDT": (Side.LONG, 100.0),
+                "SECONDUSDT": (Side.SHORT, 50.0),
+            },
+            send_flow=AsyncMock(),
+            settings=config,
+        )
+
+        await radar._connection(session, stop)
+
+        topics = set(socket.sent[0]["args"])
+        assert "publicTrade.TESTUSDT" in topics
+        assert "tickers.TESTUSDT" in topics
+        assert "allLiquidation.TESTUSDT" in topics
+        assert "allLiquidation.SECONDUSDT" in topics
+        assert "orderbook.50.TESTUSDT" in topics
+        assert "orderbook.50.SECONDUSDT" not in topics
+
+    asyncio.run(check())
+
+
+def test_live_radar_parses_orderbook_and_liquidation_payloads() -> None:
+    tracker = LiquidityTracker()
+    radar = LiveRadar(
+        lambda: [],
+        AsyncMock(),
+        None,
+        liquidity_tracker=tracker,
+    )
+    t = int(time.time() * 1000)
+    radar._handle_orderbook(
+        {
+            "type": "snapshot",
+            "ts": t,
+            "data": {
+                "s": "TESTUSDT",
+                "b": [["99.9", "1000"], ["99.8", "100"], ["99.7", "100"]],
+                "a": [["100.1", "100"], ["100.2", "100"], ["100.3", "100"]],
+            },
+        }
+    )
+    radar._handle_liquidation(
+        {
+            "data": [
+                {
+                    "T": t + 1,
+                    "s": "TESTUSDT",
+                    "S": "Sell",
+                    "v": "400",
+                    "p": "100",
+                }
+            ]
+        }
+    )
+
+    snapshot = tracker.snapshot("TESTUSDT", t + 2_000)
+    assert snapshot is not None
+    assert snapshot.short_liquidation_usdt_60s == 40_000
+    assert snapshot.bid_wall_ratio is not None
+    assert snapshot.bid_wall_ratio > 5
