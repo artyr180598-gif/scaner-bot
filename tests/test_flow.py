@@ -188,3 +188,96 @@ def test_active_flow_candidates_include_preselected_but_cap_load() -> None:
         limit=2,
     )
     assert list(prioritized)[0] == "TOPUSDT"
+
+
+def test_live_spread_gate_blocks_illiquid_pre_bos_spike() -> None:
+    now_ms = 3_000_000
+    tracker = FlowTracker()
+    _add_directional_flow(tracker, now_ms)
+    _add_oi_history(tracker, now_ms)
+    tracker.add_ticker(
+        "TESTUSDT",
+        now_ms - 1_000,
+        last_price=99.85,
+        open_interest_value=100_500_000,
+        bid=99.0,
+        ask=100.0,
+        funding_rate=0.0001,
+    )
+
+    snapshot = tracker.snapshot("TESTUSDT", now_ms)
+    assert snapshot is not None
+    assert snapshot.spread_bps is not None
+    assert snapshot.spread_bps > 12
+
+    event = tracker.pressure_event(
+        "TESTUSDT",
+        Side.LONG,
+        100.0,
+        min_notional_60s=1_000,
+        delta_threshold=0.16,
+        burst_threshold=1.4,
+        min_oi_change_pct=0.10,
+        min_score=70,
+        max_spread_bps=12,
+        now_ms=now_ms,
+    )
+    assert event is None
+
+
+def test_directional_funding_penalty_does_not_fake_a_confirmation() -> None:
+    now_ms = 4_000_000
+    normal = FlowTracker()
+    hot = FlowTracker()
+    for tracker in (normal, hot):
+        _add_directional_flow(tracker, now_ms)
+        _add_oi_history(tracker, now_ms)
+    normal.add_ticker(
+        "TESTUSDT",
+        now_ms - 1_000,
+        last_price=99.85,
+        open_interest_value=100_500_000,
+        bid=99.84,
+        ask=99.86,
+        funding_rate=0.0001,
+    )
+    hot.add_ticker(
+        "TESTUSDT",
+        now_ms - 1_000,
+        last_price=99.85,
+        open_interest_value=100_500_000,
+        bid=99.84,
+        ask=99.86,
+        funding_rate=0.0012,
+    )
+
+    normal_event = normal.pressure_event(
+        "TESTUSDT",
+        Side.LONG,
+        100.0,
+        min_notional_60s=1_000,
+        delta_threshold=0.16,
+        burst_threshold=1.4,
+        min_oi_change_pct=0.10,
+        min_score=50,
+        max_spread_bps=12,
+        max_directional_funding_pct=0.08,
+        now_ms=now_ms,
+    )
+    hot_event = hot.pressure_event(
+        "TESTUSDT",
+        Side.LONG,
+        100.0,
+        min_notional_60s=1_000,
+        delta_threshold=0.16,
+        burst_threshold=1.4,
+        min_oi_change_pct=0.10,
+        min_score=50,
+        max_spread_bps=12,
+        max_directional_funding_pct=0.08,
+        now_ms=now_ms,
+    )
+
+    assert normal_event is not None
+    assert hot_event is not None
+    assert hot_event.score == normal_event.score - 10
