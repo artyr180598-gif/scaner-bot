@@ -30,12 +30,16 @@ def test_adaptive_defaults_are_conservative() -> None:
 
     assert config.min_auto_confidence == 88
     assert config.min_auto_confidence_short == 90
+    assert not config.standard_auto_alerts_enabled
+    assert config.main_scan_premove_only
+    assert config.main_scan_min_premove_readiness >= 70
     assert config.max_portfolio_risk_pct >= config.risk_per_trade_pct
     assert config.max_same_side_auto_signals <= config.max_auto_signals_per_scan
     assert config.min_early_auto_readiness >= config.min_early_readiness
     assert config.early_radar_enabled
     assert not config.early_auto_alerts
     assert config.smart_money_auto_scan_enabled
+    assert not config.smart_money_include_post_breakout
     assert config.prime_alerts_enabled
     assert config.prime_min_score >= 88
     assert config.prime_spot_confirmation_enabled
@@ -58,7 +62,13 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.flow_radar_enabled
     assert not config.flow_auto_alerts_enabled
     assert config.flow_watchlist_limit <= 8
-    assert config.smart_money_scan_interval_seconds >= 120
+    assert 120 <= config.smart_money_scan_interval_seconds <= 180
+    assert config.flow_early_pressure_enabled
+    assert config.flow_early_pressure_min_score >= 80
+    assert (
+        config.flow_early_pressure_min_burst_ratio
+        <= config.flow_early_pressure_max_burst_ratio
+    )
     assert config.flow_min_alert_score >= 70
     assert config.flow_delta_ratio_threshold >= 0.10
     assert config.flow_volume_burst_ratio >= 1.0
