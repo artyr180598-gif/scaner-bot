@@ -18,7 +18,33 @@ from cryptopilot.models import FeatureSet, Side, Ticker, TradePlan
 from cryptopilot.prime_plan import build_prime_plan
 
 log = logging.getLogger(__name__)
-SCAN_TIMEOUT_SECONDS = 60
+SCAN_TIMEOUT_SECONDS = 42
+TICKER_STAGE_TIMEOUT_SECONDS = 7
+CONFIRMATION_STAGE_TIMEOUT_SECONDS = 6
+QUICK_STAGE_TIMEOUT_SECONDS = 12
+DEEP_STAGE_TIMEOUT_SECONDS = 16
+
+
+def _consume_task_result(task: asyncio.Task) -> None:
+    with suppress(asyncio.CancelledError, Exception):
+        task.result()
+
+
+def _cancel_detached(tasks) -> None:
+    for task in tasks:
+        task.cancel()
+        task.add_done_callback(_consume_task_result)
+
+
+async def _hard_wait(awaitable, timeout_seconds: float):
+    """Return on deadline even if underlying network cancellation is slow."""
+    task = asyncio.create_task(awaitable)
+    done, _ = await asyncio.wait({task}, timeout=timeout_seconds)
+    if task not in done:
+        _cancel_detached((task,))
+        await asyncio.sleep(0)
+        raise TimeoutError(f"stage exceeded {timeout_seconds:.0f}s")
+    return task.result()
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,10 +142,15 @@ class SmartMoneyScanner:
         self._shadow_candidates: tuple[SmartMoneySetup, ...] = ()
 
     async def scan(self) -> SmartMoneyReport:
-        # Include queueing behind the background scan in the total budget.
-        # Per-HTTP timeouts alone do not bound semaphore waits or an entire scan.
-        async with asyncio.timeout(SCAN_TIMEOUT_SECONDS):
-            return await self._scan()
+        # Hard deadline for callers. asyncio.wait returns on time even when
+        # cancellation cleanup in a slow socket is delayed.
+        task = asyncio.create_task(self._scan())
+        done, _ = await asyncio.wait({task}, timeout=SCAN_TIMEOUT_SECONDS)
+        if task not in done:
+            _cancel_detached((task,))
+            await asyncio.sleep(0)
+            raise TimeoutError(f"PRIME scan exceeded {SCAN_TIMEOUT_SECONDS}s")
+        return task.result()
 
     async def _scan(self) -> SmartMoneyReport:
         async with self._lock:
@@ -131,7 +162,10 @@ class SmartMoneyScanner:
             self._shadow_candidates = ()
             started = datetime.now(UTC)
             errors: list[str] = []
-            tickers = await self.exchange.tickers()
+            tickers = await _hard_wait(
+                self.exchange.tickers(),
+                TICKER_STAGE_TIMEOUT_SECONDS,
+            )
             universe = self._universe(tickers)
             confirmation_map: dict[str, Ticker] = {}
             if (
@@ -139,7 +173,10 @@ class SmartMoneyScanner:
                 and self.confirmation_exchange is not None
             ):
                 try:
-                    confirmation_tickers = await self.confirmation_exchange.tickers()
+                    confirmation_tickers = await _hard_wait(
+                        self.confirmation_exchange.tickers(),
+                        CONFIRMATION_STAGE_TIMEOUT_SECONDS,
+                    )
                     confirmation_map = {item.symbol: item for item in confirmation_tickers}
                 except Exception as exc:
                     errors.append(f"{self.confirmation_exchange.name}: {type(exc).__name__}")
