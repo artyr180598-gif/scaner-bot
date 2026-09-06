@@ -33,6 +33,7 @@ from cryptopilot.storage import SignalStore
 SCAN = "🔎 Сканировать рынок"
 ANALYZE = "🪙 Анализ монеты"
 EARLY = "⚡ До импульса"
+IMPULSE = "🔬 Старт импульса"
 BEST = "⭐ Лучшие сигналы"
 BACKTEST = "📊 Бэктест"
 STATUS = "⚙️ Статус"
@@ -76,6 +77,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=SCAN), KeyboardButton(text=ANALYZE)],
             [KeyboardButton(text=EARLY), KeyboardButton(text=BEST)],
+            [KeyboardButton(text=IMPULSE)],
             [KeyboardButton(text=BACKTEST), KeyboardButton(text=PERFORMANCE)],
             [KeyboardButton(text=STATUS), KeyboardButton(text=HELP)],
         ],
@@ -147,6 +149,35 @@ def build_router(
             await progress.edit_text(
                 f"⚠️ Ранний радар не завершён: {html.escape(str(exc))}"
             )
+
+    @router.message(Command("impulse"))
+    @router.message(F.text == IMPULSE)
+    async def impulse(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        progress = await message.answer("⏳ Проверяю первые 5m-пробои после сжатия…")
+        try:
+            found, checked, errors = await scanner.scan_impulses()
+            await progress.edit_text(
+                f"🔬 Экспериментальный радар 5m\nПроверено: {checked}; ошибок данных: {errors}.\n"
+                f"Свежих пробоев: {len(found)}.\n"
+                "Это факты пробоя, не проверенные торговые рекомендации. "
+                "Прибыльность и вероятность продолжения не установлены."
+            )
+            for symbol, event in found[:10]:
+                closed = datetime.fromtimestamp(event.closed_at_ms/1000, UTC)
+                await message.answer(
+                    f"🔬 <b>{html.escape(symbol)} · ПЕРВЫЙ ПРОБОЙ {event.direction}</b>\n"
+                    f"Закрытие 5m: {closed:%d.%m %H:%M} UTC\n"
+                    f"Граница предыдущих 24 свечей: {price(event.level)}\n"
+                    f"Закрытие: {price(event.close)} · объём: {event.volume_ratio:.2f}× медианы\n"
+                    f"Расстояние цены от границы: {event.extension_atr:.2f} ATR\n"
+                    "Предшествующий диапазон сжался минимум на 20%. "
+                    "Слишком большие свечи и удаление более 0,5 ATR отсеяны.\n"
+                    "⚠️ Возможен ложный пробой. План сделки не выдан; автосигналы этого режима отключены."
+                )
+        except Exception as exc:
+            health.last_error = str(exc)
+            await progress.edit_text("⚠️ Проверка 5m не завершена; данные недоступны.")
 
     @router.message(Command("analyze"))
     async def analyze_command(message: Message, state: FSMContext) -> None:

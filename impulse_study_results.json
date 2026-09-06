@@ -1,0 +1,1502 @@
+{
+  "protocol": "Frozen exploratory test: July/August 2026, three coins, no tuning.\n\nCompare the deployed-proposal detector with an RID-inspired (NOT RID-recovered)\ndepth+executed-flow confirmation. TP/SL 1%, 120m maximum, next minute after\nsignal close as entry (one minute delay), 6/12 bps per side costs, funding\nproxy 1bp/8h. Independent per-model nonoverlap; no portfolio or martingale.\nAugust was used in earlier studies, so is NOT an untouched holdout.\n",
+  "results": {
+    "first_impulse": {
+      "all": {
+        "n": 95,
+        "median_minutes": 120.0,
+        "timeout_pct": 52.63157894736842,
+        "net": {
+          "mean_pct": -0.12270009789069755,
+          "win_pct": 44.21052631578947,
+          "pf": 0.6794070050129022,
+          "ci95_pct": [
+            -0.2554713448987964,
+            0.02563390366914191
+          ],
+          "worst_pct": -1.1225791666666676
+        },
+        "stress_net": {
+          "mean_pct": -0.242685317780284,
+          "win_pct": 36.84210526315789,
+          "pf": 0.46562030120271675,
+          "ci95_pct": [
+            -0.3754203162074228,
+            -0.09440661996144598
+          ],
+          "worst_pct": -1.2431791666666674
+        }
+      },
+      "july": {
+        "n": 52,
+        "median_minutes": 112.0,
+        "timeout_pct": 46.15384615384615,
+        "net": {
+          "mean_pct": -0.18778447431019238,
+          "win_pct": 40.38461538461539,
+          "pf": 0.5786475422286191,
+          "ci95_pct": [
+            -0.3674733745189453,
+            -0.0062935547517600395
+          ],
+          "worst_pct": -1.1225791666666676
+        },
+        "stress_net": {
+          "mean_pct": -0.3077573937546892,
+          "win_pct": 36.53846153846153,
+          "pf": 0.40730905100017656,
+          "ci95_pct": [
+            -0.4874239910262389,
+            -0.12628986090479324
+          ],
+          "worst_pct": -1.2431791666666674
+        }
+      },
+      "august": {
+        "n": 43,
+        "median_minutes": 120.0,
+        "timeout_pct": 60.46511627906977,
+        "net": {
+          "mean_pct": -0.04399341012758745,
+          "win_pct": 48.837209302325576,
+          "pf": 0.8565178455847493,
+          "ci95_pct": [
+            -0.24920330176319383,
+            0.17346380436429684
+          ],
+          "worst_pct": -1.122287500000001
+        },
+        "stress_net": {
+          "mean_pct": -0.1639935049740266,
+          "win_pct": 37.2093023255814,
+          "pf": 0.5631566551577388,
+          "ci95_pct": [
+            -0.36931813757002024,
+            0.05351199717044551
+          ],
+          "worst_pct": -1.2428875000000008
+        }
+      },
+      "by_symbol": {
+        "DOGEUSDT": {
+          "n": 32,
+          "median_minutes": 120.0,
+          "timeout_pct": 71.875,
+          "net": {
+            "mean_pct": -0.21107878936706795,
+            "win_pct": 37.5,
+            "pf": 0.40553135792201334,
+            "ci95_pct": [
+              -0.4219855753536982,
+              0.037332963853286674
+            ],
+            "worst_pct": -1.1223083333333341
+          },
+          "stress_net": {
+            "mean_pct": -0.33099848757673506,
+            "win_pct": 21.875,
+            "pf": 0.24565488901421215,
+            "ci95_pct": [
+              -0.5418858819376021,
+              -0.08262758027090619
+            ],
+            "worst_pct": -1.2429083333333342
+          }
+        },
+        "WIFUSDT": {
+          "n": 25,
+          "median_minutes": 120.0,
+          "timeout_pct": 52.0,
+          "net": {
+            "mean_pct": -0.04261051760529006,
+            "win_pct": 48.0,
+            "pf": 0.8702060227871018,
+            "ci95_pct": [
+              -0.330925295915351,
+              0.23647514658862004
+            ],
+            "worst_pct": -1.1225791666666676
+          },
+          "stress_net": {
+            "mean_pct": -0.16252197458552467,
+            "win_pct": 40.0,
+            "pf": 0.5901037677428227,
+            "ci95_pct": [
+              -0.4510577812286036,
+              0.11673350805625901
+            ],
+            "worst_pct": -1.2431791666666674
+          }
+        },
+        "1000PEPEUSDT": {
+          "n": 38,
+          "median_minutes": 90.5,
+          "timeout_pct": 36.8421052631579,
+          "net": {
+            "mean_pct": -0.10096644999310099,
+            "win_pct": 47.368421052631575,
+            "pf": 0.7714819501141197,
+            "ci95_pct": [
+              -0.3853315343978559,
+              0.20645068557613266
+            ],
+            "worst_pct": -1.1218791666666788
+          },
+          "stress_net": {
+            "mean_pct": -0.22105537426403526,
+            "win_pct": 47.368421052631575,
+            "pf": 0.5622674408280555,
+            "ci95_pct": [
+              -0.5052242968878611,
+              0.08648355509114124
+            ],
+            "worst_pct": -1.2423041666666674
+          }
+        }
+      }
+    },
+    "rid_depth_flow": {
+      "all": {
+        "n": 1,
+        "median_minutes": 120.0,
+        "timeout_pct": 100.0,
+        "net": {
+          "mean_pct": 0.049390497348415136,
+          "win_pct": 100.0,
+          "pf": null,
+          "ci95_pct": [
+            0.049390497348415136,
+            0.049390497348415136
+          ],
+          "worst_pct": 0.049390497348415136
+        },
+        "stress_net": {
+          "mean_pct": -0.07071269886772359,
+          "win_pct": 0.0,
+          "pf": 0.0,
+          "ci95_pct": [
+            -0.07071269886772359,
+            -0.07071269886772359
+          ],
+          "worst_pct": -0.07071269886772359
+        }
+      },
+      "july": {
+        "n": 0
+      },
+      "august": {
+        "n": 1,
+        "median_minutes": 120.0,
+        "timeout_pct": 100.0,
+        "net": {
+          "mean_pct": 0.049390497348415136,
+          "win_pct": 100.0,
+          "pf": null,
+          "ci95_pct": [
+            0.049390497348415136,
+            0.049390497348415136
+          ],
+          "worst_pct": 0.049390497348415136
+        },
+        "stress_net": {
+          "mean_pct": -0.07071269886772359,
+          "win_pct": 0.0,
+          "pf": 0.0,
+          "ci95_pct": [
+            -0.07071269886772359,
+            -0.07071269886772359
+          ],
+          "worst_pct": -0.07071269886772359
+        }
+      },
+      "by_symbol": {
+        "DOGEUSDT": {
+          "n": 1,
+          "median_minutes": 120.0,
+          "timeout_pct": 100.0,
+          "net": {
+            "mean_pct": 0.049390497348415136,
+            "win_pct": 100.0,
+            "pf": null,
+            "ci95_pct": [
+              0.049390497348415136,
+              0.049390497348415136
+            ],
+            "worst_pct": 0.049390497348415136
+          },
+          "stress_net": {
+            "mean_pct": -0.07071269886772359,
+            "win_pct": 0.0,
+            "pf": 0.0,
+            "ci95_pct": [
+              -0.07071269886772359,
+              -0.07071269886772359
+            ],
+            "worst_pct": -0.07071269886772359
+          }
+        },
+        "WIFUSDT": {
+          "n": 0
+        },
+        "1000PEPEUSDT": {
+          "n": 0
+        }
+      }
+    }
+  },
+  "records": {
+    "first_impulse": [
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-01",
+        "time": "2026-07-01T04:31:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0725,
+        "exit": 0.07177499999999999,
+        "reason": "stop",
+        "minutes": 111,
+        "net": -0.01121712500000001,
+        "stress_net": -0.012411125000000009
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-01",
+        "time": "2026-07-01T17:56:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.07357,
+        "exit": 0.07283429999999999,
+        "reason": "stop",
+        "minutes": 108,
+        "net": -0.01121650000000012,
+        "stress_net": -0.01241050000000012
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-02",
+        "time": "2026-07-02T13:26:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.07487,
+        "exit": 0.0741213,
+        "reason": "stop",
+        "minutes": 102,
+        "net": -0.011215250000000121,
+        "stress_net": -0.01240925000000012
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-03",
+        "time": "2026-07-03T08:56:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.07491,
+        "exit": 0.07546,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.008571549192364006,
+        "stress_net": -0.009775954478707619
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-04",
+        "time": "2026-07-04T01:11:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.07698,
+        "exit": 0.07684,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0005947453884126457,
+        "stress_net": -0.0006041634190698172
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-06",
+        "time": "2026-07-06T07:46:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.07701,
+        "exit": 0.07659,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.00667556486170609,
+        "stress_net": -0.007872292559407688
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-07",
+        "time": "2026-07-07T10:51:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.07465,
+        "exit": 0.07539649999999999,
+        "reason": "stop",
+        "minutes": 82,
+        "net": -0.011223083333333342,
+        "stress_net": -0.01242908333333334
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-12",
+        "time": "2026-07-12T09:26:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.07272,
+        "exit": 0.07302,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.005352887788778733,
+        "stress_net": -0.006555363036303485
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-13",
+        "time": "2026-07-13T07:26:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.07243,
+        "exit": 0.0724,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0016389444981359308,
+        "stress_net": -0.002838695982327564
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-13",
+        "time": "2026-07-13T23:56:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0719,
+        "exit": 0.07194,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0006690055632823842,
+        "stress_net": -0.0018693393602225788
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-17",
+        "time": "2026-07-17T05:31:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.07195,
+        "exit": 0.0717,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0022517199444058,
+        "stress_net": 0.001053804725503785
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-22",
+        "time": "2026-07-22T07:51:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.07209,
+        "exit": 0.07238,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.005250162990706022,
+        "stress_net": -0.006452576640310682
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-22",
+        "time": "2026-07-22T10:51:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0727,
+        "exit": 0.07233,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.006311354883081139,
+        "stress_net": -0.007508301237964221
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-07-27",
+        "time": "2026-07-27T03:46:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.07287,
+        "exit": 0.07269,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.003693670234664435,
+        "stress_net": -0.004892188143268799
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-01",
+        "time": "2026-08-01T13:06:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.07001,
+        "exit": 0.07009,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -8.299171546933923e-05,
+        "stress_net": -0.001283677331809862
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-02",
+        "time": "2026-08-02T13:31:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.07018,
+        "exit": 0.07032,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0007686734112279881,
+        "stress_net": -0.00043252351097206883
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-04",
+        "time": "2026-08-04T23:36:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.07012,
+        "exit": 0.07002,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0002019823160297381,
+        "stress_net": -0.0009971620079862345
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-05",
+        "time": "2026-08-05T20:41:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.07047,
+        "exit": 0.07005,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0071814069816943755,
+        "stress_net": -0.00837783099191149
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-06",
+        "time": "2026-08-06T08:16:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.06967,
+        "exit": 0.0689733,
+        "reason": "target",
+        "minutes": 88,
+        "net": 0.008787666666666564,
+        "stress_net": 0.007593666666666565
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-07",
+        "time": "2026-08-07T09:26:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.06953,
+        "exit": 0.0696,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.00021884438371928236,
+        "stress_net": -0.0014194484395225325
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-08",
+        "time": "2026-08-08T00:46:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.06977,
+        "exit": 0.06989,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0004939049734841513,
+        "stress_net": -0.0007071269886772359
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-10",
+        "time": "2026-08-10T21:21:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.0697,
+        "exit": 0.06983,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0030912553802009404,
+        "stress_net": -0.004292374461979993
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-19",
+        "time": "2026-08-19T20:31:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.07323,
+        "exit": 0.07396230000000001,
+        "reason": "target",
+        "minutes": 20,
+        "net": 0.008789833333333342,
+        "stress_net": 0.007583833333333343
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-22",
+        "time": "2026-08-22T08:36:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.09105,
+        "exit": 0.09013950000000001,
+        "reason": "target",
+        "minutes": 28,
+        "net": 0.008800166666666564,
+        "stress_net": 0.007606166666666565
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-25",
+        "time": "2026-08-25T19:31:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.08816,
+        "exit": 0.0872784,
+        "reason": "target",
+        "minutes": 34,
+        "net": 0.008798916666666675,
+        "stress_net": 0.0076049166666666765
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-26",
+        "time": "2026-08-26T05:01:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.08628,
+        "exit": 0.08656,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.004472195178488769,
+        "stress_net": -0.005674142327306572
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-26",
+        "time": "2026-08-26T17:36:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.08524,
+        "exit": 0.08519,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0018112271234161687,
+        "stress_net": -0.0030108751759736533
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-26",
+        "time": "2026-08-26T23:41:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.08731,
+        "exit": 0.0864369,
+        "reason": "stop",
+        "minutes": 83,
+        "net": -0.011211291666666677,
+        "stress_net": -0.012405291666666676
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-29",
+        "time": "2026-08-29T21:06:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.08509,
+        "exit": 0.0852,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.002518524503466805,
+        "stress_net": -0.0037193001527792975
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-30",
+        "time": "2026-08-30T07:21:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.08481,
+        "exit": 0.08461,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.00113462740242891,
+        "stress_net": -6.395767008612336e-05
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-30",
+        "time": "2026-08-30T10:41:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.08483,
+        "exit": 0.08511,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.002073738653778083,
+        "stress_net": 0.0008717582223269456
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-31",
+        "time": "2026-08-31T03:51:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.08244,
+        "exit": 0.08282,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.003381647258612489,
+        "stress_net": 0.0021788816108686752
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-01",
+        "time": "2026-07-01T17:06:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1717,
+        "exit": 0.169983,
+        "reason": "target",
+        "minutes": 99,
+        "net": 0.008785375000000008,
+        "stress_net": 0.00759137500000001
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-04",
+        "time": "2026-07-04T17:56:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.1823,
+        "exit": 0.180477,
+        "reason": "stop",
+        "minutes": 29,
+        "net": -0.011200041666666565,
+        "stress_net": -0.012394041666666564
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-04",
+        "time": "2026-07-04T22:26:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1764,
+        "exit": 0.174636,
+        "reason": "target",
+        "minutes": 51,
+        "net": 0.008795374999999897,
+        "stress_net": 0.007601374999999898
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-07",
+        "time": "2026-07-07T03:26:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1676,
+        "exit": 0.165924,
+        "reason": "target",
+        "minutes": 109,
+        "net": 0.008783291666666786,
+        "stress_net": 0.0075892916666667875
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-07",
+        "time": "2026-07-07T18:56:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1682,
+        "exit": 0.166518,
+        "reason": "target",
+        "minutes": 12,
+        "net": 0.008803499999999896,
+        "stress_net": 0.0076094999999998985
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-09",
+        "time": "2026-07-09T21:46:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1586,
+        "exit": 0.1579,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.003191267339218062,
+        "stress_net": 0.0019939155107186923
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-11",
+        "time": "2026-07-11T19:31:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.153,
+        "exit": 0.15453,
+        "reason": "stop",
+        "minutes": 95,
+        "net": -0.011225791666666676,
+        "stress_net": -0.012431791666666674
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-12",
+        "time": "2026-07-12T14:01:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1499,
+        "exit": 0.1501,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0025600233488993545,
+        "stress_net": -0.0037608238825884805
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-14",
+        "time": "2026-07-14T07:11:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1527,
+        "exit": 0.1524,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0007408153241650056,
+        "stress_net": -0.0004580058939096505
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-14",
+        "time": "2026-07-14T11:36:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1513,
+        "exit": 0.152813,
+        "reason": "stop",
+        "minutes": 55,
+        "net": -0.011217458333333343,
+        "stress_net": -0.012423458333333342
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-15",
+        "time": "2026-07-15T05:16:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1537,
+        "exit": 0.1543,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.005131050748210708,
+        "stress_net": -0.006333392973324565
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-16",
+        "time": "2026-07-16T06:26:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1515,
+        "exit": 0.149985,
+        "reason": "target",
+        "minutes": 75,
+        "net": 0.008790374999999897,
+        "stress_net": 0.007596374999999898
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-19",
+        "time": "2026-07-19T01:01:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1533,
+        "exit": 0.1529,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.001385828440965316,
+        "stress_net": 0.00018739399869525751
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-24",
+        "time": "2026-07-24T15:16:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.1428,
+        "exit": 0.1428,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.001225,
+        "stress_net": -0.0024249999999999996
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-25",
+        "time": "2026-07-25T06:26:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1451,
+        "exit": 0.1452,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0019145933838732004,
+        "stress_net": -0.0031150068917987685
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-07-30",
+        "time": "2026-07-30T04:06:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.1442,
+        "exit": 0.1434,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.004326178918169207,
+        "stress_net": 0.003129507628294034
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-03",
+        "time": "2026-08-03T01:16:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.1379,
+        "exit": 0.1378,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0004994017403916333,
+        "stress_net": -0.0016989666424946065
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-05",
+        "time": "2026-08-05T12:06:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.1396,
+        "exit": 0.140996,
+        "reason": "stop",
+        "minutes": 53,
+        "net": -0.011217041666666676,
+        "stress_net": -0.012423041666666674
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-06",
+        "time": "2026-08-06T04:26:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.1408,
+        "exit": 0.1408,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.001225,
+        "stress_net": -0.0024249999999999996
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-06",
+        "time": "2026-08-06T08:16:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.1401,
+        "exit": 0.138699,
+        "reason": "target",
+        "minutes": 89,
+        "net": 0.008787458333333453,
+        "stress_net": 0.007593458333333454
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-07",
+        "time": "2026-08-07T14:51:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.1375,
+        "exit": 0.138,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.004863545454545478,
+        "stress_net": -0.006065727272727296
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-13",
+        "time": "2026-08-13T20:36:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.1362,
+        "exit": 0.1372,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.008571549192364228,
+        "stress_net": -0.00977595447870784
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-16",
+        "time": "2026-08-16T07:31:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.1368,
+        "exit": 0.137,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.00023611111111115267,
+        "stress_net": -0.0009647660818713034
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-26",
+        "time": "2026-08-26T04:16:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.2004,
+        "exit": 0.198396,
+        "reason": "target",
+        "minutes": 52,
+        "net": 0.008795166666666675,
+        "stress_net": 0.007601166666666676
+      },
+      {
+        "symbol": "WIFUSDT",
+        "date": "2026-08-29",
+        "time": "2026-08-29T17:26:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.1993,
+        "exit": 0.201293,
+        "reason": "stop",
+        "minutes": 81,
+        "net": -0.011222875000000009,
+        "stress_net": -0.012428875000000008
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-01",
+        "time": "2026-07-01T11:36:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.002262,
+        "exit": 0.00223938,
+        "reason": "target",
+        "minutes": 115,
+        "net": 0.008782041666666674,
+        "stress_net": 0.007588041666666676
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-02",
+        "time": "2026-07-02T08:41:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0023877,
+        "exit": 0.002411577,
+        "reason": "target",
+        "minutes": 58,
+        "net": 0.008781916666666676,
+        "stress_net": 0.007575916666666676
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-02",
+        "time": "2026-07-02T13:26:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0024535,
+        "exit": 0.002478035,
+        "reason": "target",
+        "minutes": 14,
+        "net": 0.008791083333333342,
+        "stress_net": 0.007585083333333343
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-03",
+        "time": "2026-07-03T14:51:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0025667,
+        "exit": 0.002592367,
+        "reason": "target",
+        "minutes": 18,
+        "net": 0.008790250000000008,
+        "stress_net": 0.007584250000000009
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-04",
+        "time": "2026-07-04T00:31:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0028102,
+        "exit": 0.002782098,
+        "reason": "stop",
+        "minutes": 11,
+        "net": -0.011196291666666676,
+        "stress_net": -0.012390291666666674
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-04",
+        "time": "2026-07-04T02:46:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0028148,
+        "exit": 0.002786652,
+        "reason": "stop",
+        "minutes": 4,
+        "net": -0.011194833333333343,
+        "stress_net": -0.012388833333333342
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-04",
+        "time": "2026-07-04T09:51:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.002699,
+        "exit": 0.002702,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.002337189699888797,
+        "stress_net": -0.0035378566135605273
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-05",
+        "time": "2026-07-05T12:26:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0026628,
+        "exit": 0.0026814,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.005755937359170818,
+        "stress_net": 0.004551746282109079
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-08",
+        "time": "2026-07-08T06:36:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.0025946,
+        "exit": 0.002620546,
+        "reason": "stop",
+        "minutes": 53,
+        "net": -0.011217041666666676,
+        "stress_net": -0.012423041666666674
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-08",
+        "time": "2026-07-08T17:31:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0026064,
+        "exit": 0.002580336,
+        "reason": "stop",
+        "minutes": 65,
+        "net": -0.011207541666666676,
+        "stress_net": -0.012401541666666675
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-13",
+        "time": "2026-07-13T06:16:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.0027147,
+        "exit": 0.0027235,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.00446855545732484,
+        "stress_net": -0.005670500423619458
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-14",
+        "time": "2026-07-14T02:16:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.0027266,
+        "exit": 0.0027329,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.003536956282549556,
+        "stress_net": -0.004738342624513907
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-15",
+        "time": "2026-07-15T23:46:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.0027827,
+        "exit": 0.0027748,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0016156727279261229,
+        "stress_net": 0.000417376109533914
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-16",
+        "time": "2026-07-16T12:46:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.002717,
+        "exit": 0.0027441699999999998,
+        "reason": "stop",
+        "minutes": 35,
+        "net": -0.011213291666666675,
+        "stress_net": -0.012419291666666674
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-19",
+        "time": "2026-07-19T05:06:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.002764,
+        "exit": 0.00279164,
+        "reason": "target",
+        "minutes": 113,
+        "net": 0.008770458333333342,
+        "stress_net": 0.007564458333333343
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-20",
+        "time": "2026-07-20T09:36:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0028519,
+        "exit": 0.002880419,
+        "reason": "target",
+        "minutes": 49,
+        "net": 0.008783791666666676,
+        "stress_net": 0.007577791666666676
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-20",
+        "time": "2026-07-20T21:01:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0029046,
+        "exit": 0.002933646,
+        "reason": "target",
+        "minutes": 20,
+        "net": 0.008789833333333342,
+        "stress_net": 0.007583833333333343
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-21",
+        "time": "2026-07-21T00:41:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.0029361,
+        "exit": 0.0029273,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.004220374816934123,
+        "stress_net": -0.005418576513061639
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-23",
+        "time": "2026-07-23T11:46:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.0028446,
+        "exit": 0.002816154,
+        "reason": "target",
+        "minutes": 70,
+        "net": 0.008791416666666675,
+        "stress_net": 0.007597416666666676
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-27",
+        "time": "2026-07-27T12:16:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.0029524,
+        "exit": 0.002981924,
+        "reason": "stop",
+        "minutes": 42,
+        "net": -0.01121475000000001,
+        "stress_net": -0.012420750000000008
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-29",
+        "time": "2026-07-29T06:31:00+00:00",
+        "month": 7,
+        "side": 1,
+        "entry": 0.002773,
+        "exit": 0.0027452699999999997,
+        "reason": "stop",
+        "minutes": 106,
+        "net": -0.011216083333333344,
+        "stress_net": -0.012410083333333342
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-07-30",
+        "time": "2026-07-30T00:41:00+00:00",
+        "month": 7,
+        "side": -1,
+        "entry": 0.002711,
+        "exit": 0.0027381099999999998,
+        "reason": "stop",
+        "minutes": 52,
+        "net": -0.011216833333333343,
+        "stress_net": -0.012422833333333341
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-01",
+        "time": "2026-08-01T21:36:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0027767,
+        "exit": 0.0027724,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0027726716966183186,
+        "stress_net": -0.003971742536104039
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-02",
+        "time": "2026-08-02T08:36:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.0029161,
+        "exit": 0.0029055,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0024121729364562404,
+        "stress_net": 0.0012143539316210154
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-03",
+        "time": "2026-08-03T06:26:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.0028416,
+        "exit": 0.002828,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0035639076576577337,
+        "stress_net": 0.0023667792792793556
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-07",
+        "time": "2026-08-07T17:16:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.0027996,
+        "exit": 0.0028243,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.01005298256893849,
+        "stress_net": -0.011258276182311828
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-08",
+        "time": "2026-08-08T01:26:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0028241,
+        "exit": 0.0028458,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0064542535675081334,
+        "stress_net": 0.00524964324917663
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-12",
+        "time": "2026-08-12T12:51:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.0028323,
+        "exit": 0.0028039769999999996,
+        "reason": "target",
+        "minutes": 104,
+        "net": 0.008784333333333453,
+        "stress_net": 0.007590333333333454
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-13",
+        "time": "2026-08-13T13:11:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0027005,
+        "exit": 0.0026948,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.003334453804851128,
+        "stress_net": -0.004533187372708932
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-17",
+        "time": "2026-08-17T01:36:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0025976,
+        "exit": 0.0026119,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.004276778564829091,
+        "stress_net": 0.0030734755158608124
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-17",
+        "time": "2026-08-17T10:46:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0025946,
+        "exit": 0.0025686539999999996,
+        "reason": "stop",
+        "minutes": 119,
+        "net": -0.011218791666666787,
+        "stress_net": -0.012412791666666785
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-17",
+        "time": "2026-08-17T15:51:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.002596,
+        "exit": 0.0025923,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": -0.0026494144838211525,
+        "stress_net": -0.0038485593220337873
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-20",
+        "time": "2026-08-20T07:31:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0029474,
+        "exit": 0.002976874,
+        "reason": "target",
+        "minutes": 20,
+        "net": 0.008789833333333342,
+        "stress_net": 0.007583833333333343
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-21",
+        "time": "2026-08-21T14:31:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0036733,
+        "exit": 0.003710033,
+        "reason": "target",
+        "minutes": 22,
+        "net": 0.008789416666666675,
+        "stress_net": 0.007583416666666677
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-22",
+        "time": "2026-08-22T10:21:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.00396,
+        "exit": 0.0039204,
+        "reason": "target",
+        "minutes": 2,
+        "net": 0.008805583333333342,
+        "stress_net": 0.007611583333333343
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-22",
+        "time": "2026-08-22T19:46:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.0041448,
+        "exit": 0.004103351999999999,
+        "reason": "stop",
+        "minutes": 77,
+        "net": -0.011210041666666786,
+        "stress_net": -0.012404041666666785
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-27",
+        "time": "2026-08-27T05:36:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.0037678,
+        "exit": 0.003805478,
+        "reason": "stop",
+        "minutes": 17,
+        "net": -0.011209541666666677,
+        "stress_net": -0.012415541666666675
+      },
+      {
+        "symbol": "1000PEPEUSDT",
+        "date": "2026-08-28",
+        "time": "2026-08-28T18:51:00+00:00",
+        "month": 8,
+        "side": -1,
+        "entry": 0.0036356,
+        "exit": 0.003671956,
+        "reason": "stop",
+        "minutes": 11,
+        "net": -0.011208291666666675,
+        "stress_net": -0.012414291666666674
+      }
+    ],
+    "rid_depth_flow": [
+      {
+        "symbol": "DOGEUSDT",
+        "date": "2026-08-08",
+        "time": "2026-08-08T00:46:00+00:00",
+        "month": 8,
+        "side": 1,
+        "entry": 0.06977,
+        "exit": 0.06989,
+        "reason": "timeout",
+        "minutes": 120,
+        "net": 0.0004939049734841513,
+        "stress_net": -0.0007071269886772359
+      }
+    ]
+  },
+  "promotion_allowed": false
+}

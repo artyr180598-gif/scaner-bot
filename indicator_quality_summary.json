@@ -1,0 +1,1266 @@
+{
+  "protocol": "Exploratory quality study, March-August2026; economic phase added posthoc.\n\nHypothesis: buying strength after an observed pullback/reclaim is different from\nranking mature trends. Compare reclaim with/without volume confirmation. Long\nand short symmetric. Six liquid coins, same next-open fills, 1.45ATR/18-bar stop,\nTP2R, max72h, 6/12bps each execution, funding proxy1bp/8h, no averaging/leverage.\nPreviously examined period: exploratory, NOT an independent holdout. Historical\nspread/OI/funding/scanner membership unavailable. Monthly/cross-symbol breakdowns\nmust be retained; don't promote from one pooled positive number.\n",
+  "phase2_disclosure": "Economic variants added AFTER original outcomes showed cost drag; a posthoc subset looked positive. Threshold1.8 is the existing configured RR minimum, now applied net of costs. This rerun gives each variant independent trade occupancy. NOT an independent validation; no promotion is allowed on these data.",
+  "promotion_allowed": false,
+  "results": {
+    "economic_baseline": {
+      "all": {
+        "n": 55,
+        "median_hours": 12.0,
+        "gross_r": {
+          "mean": 0.49288104472033417,
+          "sum": 27.10845745961838,
+          "win_pct": 52.72727272727272,
+          "profit_factor": 2.047202219670374
+        },
+        "net_r": {
+          "mean": 0.42456330201371734,
+          "sum": 23.350981610754452,
+          "win_pct": 50.90909090909091,
+          "profit_factor": 1.8396209015179583
+        },
+        "stress_r": {
+          "mean": 0.3682385980789165,
+          "sum": 20.253122894340407,
+          "win_pct": 50.90909090909091,
+          "profit_factor": 1.6904895825435282
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 5,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 0.2,
+            "sum": 1.0,
+            "win_pct": 40.0,
+            "profit_factor": 1.3333333333333333
+          },
+          "net_r": {
+            "mean": 0.12872221460203961,
+            "sum": 0.643611073010198,
+            "win_pct": 40.0,
+            "profit_factor": 1.200236273903533
+          },
+          "stress_r": {
+            "mean": 0.0651606109904376,
+            "sum": 0.325803054952188,
+            "win_pct": 40.0,
+            "profit_factor": 1.0956758367144406
+          }
+        },
+        "5": {
+          "n": 7,
+          "median_hours": 50.75,
+          "gross_r": {
+            "mean": 0.12402319418333356,
+            "sum": 0.868162359283335,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 1.223375828658847
+          },
+          "net_r": {
+            "mean": 0.04467201994471835,
+            "sum": 0.31270413961302845,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 1.0745674992018381
+          },
+          "stress_r": {
+            "mean": -0.007578006856288256,
+            "sum": -0.0530460479940178,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 0.9879396170922318
+          }
+        },
+        "6": {
+          "n": 27,
+          "median_hours": 8.0,
+          "gross_r": {
+            "mean": 0.7124871907480603,
+            "sum": 19.23715415019763,
+            "win_pct": 59.25925925925925,
+            "profit_factor": 2.7488321954725112
+          },
+          "net_r": {
+            "mean": 0.6468098453670658,
+            "sum": 17.463865824910776,
+            "win_pct": 59.25925925925925,
+            "profit_factor": 2.4881523379847854
+          },
+          "stress_r": {
+            "mean": 0.5902520036734293,
+            "sum": 15.936804099182591,
+            "win_pct": 59.25925925925925,
+            "profit_factor": 2.2922381085760506
+          }
+        },
+        "7": {
+          "n": 3,
+          "median_hours": 15.5,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -3.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0878525547533455,
+            "sum": -3.263557664260037,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.153494180609249,
+            "sum": -3.4604825418277465,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "8": {
+          "n": 13,
+          "median_hours": 11.5,
+          "gross_r": {
+            "mean": 0.6925493038567242,
+            "sum": 9.003140950137414,
+            "win_pct": 61.53846153846154,
+            "profit_factor": 2.8006281900274828
+          },
+          "net_r": {
+            "mean": 0.6303352490369604,
+            "sum": 8.194358237480484,
+            "win_pct": 53.84615384615385,
+            "profit_factor": 2.51615854742357
+          },
+          "stress_r": {
+            "mean": 0.5772341792328766,
+            "sum": 7.504044330027396,
+            "win_pct": 53.84615384615385,
+            "profit_factor": 2.3085351887292425
+          }
+        }
+      },
+      "by_symbol": {
+        "BNBUSDT": {
+          "n": 2,
+          "median_hours": 16.125,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4484218983093715,
+            "sum": 0.896843796618743,
+            "win_pct": 50.0,
+            "profit_factor": 1.8558112131569386
+          },
+          "stress_r": {
+            "mean": 0.4041255587956706,
+            "sum": 0.8082511175913412,
+            "win_pct": 50.0,
+            "profit_factor": 1.7435552554758842
+          }
+        },
+        "BTCUSDT": {
+          "n": 4,
+          "median_hours": 28.125,
+          "gross_r": {
+            "mean": -0.25,
+            "sum": -1.0,
+            "win_pct": 25.0,
+            "profit_factor": 0.6666666666666666
+          },
+          "net_r": {
+            "mean": -0.33059897598713467,
+            "sum": -1.3223959039485387,
+            "win_pct": 25.0,
+            "profit_factor": 0.5937368213988607
+          },
+          "stress_r": {
+            "mean": -0.3927449919854867,
+            "sum": -1.5709799679419467,
+            "win_pct": 25.0,
+            "profit_factor": 0.5434384354337455
+          }
+        },
+        "DOGEUSDT": {
+          "n": 9,
+          "median_hours": 18.5,
+          "gross_r": {
+            "mean": -0.12575973785740724,
+            "sum": -1.131837640716665,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.807724940406448
+          },
+          "net_r": {
+            "mean": -0.1926485340026056,
+            "sum": -1.7338368060234504,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.7247608469167724
+          },
+          "stress_r": {
+            "mean": -0.24604176791316024,
+            "sum": -2.214375911218442,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.6661387013502932
+          }
+        },
+        "ETHUSDT": {
+          "n": 8,
+          "median_hours": 9.375,
+          "gross_r": {
+            "mean": 0.6253926187671768,
+            "sum": 5.003140950137414,
+            "win_pct": 62.5,
+            "profit_factor": 2.6677136500458047
+          },
+          "net_r": {
+            "mean": 0.5564565827232048,
+            "sum": 4.451652661785638,
+            "win_pct": 50.0,
+            "profit_factor": 2.3385545875194205
+          },
+          "stress_r": {
+            "mean": 0.49763626845952313,
+            "sum": 3.981090147676185,
+            "win_pct": 50.0,
+            "profit_factor": 2.1094785762717665
+          }
+        },
+        "SOLUSDT": {
+          "n": 16,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 1.0625,
+            "sum": 17.0,
+            "win_pct": 68.75,
+            "profit_factor": 4.4
+          },
+          "net_r": {
+            "mean": 0.993428013280659,
+            "sum": 15.894848212490544,
+            "win_pct": 68.75,
+            "profit_factor": 3.9534409992249944
+          },
+          "stress_r": {
+            "mean": 0.935491769710129,
+            "sum": 14.967868315362065,
+            "win_pct": 68.75,
+            "profit_factor": 3.6440098427948393
+          }
+        },
+        "XRPUSDT": {
+          "n": 16,
+          "median_hours": 11.125,
+          "gross_r": {
+            "mean": 0.3898221343873517,
+            "sum": 6.237154150197627,
+            "win_pct": 50.0,
+            "profit_factor": 1.7796442687747034
+          },
+          "net_r": {
+            "mean": 0.32274185311446957,
+            "sum": 5.163869649831513,
+            "win_pct": 50.0,
+            "profit_factor": 1.6074093991410043
+          },
+          "stress_r": {
+            "mean": 0.2675793245544504,
+            "sum": 4.281269192871206,
+            "win_pct": 50.0,
+            "profit_factor": 1.4798707599716459
+          }
+        }
+      }
+    },
+    "economic_cmf": {
+      "all": {
+        "n": 30,
+        "median_hours": 11.75,
+        "gross_r": {
+          "mean": 0.3862371144528417,
+          "sum": 11.587113433585252,
+          "win_pct": 50.0,
+          "profit_factor": 1.7724742289056836
+        },
+        "net_r": {
+          "mean": 0.32114403347734033,
+          "sum": 9.63432100432021,
+          "win_pct": 50.0,
+          "profit_factor": 1.60176440337909
+        },
+        "stress_r": {
+          "mean": 0.2677051826886724,
+          "sum": 8.031155480660171,
+          "win_pct": 50.0,
+          "profit_factor": 1.4775423563474164
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 3,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.06921516358228041,
+            "sum": -0.20764549074684124,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.9030328224002527
+          },
+          "stress_r": {
+            "mean": -0.13114460483894597,
+            "sum": -0.3934338145168379,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8261868189149103
+          }
+        },
+        "5": {
+          "n": 2,
+          "median_hours": 35.5,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -2.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0673312484152095,
+            "sum": -2.134662496830419,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.1149756644406104,
+            "sum": -2.2299513288812207,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "6": {
+          "n": 14,
+          "median_hours": 11.125,
+          "gross_r": {
+            "mean": 0.3740824392998306,
+            "sum": 5.237154150197628,
+            "win_pct": 50.0,
+            "profit_factor": 1.748164878599661
+          },
+          "net_r": {
+            "mean": 0.31216826398099656,
+            "sum": 4.370355695733952,
+            "win_pct": 50.0,
+            "profit_factor": 1.5869780725756228
+          },
+          "stress_r": {
+            "mean": 0.26034941854459726,
+            "sum": 3.6448918596243614,
+            "win_pct": 50.0,
+            "profit_factor": 1.4664802039507117
+          }
+        },
+        "7": {
+          "n": 2,
+          "median_hours": 41.5,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -2.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.092413697967715,
+            "sum": -2.18482739593543,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.156941581777748,
+            "sum": -2.313883163555496,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "8": {
+          "n": 9,
+          "median_hours": 11.5,
+          "gross_r": {
+            "mean": 1.1499954759319584,
+            "sum": 10.349959283387625,
+            "win_pct": 77.77777777777779,
+            "profit_factor": 6.174979641693812
+          },
+          "net_r": {
+            "mean": 1.087900076899883,
+            "sum": 9.791100692098947,
+            "win_pct": 77.77777777777779,
+            "profit_factor": 5.654198309479554
+          },
+          "stress_r": {
+            "mean": 1.0359479919988184,
+            "sum": 9.323531927989364,
+            "win_pct": 77.77777777777779,
+            "profit_factor": 5.244338028707456
+          }
+        }
+      },
+      "by_symbol": {
+        "BNBUSDT": {
+          "n": 2,
+          "median_hours": 16.125,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4484218983093715,
+            "sum": 0.896843796618743,
+            "win_pct": 50.0,
+            "profit_factor": 1.8558112131569386
+          },
+          "stress_r": {
+            "mean": 0.4041255587956706,
+            "sum": 0.8082511175913412,
+            "win_pct": 50.0,
+            "profit_factor": 1.7435552554758842
+          }
+        },
+        "BTCUSDT": {
+          "n": 2,
+          "median_hours": 28.125,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -2.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0798969074564804,
+            "sum": -2.1597938149129607,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.1420990972086082,
+            "sum": -2.2841981944172165,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "DOGEUSDT": {
+          "n": 3,
+          "median_hours": 11.5,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.06211319545950763,
+            "sum": -0.18633958637852288,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.9122631200211733
+          },
+          "stress_r": {
+            "mean": -0.1193822005813842,
+            "sum": -0.3581466017441526,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8400928258224493
+          }
+        },
+        "ETHUSDT": {
+          "n": 6,
+          "median_hours": 12.875,
+          "gross_r": {
+            "mean": 0.7249932138979372,
+            "sum": 4.349959283387624,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 3.174979641693812
+          },
+          "net_r": {
+            "mean": 0.6567105009820077,
+            "sum": 3.940263005892046,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.8280102243225262
+          },
+          "stress_r": {
+            "mean": 0.6009019735492053,
+            "sum": 3.6054118412952314,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.573234456155638
+          }
+        },
+        "SOLUSDT": {
+          "n": 10,
+          "median_hours": 10.125,
+          "gross_r": {
+            "mean": 0.8,
+            "sum": 8.0,
+            "win_pct": 60.0,
+            "profit_factor": 3.0
+          },
+          "net_r": {
+            "mean": 0.7316507926986308,
+            "sum": 7.316507926986308,
+            "win_pct": 60.0,
+            "profit_factor": 2.6945940144523273
+          },
+          "stress_r": {
+            "mean": 0.6755510321813636,
+            "sum": 6.755510321813635,
+            "win_pct": 60.0,
+            "profit_factor": 2.4874846935046677
+          }
+        },
+        "XRPUSDT": {
+          "n": 7,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 0.03387916431394682,
+            "sum": 0.23715415019762776,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 1.0592885375494068
+          },
+          "net_r": {
+            "mean": -0.024737189126486352,
+            "sum": -0.17316032388540448,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 0.9588251243205188
+          },
+          "stress_r": {
+            "mean": -0.07081042912552414,
+            "sum": -0.49567300387866897,
+            "win_pct": 42.857142857142854,
+            "profit_factor": 0.886663773617857
+          }
+        }
+      }
+    },
+    "economic_vwap": {
+      "all": {
+        "n": 40,
+        "median_hours": 10.125,
+        "gross_r": {
+          "mean": 0.6564284684309023,
+          "sum": 26.25713873723609,
+          "win_pct": 57.49999999999999,
+          "profit_factor": 2.5549139137751156
+        },
+        "net_r": {
+          "mean": 0.5892928001534891,
+          "sum": 23.571712006139563,
+          "win_pct": 57.49999999999999,
+          "profit_factor": 2.305766643331797
+        },
+        "stress_r": {
+          "mean": 0.5335077061462863,
+          "sum": 21.340308245851453,
+          "win_pct": 57.49999999999999,
+          "profit_factor": 2.125575774044708
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 2,
+          "median_hours": 11.875,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 4.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.9289346057372507,
+            "sum": 3.8578692114745015,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8655417454268295,
+            "sum": 3.731083490853659,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "5": {
+          "n": 6,
+          "median_hours": 54.25,
+          "gross_r": {
+            "mean": -0.18863960678611083,
+            "sum": -1.131837640716665,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.7087812340642528
+          },
+          "net_r": {
+            "mean": -0.26815023521403397,
+            "sum": -1.608901411284204,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.6178251454408377
+          },
+          "stress_r": {
+            "mean": -0.32127828388450774,
+            "sum": -1.9276697033070465,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.5648627836751038
+          }
+        },
+        "6": {
+          "n": 23,
+          "median_hours": 7.0,
+          "gross_r": {
+            "mean": 0.8260869565217391,
+            "sum": 19.0,
+            "win_pct": 60.86956521739131,
+            "profit_factor": 3.111111111111111
+          },
+          "net_r": {
+            "mean": 0.7622253267399088,
+            "sum": 17.531182515017903,
+            "win_pct": 60.86956521739131,
+            "profit_factor": 2.830609064380772
+          },
+          "stress_r": {
+            "mean": 0.706569912985971,
+            "sum": 16.251107998677334,
+            "win_pct": 60.86956521739131,
+            "profit_factor": 2.6199425019046454
+          }
+        },
+        "7": {
+          "n": 1,
+          "median_hours": 15.25,
+          "gross_r": {
+            "mean": -1.0,
+            "sum": -1.0,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "net_r": {
+            "mean": -1.0760113399009477,
+            "sum": -1.0760113399009477,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          },
+          "stress_r": {
+            "mean": -1.141520900624462,
+            "sum": -1.141520900624462,
+            "win_pct": 0.0,
+            "profit_factor": 0.0
+          }
+        },
+        "8": {
+          "n": 8,
+          "median_hours": 10.125,
+          "gross_r": {
+            "mean": 0.6736220472440945,
+            "sum": 5.388976377952756,
+            "win_pct": 62.5,
+            "profit_factor": 2.796325459317585
+          },
+          "net_r": {
+            "mean": 0.6084466288540376,
+            "sum": 4.8675730308323,
+            "win_pct": 62.5,
+            "profit_factor": 2.526149213179763
+          },
+          "stress_r": {
+            "mean": 0.553413420031496,
+            "sum": 4.427307360251968,
+            "win_pct": 62.5,
+            "profit_factor": 2.319218693283408
+          }
+        }
+      },
+      "by_symbol": {
+        "BNBUSDT": {
+          "n": 2,
+          "median_hours": 16.125,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4484218983093715,
+            "sum": 0.896843796618743,
+            "win_pct": 50.0,
+            "profit_factor": 1.8558112131569386
+          },
+          "stress_r": {
+            "mean": 0.4041255587956706,
+            "sum": 0.8082511175913412,
+            "win_pct": 50.0,
+            "profit_factor": 1.7435552554758842
+          }
+        },
+        "BTCUSDT": {
+          "n": 3,
+          "median_hours": 38.75,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.08126943148057486,
+            "sum": -0.24380829444172458,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8879781502614211
+          },
+          "stress_r": {
+            "mean": -0.1420047640814491,
+            "sum": -0.4260142922443473,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8144479164745975
+          }
+        },
+        "DOGEUSDT": {
+          "n": 8,
+          "median_hours": 20.0,
+          "gross_r": {
+            "mean": -0.01647970508958313,
+            "sum": -0.13183764071666504,
+            "win_pct": 37.5,
+            "profit_factor": 0.9730203280390659
+          },
+          "net_r": {
+            "mean": -0.08340583316757784,
+            "sum": -0.6672466653406227,
+            "win_pct": 37.5,
+            "profit_factor": 0.8725794606837771
+          },
+          "stress_r": {
+            "mean": -0.1365108478997517,
+            "sum": -1.0920867831980137,
+            "win_pct": 37.5,
+            "profit_factor": 0.8019444868711291
+          }
+        },
+        "ETHUSDT": {
+          "n": 4,
+          "median_hours": 11.0,
+          "gross_r": {
+            "mean": 0.8472440944881889,
+            "sum": 3.3889763779527557,
+            "win_pct": 75.0,
+            "profit_factor": 4.388976377952756
+          },
+          "net_r": {
+            "mean": 0.7792643657452614,
+            "sum": 3.1170574629810455,
+            "win_pct": 75.0,
+            "profit_factor": 3.8968630230867145
+          },
+          "stress_r": {
+            "mean": 0.7250113224675435,
+            "sum": 2.900045289870174,
+            "win_pct": 75.0,
+            "profit_factor": 3.5405100233239026
+          }
+        },
+        "SOLUSDT": {
+          "n": 12,
+          "median_hours": 7.75,
+          "gross_r": {
+            "mean": 1.25,
+            "sum": 15.0,
+            "win_pct": 75.0,
+            "profit_factor": 6.0
+          },
+          "net_r": {
+            "mean": 1.1843743547995598,
+            "sum": 14.212492257594716,
+            "win_pct": 75.0,
+            "profit_factor": 5.429303618012448
+          },
+          "stress_r": {
+            "mean": 1.125987158008046,
+            "sum": 13.511845896096553,
+            "win_pct": 75.0,
+            "profit_factor": 5.010397066793707
+          }
+        },
+        "XRPUSDT": {
+          "n": 11,
+          "median_hours": 10.25,
+          "gross_r": {
+            "mean": 0.6363636363636364,
+            "sum": 7.0,
+            "win_pct": 54.54545454545454,
+            "profit_factor": 2.4
+          },
+          "net_r": {
+            "mean": 0.5687612226115824,
+            "sum": 6.256373448727405,
+            "win_pct": 54.54545454545454,
+            "profit_factor": 2.1790452877978326
+          },
+          "stress_r": {
+            "mean": 0.5125697288850681,
+            "sum": 5.63826701773575,
+            "win_pct": 54.54545454545454,
+            "profit_factor": 2.015583096603367
+          }
+        }
+      }
+    },
+    "economic_squeeze": {
+      "all": {
+        "n": 11,
+        "median_hours": 10.0,
+        "gross_r": {
+          "mean": 1.3080887616320687,
+          "sum": 14.388976377952755,
+          "win_pct": 81.81818181818183,
+          "profit_factor": 8.194488188976377
+        },
+        "net_r": {
+          "mean": 1.242902889001033,
+          "sum": 13.671931779011363,
+          "win_pct": 81.81818181818183,
+          "profit_factor": 7.4750675484564795
+        },
+        "stress_r": {
+          "mean": 1.1862341296627754,
+          "sum": 13.04857542629053,
+          "win_pct": 81.81818181818183,
+          "profit_factor": 6.910903896919624
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 1,
+          "median_hours": 4.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 2.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.933754268292683,
+            "sum": 1.933754268292683,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8701103658536584,
+            "sum": 1.8701103658536584,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "5": {
+          "n": 0
+        },
+        "6": {
+          "n": 4,
+          "median_hours": 12.0,
+          "gross_r": {
+            "mean": 1.25,
+            "sum": 5.0,
+            "win_pct": 75.0,
+            "profit_factor": 6.0
+          },
+          "net_r": {
+            "mean": 1.1916278173525794,
+            "sum": 4.7665112694103176,
+            "win_pct": 75.0,
+            "profit_factor": 5.534304089858163
+          },
+          "stress_r": {
+            "mean": 1.1419701269648979,
+            "sum": 4.567880507859591,
+            "win_pct": 75.0,
+            "profit_factor": 5.1991861039469995
+          }
+        },
+        "7": {
+          "n": 0
+        },
+        "8": {
+          "n": 6,
+          "median_hours": 7.25,
+          "gross_r": {
+            "mean": 1.2314960629921259,
+            "sum": 7.388976377952756,
+            "win_pct": 83.33333333333334,
+            "profit_factor": 8.388976377952755
+          },
+          "net_r": {
+            "mean": 1.1619443735513932,
+            "sum": 6.97166624130836,
+            "win_pct": 83.33333333333334,
+            "profit_factor": 7.575418239881243
+          },
+          "stress_r": {
+            "mean": 1.1017640920962133,
+            "sum": 6.610584552577279,
+            "win_pct": 83.33333333333334,
+            "profit_factor": 6.903668871282363
+          }
+        }
+      },
+      "by_symbol": {
+        "DOGEUSDT": {
+          "n": 2,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 4.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.9297770947635011,
+            "sum": 3.8595541895270022,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.866231674944761,
+            "sum": 3.732463349889522,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "ETHUSDT": {
+          "n": 1,
+          "median_hours": 72.0,
+          "gross_r": {
+            "mean": 0.3889763779527556,
+            "sum": 0.3889763779527556,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 0.29893170603674524,
+            "sum": 0.29893170603674524,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 0.24737758530183715,
+            "sum": 0.24737758530183715,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "SOLUSDT": {
+          "n": 5,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 10.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.9367941404597808,
+            "sum": 9.683970702298904,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8786690238763917,
+            "sum": 9.393345119381959,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "XRPUSDT": {
+          "n": 3,
+          "median_hours": 1.75,
+          "gross_r": {
+            "mean": 0.0,
+            "sum": 0.0,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 1.0
+          },
+          "net_r": {
+            "mean": -0.056841606283763856,
+            "sum": -0.17052481885129156,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.9192389386812562
+          },
+          "stress_r": {
+            "mean": -0.1082035427609301,
+            "sum": -0.3246106282827903,
+            "win_pct": 33.33333333333333,
+            "profit_factor": 0.8529538922821911
+          }
+        }
+      }
+    },
+    "economic_rvol": {
+      "all": {
+        "n": 12,
+        "median_hours": 6.875,
+        "gross_r": {
+          "mean": 1.1124966069489688,
+          "sum": 13.349959283387625,
+          "win_pct": 75.0,
+          "profit_factor": 5.449986427795875
+        },
+        "net_r": {
+          "mean": 1.0461154173148122,
+          "sum": 12.553385007777745,
+          "win_pct": 75.0,
+          "profit_factor": 4.9494981335339565
+        },
+        "stress_r": {
+          "mean": 0.9879292112096909,
+          "sum": 11.85515053451629,
+          "win_pct": 75.0,
+          "profit_factor": 4.544869758117085
+        }
+      },
+      "by_month": {
+        "3": {
+          "n": 0
+        },
+        "4": {
+          "n": 1,
+          "median_hours": 4.0,
+          "gross_r": {
+            "mean": 2.0,
+            "sum": 2.0,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.933754268292683,
+            "sum": 1.933754268292683,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.8701103658536584,
+            "sum": 1.8701103658536584,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "5": {
+          "n": 0
+        },
+        "6": {
+          "n": 8,
+          "median_hours": 6.875,
+          "gross_r": {
+            "mean": 1.25,
+            "sum": 10.0,
+            "win_pct": 75.0,
+            "profit_factor": 6.0
+          },
+          "net_r": {
+            "mean": 1.1866398104805538,
+            "sum": 9.49311848384443,
+            "win_pct": 75.0,
+            "profit_factor": 5.472173210561441
+          },
+          "stress_r": {
+            "mean": 1.1287041373437083,
+            "sum": 9.029633098749667,
+            "win_pct": 75.0,
+            "profit_factor": 5.040787503176133
+          }
+        },
+        "7": {
+          "n": 0
+        },
+        "8": {
+          "n": 3,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 0.4499864277958747,
+            "sum": 1.3499592833876242,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.349959283387624
+          },
+          "net_r": {
+            "mean": 0.37550408521354367,
+            "sum": 1.126512255640631,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 2.0670075361136004
+          },
+          "stress_r": {
+            "mean": 0.31846902330432164,
+            "sum": 0.9554070699129649,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 1.8609676121907714
+          }
+        }
+      },
+      "by_symbol": {
+        "DOGEUSDT": {
+          "n": 2,
+          "median_hours": 11.875,
+          "gross_r": {
+            "mean": 0.5,
+            "sum": 1.0,
+            "win_pct": 50.0,
+            "profit_factor": 2.0
+          },
+          "net_r": {
+            "mean": 0.4264316499255951,
+            "sum": 0.8528632998511902,
+            "win_pct": 50.0,
+            "profit_factor": 1.7972418728197854
+          },
+          "stress_r": {
+            "mean": 0.36084355468749985,
+            "sum": 0.7216871093749997,
+            "win_pct": 50.0,
+            "profit_factor": 1.6341989511710158
+          }
+        },
+        "ETHUSDT": {
+          "n": 2,
+          "median_hours": 36.625,
+          "gross_r": {
+            "mean": 1.174979641693812,
+            "sum": 2.349959283387624,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "net_r": {
+            "mean": 1.0969925541103969,
+            "sum": 2.1939851082207937,
+            "win_pct": 100.0,
+            "profit_factor": null
+          },
+          "stress_r": {
+            "mean": 1.041662763473052,
+            "sum": 2.083325526946104,
+            "win_pct": 100.0,
+            "profit_factor": null
+          }
+        },
+        "SOLUSDT": {
+          "n": 5,
+          "median_hours": 10.0,
+          "gross_r": {
+            "mean": 1.4,
+            "sum": 7.0,
+            "win_pct": 80.0,
+            "profit_factor": 8.0
+          },
+          "net_r": {
+            "mean": 1.3401455975837275,
+            "sum": 6.700727987918638,
+            "win_pct": 80.0,
+            "profit_factor": 7.3638220088914155
+          },
+          "stress_r": {
+            "mean": 1.2856900548973216,
+            "sum": 6.428450274486608,
+            "win_pct": 80.0,
+            "profit_factor": 6.86178314259884
+          }
+        },
+        "XRPUSDT": {
+          "n": 3,
+          "median_hours": 4.25,
+          "gross_r": {
+            "mean": 1.0,
+            "sum": 3.0,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 4.0
+          },
+          "net_r": {
+            "mean": 0.9352695372623746,
+            "sum": 2.805808611787124,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 3.6575999672251767
+          },
+          "stress_r": {
+            "mean": 0.8738958745695259,
+            "sum": 2.6216876237085778,
+            "win_pct": 66.66666666666666,
+            "profit_factor": 3.362540747683703
+          }
+        }
+      }
+    }
+  },
+  "indicator_protocol": "Exploratory indicator ablation; fixed before this run, not independent validation.\n\nSame six coins and March-August2026 data as prior studies. Each extra filter\nis tested separately against economic reclaim; no combinations or tuning.\nCMF is candle-based money-flow proxy, NOT actual order flow or a heatmap.\n",
+  "uncertainty": {
+    "economic_baseline": {
+      "n": 55,
+      "entry_days": 27,
+      "mean_ci95_r": [
+        -0.2631598505353239,
+        0.8941127681571757
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_cmf": {
+      "n": 30,
+      "entry_days": 15,
+      "mean_ci95_r": [
+        -0.5043052697996692,
+        0.9007034712758154
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_vwap": {
+      "n": 40,
+      "entry_days": 19,
+      "mean_ci95_r": [
+        -0.21252432279561703,
+        1.0795195033310199
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_squeeze": {
+      "n": 11,
+      "entry_days": 6,
+      "mean_ci95_r": [
+        0.5754248133666634,
+        1.79712327855271
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    },
+    "economic_rvol": {
+      "n": 12,
+      "entry_days": 6,
+      "mean_ci95_r": [
+        -0.1619702858381636,
+        1.8150719103701018
+      ],
+      "repetitions": 5000,
+      "seed": 606,
+      "limitations": "Entry-day clusters do not capture all cross-day dependence; post-selection uncertainty remains. Not an independent validation."
+    }
+  }
+}
