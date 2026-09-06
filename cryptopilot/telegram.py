@@ -97,10 +97,11 @@ def build_router(
     store: SignalStore,
     settings: Settings,
     health: RuntimeHealth,
+    smart_money: SmartMoneyScanner | None = None,
 ) -> Router:
     router = Router(name="cryptopilot")
     router.message.middleware(AuthorizationMiddleware(settings.allowed_chat_ids))
-    smart_money = SmartMoneyScanner(exchange, settings)
+    smart_money = smart_money or SmartMoneyScanner(exchange, settings)
 
     @router.message(CommandStart())
     async def start(message: Message, state: FSMContext) -> None:
