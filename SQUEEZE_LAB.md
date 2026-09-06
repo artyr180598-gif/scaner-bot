@@ -42,3 +42,12 @@ remain a limitation. Runtime heartbeat key: `squeeze_lab_heartbeat`.
 HTTP 401/403/418/429 surfaced to the laboratory pauses its task until restart;
 it never changes endpoints or credentials. Existing shared HTTP client's retry
 behavior is unchanged. Other data errors are logged and retried next cycle.
+
+## Descriptive report
+
+`/lab` now shows per-version open/closed/censored/invalid counts, profitable
+closed count, total and mean net R, stress-cost total R, and maximum drawdown
+of cumulative closed-trade R ordered by close time. This is not mark-to-market
+portfolio drawdown or a probability forecast. Open and censored positions are
+not assigned invented outcomes; their exclusion can bias all closed-only results.
+Unknown versions are displayed separately, never pooled into current statistics.

@@ -16,6 +16,7 @@ import aiosqlite
 from cryptopilot.economics import net_reward_risk
 from cryptopilot.exchange import INTERVAL_MS
 from cryptopilot.indicators import compute_features, directional_score
+from cryptopilot.lab_report import format_statistics
 
 log = logging.getLogger(__name__)
 VERSION = "squeeze-reclaim-forward-v1"
@@ -244,13 +245,10 @@ class SqueezeLab:
                 await asyncio.wait_for(stop.wait(), timeout=60)
 
     async def report(self):
-        counts = {}
-        for _, _, raw in await self.rows():
-            status = json.loads(raw)["status"]
-            counts[status] = counts.get(status, 0) + 1
+        records = [json.loads(raw) for _, _, raw in await self.rows()]
         return (
             "Лаборатория сжатия · только виртуальный эксперимент\n"
-            f"Состояние: {self.status}\nЗаписи: {counts}\n"
+            f"Состояние: {self.status}\n" + format_statistics(records, VERSION) + "\n"
             "6 монет · проверка раз в 60 сек + время запросов.\n"
             "CENSORED — неоднозначные/пропущенные данные, не победа и не проигрыш.\n"
             "Реальные ордера и торговые уведомления не отправляются. "
