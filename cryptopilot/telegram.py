@@ -480,6 +480,33 @@ async def run_backtest(message: Message, exchange: ExchangeClient, raw_symbol: s
         await progress.edit_text(f"⚠️ Бэктест не завершён: {html.escape(str(exc))}")
 
 
+def _consume_background_task(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except (asyncio.CancelledError, Exception):
+        pass
+
+
+def format_flow_watchlist_preview(
+    candidates: dict[str, tuple[Side, float]],
+) -> str:
+    lines = [
+        "🔵 <b>Ранний PRE-MOVE watchlist</b>",
+        "Глубокий PRIME ещё не подтверждён, но эти монеты уже под live-наблюдением:",
+    ]
+    for symbol, (bias, trigger) in list(candidates.items())[:5]:
+        arrow = "↗️" if bias is Side.LONG else "↘️"
+        lines.append(
+            f"{arrow} <b>{html.escape(symbol)}</b> · {bias.value} · "
+            f"trigger <code>{price(trigger)}</code>"
+        )
+    lines.append(
+        "Это не готовый вход. При усилении раннего Flow бот пересчитает PRIME сразу, "
+        "не дожидаясь следующего полного скана."
+    )
+    return "\n".join(lines)
+
+
 def normalize_symbol(value: str) -> str:
     clean = "".join(character for character in value.upper() if character.isalnum())
     if not clean:
