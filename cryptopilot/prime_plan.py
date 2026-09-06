@@ -34,6 +34,10 @@ def build_prime_plan(
         return PrimePlanResult(None, ("Некорректные данные для PRIME-плана",))
 
     now = now or datetime.now(UTC)
+    if (side is Side.LONG and price >= trigger_price) or (
+        side is Side.SHORT and price <= trigger_price
+    ):
+        return PrimePlanResult(None, ("Цена уже прошла trigger — ранний вход отменён",))
     trigger_distance_pct = abs(price / trigger_price - 1) * 100
     if trigger_distance_pct < settings.prime_min_trigger_distance_pct:
         return PrimePlanResult(
@@ -141,11 +145,7 @@ def build_prime_plan(
         tp3 = max(tp3, entry_mid - 4.2 * risk)
 
     worst_entry = entry_high if side is Side.LONG else entry_low
-    worst_risk = (
-        worst_entry - stop
-        if side is Side.LONG
-        else stop - worst_entry
-    )
+    worst_risk = worst_entry - stop if side is Side.LONG else stop - worst_entry
     # Entry is a zone, so validate TP2 from the least favorable fill, not the midpoint.
     # Raise the target only within a bounded 4R envelope; otherwise reject the plan.
     net_rr = net_reward_risk(
@@ -156,16 +156,12 @@ def build_prime_plan(
         settings.paper_one_way_cost_bps,
     )
     maximum_tp2 = (
-        worst_entry + 4.0 * worst_risk
-        if side is Side.LONG
-        else worst_entry - 4.0 * worst_risk
+        worst_entry + 4.0 * worst_risk if side is Side.LONG else worst_entry - 4.0 * worst_risk
     )
     step = 0.10 * worst_risk
     while net_rr < settings.prime_min_plan_rr and step > 0:
         next_tp2 = tp2 + step if side is Side.LONG else tp2 - step
-        if (
-            side is Side.LONG and next_tp2 > maximum_tp2
-        ) or (
+        if (side is Side.LONG and next_tp2 > maximum_tp2) or (
             side is Side.SHORT and next_tp2 < maximum_tp2
         ):
             break
@@ -198,11 +194,15 @@ def build_prime_plan(
         / 100
         * settings.prime_risk_multiplier
     )
-    theoretical_notional = risk_amount / max(risk / entry_mid, 1e-12)
+    # A fixed quantity must respect the risk budget at every fill in the zone.
+    # Include configured entry/stop execution costs, not just midpoint price risk.
+    cost_fraction = settings.paper_one_way_cost_bps / 10_000
+    loss_per_unit = worst_risk + (worst_entry + stop) * cost_fraction
     cap = settings.account_equity_usdt * settings.max_position_pct / 100
     leverage = min(settings.preferred_leverage, settings.prime_max_leverage)
     cap *= leverage
-    notional = min(theoretical_notional, cap)
+    quantity = min(risk_amount / loss_per_unit, cap / entry_high)
+    notional = quantity * worst_entry
 
     invalidation = (
         "Отменить лимит, если цена пробила стоп/сломала 15m структуру "
@@ -220,8 +220,8 @@ def build_prime_plan(
             invalidation=invalidation,
             expires_at=now + timedelta(minutes=settings.prime_entry_expiry_minutes),
             suggested_notional=float(notional),
-            suggested_quantity=float(notional / entry_mid),
-            risk_amount=float(min(risk_amount, notional * risk / entry_mid)),
+            suggested_quantity=float(quantity),
+            risk_amount=float(quantity * loss_per_unit),
             scale_entries=(float(entry_mid), 0.0, 0.0),
             scale_allocations_pct=(100, 0, 0),
             recommended_leverage=leverage,
