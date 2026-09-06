@@ -176,6 +176,7 @@ def test_active_flow_candidates_include_preselected_but_cap_load() -> None:
                 symbol="TOPUSDT",
                 bias=Side.SHORT,
                 trigger_price=50.0,
+                stage="ARMED",
             )
         ],
     )
@@ -301,3 +302,54 @@ def test_trade_id_deduplication_prevents_reconnect_double_count() -> None:
     assert snapshot is not None
     assert snapshot.trade_count_60s == 1
     assert snapshot.notional_60s == 1_000.0
+
+
+def test_early_pressure_detects_flow_before_full_volume_burst() -> None:
+    now_ms = 6_000_000
+    tracker = FlowTracker()
+
+    # Previous minute is active enough that the current minute grows only ~1.2x.
+    for index, offset in enumerate((115, 105, 95, 85, 75, 65)):
+        tracker.add_trade(
+            "TESTUSDT",
+            "Buy" if index < 4 else "Sell",
+            99.70,
+            25,
+            now_ms - offset * 1_000,
+        )
+    for index, offset in enumerate((55, 45, 35, 25, 15, 5)):
+        tracker.add_trade(
+            "TESTUSDT",
+            "Buy" if index < 5 else "Sell",
+            99.80 + index * 0.004,
+            30,
+            now_ms - offset * 1_000,
+        )
+    _add_oi_history(tracker, now_ms)
+
+    snapshot = tracker.snapshot("TESTUSDT", now_ms)
+    assert snapshot is not None
+    assert snapshot.volume_burst_ratio is not None
+    assert 1.05 <= snapshot.volume_burst_ratio <= 1.45
+    assert abs(snapshot.price_change_60s_pct or 0) <= 0.10
+
+    event = tracker.pressure_event(
+        "TESTUSDT",
+        Side.LONG,
+        100.0,
+        min_notional_60s=1_000,
+        delta_threshold=0.20,
+        burst_threshold=1.5,
+        min_oi_change_pct=0.10,
+        min_score=84,
+        early_pressure_enabled=True,
+        early_pressure_min_score=75,
+        early_pressure_max_price_move_60s_pct=0.10,
+        early_pressure_min_burst_ratio=1.05,
+        early_pressure_max_burst_ratio=1.45,
+        now_ms=now_ms,
+    )
+
+    assert event is not None
+    assert event.event_type == "EARLY_PRESSURE"
+    assert event.price < event.trigger_price
