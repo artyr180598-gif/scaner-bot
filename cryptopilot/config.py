@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     min_manual_confidence: int = Field(default=72, ge=50, le=95)
     alert_cooldown_minutes: int = Field(default=180, ge=15, le=10_080)
     signal_expiry_minutes: int = Field(default=240, ge=30, le=2_880)
-    max_auto_signals_per_scan: int = Field(default=2, ge=1, le=10)
+    max_auto_signals_per_scan: int = Field(default=1, ge=1, le=10)
     max_same_side_auto_signals: int = Field(default=1, ge=1, le=5)
     max_portfolio_risk_pct: float = Field(default=1.0, gt=0, le=5)
     excluded_symbols: str = "USDCUSDT,FDUSDUSDT,TUSDUSDT,USDEUSDT"
@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     live_radar_enabled: bool = True
     squeeze_lab_enabled: bool = True
     live_watchlist_interval_seconds: int = Field(default=300, ge=60, le=3600)
-    early_auto_alerts: bool = True
+    early_auto_alerts: bool = False
     min_early_readiness: int = Field(default=68, ge=50, le=95)
     min_early_auto_readiness: int = Field(default=80, ge=55, le=95)
     early_alert_cooldown_minutes: int = Field(default=360, ge=30, le=10_080)
@@ -101,16 +101,29 @@ class Settings(BaseSettings):
     smart_money_auto_scan_enabled: bool = True
     smart_money_scan_interval_seconds: int = Field(default=300, ge=120, le=3600)
     flow_radar_enabled: bool = True
-    flow_min_notional_60s: float = Field(default=20_000, ge=1_000, le=50_000_000)
-    flow_delta_ratio_threshold: float = Field(default=0.16, ge=0.05, le=0.8)
-    flow_volume_burst_ratio: float = Field(default=1.4, ge=1.0, le=10.0)
-    flow_min_oi_change_pct_2m: float = Field(default=0.10, ge=0.0, le=20.0)
-    flow_min_alert_score: int = Field(default=70, ge=50, le=95)
-    flow_alert_cooldown_minutes: int = Field(default=90, ge=15, le=1440)
+    flow_auto_alerts_enabled: bool = False
+    flow_watchlist_limit: int = Field(default=8, ge=3, le=20)
+    flow_min_notional_60s: float = Field(default=35_000, ge=1_000, le=50_000_000)
+    flow_delta_ratio_threshold: float = Field(default=0.20, ge=0.05, le=0.8)
+    flow_volume_burst_ratio: float = Field(default=1.5, ge=1.0, le=10.0)
+    flow_min_oi_change_pct_2m: float = Field(default=0.12, ge=0.0, le=20.0)
+    flow_min_alert_score: int = Field(default=84, ge=50, le=95)
+    flow_alert_cooldown_minutes: int = Field(default=360, ge=15, le=1440)
+    flow_global_cooldown_minutes: int = Field(default=180, ge=30, le=1440)
+    flow_max_alerts_per_day: int = Field(default=2, ge=1, le=20)
     flow_max_directional_funding_pct: float = Field(default=0.08, ge=0.01, le=1.0)
     flow_validation_enabled: bool = True
     flow_validation_window_minutes: int = Field(default=45, ge=10, le=240)
     flow_validation_min_samples: int = Field(default=20, ge=5, le=500)
+
+    prime_alerts_enabled: bool = True
+    prime_min_score: int = Field(default=88, ge=70, le=98)
+    prime_global_cooldown_minutes: int = Field(default=180, ge=30, le=1440)
+    prime_symbol_cooldown_minutes: int = Field(default=720, ge=60, le=10_080)
+    prime_max_alerts_per_day: int = Field(default=3, ge=1, le=20)
+    prime_min_trigger_distance_pct: float = Field(default=0.25, ge=0.05, le=2.0)
+    prime_max_trigger_distance_pct: float = Field(default=1.20, ge=0.20, le=5.0)
+    prime_max_price_move_60s_pct: float = Field(default=0.12, ge=0.02, le=2.0)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
