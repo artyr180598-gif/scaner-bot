@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from cryptopilot.config import Settings
@@ -236,7 +236,16 @@ def _direction_score(
         reasons.append("1h: старший тренд подтверждает направление")
 
     rvol = f15.relative_volume20
-    volume_points = 15 if rvol >= 2 else 12 if rvol >= 1.5 else 8 if rvol >= 1.2 else 4 if rvol >= 1 else 0
+    if rvol >= 2:
+        volume_points = 15
+    elif rvol >= 1.5:
+        volume_points = 12
+    elif rvol >= 1.2:
+        volume_points = 8
+    elif rvol >= 1:
+        volume_points = 4
+    else:
+        volume_points = 0
     score += volume_points
     if volume_points >= 8:
         reasons.append(f"RVOL {rvol:.2f}×: объём выше своей 20-свечной нормы")
@@ -251,7 +260,9 @@ def _direction_score(
             score += oi_points
             reasons.append(f"OI {oi:+.1f}%: вместе с ценой растёт число открытых позиций")
         elif oi < -1 and price_direction:
-            warnings.append(f"OI {oi:+.1f}%: движение может быть закрытием позиций, а не новым входом")
+            warnings.append(
+                f"OI {oi:+.1f}%: движение может быть закрытием позиций, а не новым входом"
+            )
 
     taker = ticker.taker_buy_ratio
     if taker is not None:
@@ -318,14 +329,21 @@ def _stage(
         if bullish
         else f1h.supertrend_direction < 0 and f1h.close < f1h.ema50
     )
-    taker_ok = (
-        ticker.taker_buy_ratio is None
-        or ticker.taker_buy_ratio >= 0.54
-        if bullish
-        else ticker.taker_buy_ratio is None or ticker.taker_buy_ratio <= 0.46
-    )
+    if ticker.taker_buy_ratio is None:
+        taker_ok = True
+    elif bullish:
+        taker_ok = ticker.taker_buy_ratio >= 0.54
+    else:
+        taker_ok = ticker.taker_buy_ratio <= 0.46
     oi_ok = ticker.open_interest_change_pct is None or ticker.open_interest_change_pct >= 0
-    if score >= 78 and breakout and f15.relative_volume20 >= 1.2 and taker_ok and oi_ok and htf:
+    if (
+        score >= 78
+        and breakout
+        and f15.relative_volume20 >= 1.2
+        and taker_ok
+        and oi_ok
+        and htf
+    ):
         return "ENTRY"
     if score >= 72 and near_level and htf:
         return "ARMED"
@@ -387,7 +405,8 @@ def format_smart_money_setup(item: SmartMoneySetup) -> str:
         "WATCH": "наблюдение; вход пока не подтверждён",
     }.get(item.stage, "наблюдение")
     return (
-        f"{stage_icon} <b>{html.escape(item.symbol)} · {item.stage} · {item.bias.value}</b> {side_icon}\n"
+        f"{stage_icon} <b>{html.escape(item.symbol)} · {item.stage} · "
+        f"{item.bias.value}</b> {side_icon}\n"
         f"Score: <b>{item.score}/100</b> · цена: <code>{_price(item.price)}</code>\n"
         f"Структура: 15m {item.structure_15m} · 1h {item.structure_1h}\n"
         f"RVOL: {item.rvol:.2f}× · OI: {oi} · taker: {taker}\n"
