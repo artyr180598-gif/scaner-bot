@@ -135,3 +135,35 @@ def test_forward_validator_marks_trigger_conservatively(tmp_path) -> None:
         assert stats["median_lead_seconds"] > 0
 
     asyncio.run(check())
+
+
+def test_notification_budget_blocks_second_prime_alert_same_window(tmp_path) -> None:
+    async def check() -> None:
+        store = SignalStore(tmp_path / "budget.sqlite3")
+        await store.initialize()
+
+        assert await store.notification_budget_available(
+            "prime",
+            cooldown_minutes=180,
+            max_per_day=3,
+        )
+        await store.mark_notification_budget("prime")
+        assert not await store.notification_budget_available(
+            "prime",
+            cooldown_minutes=180,
+            max_per_day=3,
+        )
+
+    asyncio.run(check())
+
+
+def test_strict_alert_cooldown_ignores_large_price_move(tmp_path) -> None:
+    async def check() -> None:
+        store = SignalStore(tmp_path / "strict.sqlite3")
+        await store.initialize()
+
+        assert await store.strict_alert_allowed("PRIME:TESTUSDT:LONG", 720)
+        await store.mark_event_alerted("PRIME:TESTUSDT:LONG", 100.0)
+        assert not await store.strict_alert_allowed("PRIME:TESTUSDT:LONG", 720)
+
+    asyncio.run(check())
