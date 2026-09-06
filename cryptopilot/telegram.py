@@ -299,6 +299,9 @@ def build_router(
             f"SHORT {settings.min_auto_confidence_short}/100\n"
             f"Ранний радар: "
             f"{'авто-наблюдения' if settings.early_auto_alerts else 'только вручную'}\n"
+            f"PRIME: cross-exchange "
+            f"{'обязателен' if settings.prime_cross_exchange_required else 'дополнительный'} · "
+            f"Shadow {'✅' if settings.prime_shadow_enabled else '❌'}\n"
             f"Активных paper-планов: {active_paper}\n"
             f"Последний скан: {last_scan}\n"
             f"Последняя ошибка: {html.escape(health.last_error or scanner.last_error or 'нет')}"
@@ -317,7 +320,7 @@ def build_router(
             "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
             "Команды: /menu, /scan, /early, /smartmoney, /prime, /analyze BTC, "
-            "/backtest BTC, /best, "
+            "/backtest BTC, /best, /primestats, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
