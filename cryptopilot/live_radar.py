@@ -491,7 +491,11 @@ class LiveRadar:
                                 self.dropped += 1
                                 log.warning("Live radar queue full; dropping event")
 
-                if self.flow_enabled and self.flow_tracker is not None and self.settings is not None:
+                if (
+                    self.flow_enabled
+                    and self.flow_tracker is not None
+                    and self.settings is not None
+                ):
                     candidate = flow_map.get(symbol)
                     if candidate is not None:
                         bias, trigger_price = candidate
