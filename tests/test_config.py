@@ -28,8 +28,8 @@ def test_auto_threshold_cannot_be_lower_than_manual() -> None:
 def test_adaptive_defaults_are_conservative() -> None:
     config = Settings(_env_file=None)
 
-    assert config.min_auto_confidence == 84
-    assert config.min_auto_confidence_short == 86
+    assert config.min_auto_confidence == 88
+    assert config.min_auto_confidence_short == 90
     assert config.max_portfolio_risk_pct >= config.risk_per_trade_pct
     assert config.max_same_side_auto_signals <= config.max_auto_signals_per_scan
     assert config.min_early_auto_readiness >= config.min_early_readiness
