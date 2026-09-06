@@ -150,6 +150,11 @@ class Settings(BaseSettings):
     prime_max_stop_pct: float = Field(default=2.5, ge=0.5, le=6.0)
     prime_risk_multiplier: float = Field(default=0.5, gt=0, le=1.0)
     prime_max_leverage: int = Field(default=2, ge=1, le=3)
+    prime_shadow_enabled: bool = True
+    prime_shadow_min_score: int = Field(default=74, ge=60, le=95)
+    prime_shadow_dedup_minutes: int = Field(default=60, ge=15, le=1440)
+    prime_shadow_max_holding_hours: int = Field(default=72, ge=4, le=336)
+    prime_shadow_min_samples: int = Field(default=30, ge=10, le=500)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
