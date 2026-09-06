@@ -45,9 +45,9 @@ class FlowSnapshot:
     oi_change_prev_2m_pct: float | None
     oi_acceleration_pct_per_min: float | None
     absorption: str | None
-    spread_bps: float | None
-    funding_pct: float | None
     trade_count_60s: int
+    spread_bps: float | None = None
+    funding_pct: float | None = None
 
     @property
     def fresh(self) -> bool:
