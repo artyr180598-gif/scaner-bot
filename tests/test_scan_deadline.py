@@ -66,4 +66,4 @@ def test_manual_timeout_is_reported_as_data_failure():
     message = SimpleNamespace(answer=AsyncMock(return_value=progress))
     asyncio.run(callback(message, SimpleNamespace(clear=AsyncMock())))
     text = progress.edit_text.call_args.args[0]
-    assert "60 секунд" in text and "сбой получения данных" in text
+    assert "жёсткому дедлайну" in text
