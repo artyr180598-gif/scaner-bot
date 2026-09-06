@@ -29,6 +29,8 @@ class SmartMoneySetup:
     invalidation_price: float
     structure_15m: str
     structure_1h: str
+    structure_4h: str
+    recent_move_15m_pct: float
     rvol: float
     oi_change_pct: float | None
     taker_buy_ratio: float | None
@@ -214,11 +216,15 @@ class SmartMoneyScanner:
         )
 
     async def _deep(self, ticker: Ticker, feature15: FeatureSet) -> SmartMoneySetup | None:
-        enriched, candles_1h = await asyncio.gather(
+        enriched, candles_1h, candles_4h, candles_5m = await asyncio.gather(
             self.exchange.enrich_ticker(ticker),
             self.exchange.candles(ticker.symbol, "60", 240),
+            self.exchange.candles(ticker.symbol, "240", 240),
+            self.exchange.candles(ticker.symbol, "5", 80),
         )
         feature1h = compute_features(candles_1h)
+        feature4h = compute_features(candles_4h)
+        recent_move_15m_pct = _recent_close_move_pct(candles_5m, 3)
         flow = self.flow_tracker.snapshot(ticker.symbol) if self.flow_tracker is not None else None
 
         long_score, long_reasons, long_warnings = _direction_score(
@@ -248,8 +254,10 @@ class SmartMoneyScanner:
             bias,
             feature15,
             feature1h,
+            feature4h,
             enriched,
             flow,
+            recent_move_15m_pct,
             self.settings,
         )
         prime_ready = (
@@ -268,6 +276,8 @@ class SmartMoneyScanner:
             invalidation_price=invalidation,
             structure_15m=_structure_label(feature15),
             structure_1h=_structure_label(feature1h),
+            structure_4h=_structure_label(feature4h),
+            recent_move_15m_pct=recent_move_15m_pct,
             rvol=feature15.relative_volume20,
             oi_change_pct=enriched.open_interest_change_pct,
             taker_buy_ratio=enriched.taker_buy_ratio,
@@ -460,8 +470,10 @@ def _pre_move_score(
     side: Side,
     f15: FeatureSet,
     f1h: FeatureSet,
+    f4h: FeatureSet,
     ticker: Ticker,
     flow: FlowSnapshot | None,
+    recent_move_15m_pct: float,
     settings: Settings,
 ) -> tuple[int, list[str], list[str]]:
     """Score conditions that exist before the obvious order-flow expansion.
@@ -488,6 +500,33 @@ def _pre_move_score(
         reasons.append("1h тренд и Supertrend согласованы до импульса")
     else:
         blockers.append("Нет строгого подтверждения направления на 1h")
+
+    h4_aligned = (
+        f4h.close > f4h.ema50 and f4h.supertrend_direction > 0
+        if bullish
+        else f4h.close < f4h.ema50 and f4h.supertrend_direction < 0
+    )
+    h4_opposite = (
+        f4h.close < f4h.ema50 and f4h.supertrend_direction < 0
+        if bullish
+        else f4h.close > f4h.ema50 and f4h.supertrend_direction > 0
+    )
+    if h4_aligned:
+        score += 12
+        reasons.append("4h не против сценария и подтверждает старший контекст")
+    elif h4_opposite:
+        blockers.append("4h направлен против раннего сценария")
+
+    directional_recent_move = recent_move_15m_pct if bullish else -recent_move_15m_pct
+    if directional_recent_move <= 0.15:
+        score += 8
+        reasons.append(
+            f"За последние ~15м цена ещё не убежала: {recent_move_15m_pct:+.2f}%"
+        )
+    elif directional_recent_move > settings.prime_max_directional_move_15m_pct:
+        blockers.append(
+            f"Цена уже прошла {directional_recent_move:.2f}% по сценарию за ~15м"
+        )
 
     aligned15 = (
         f15.close > f15.ema20 > f15.ema50
@@ -719,6 +758,16 @@ def _stage(
     if score >= 72 and htf and (near_level or live_prepressure):
         return "ARMED"
     return "WATCH"
+
+
+def _recent_close_move_pct(candles, bars: int) -> float:
+    if len(candles) <= bars:
+        return 0.0
+    start = candles[-(bars + 1)].close
+    end = candles[-1].close
+    if start <= 0:
+        return 0.0
+    return (end / start - 1) * 100
 
 
 def _structure_label(feature: FeatureSet) -> str:
