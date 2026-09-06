@@ -75,7 +75,7 @@ def summarize(rows):
     return out
 
 
-def run():
+def run(extra_filters=None, output_path="signal_quality_results.json"):
     btc = load("BTCUSDT")
     btc4 = aggregate_candles(btc, 240)
     fb = feature_arrays(btc4)
@@ -86,6 +86,8 @@ def run():
         "reclaim_economic": [],
         "reclaim_volume_economic": [],
     }
+    if extra_filters is not None:
+        records = {name: [] for name in extra_filters}
     for symbol in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]:
         bars = btc if symbol == "BTCUSDT" else load(symbol)
         h1 = aggregate_candles(bars, 60)
@@ -131,6 +133,8 @@ def run():
                 else max(max(c.high for c in bars[i - 17 : i + 1]), entry + 1.45 * atr)
             )
             for name in records:
+                if extra_filters is not None and not extra_filters[name](f, i, side):
+                    continue
                 if i + 1 < available[name] or ("volume" in name and f.relative_volume20[i] < 1.2):
                     continue
                 result = simulate(bars, i + 1, side, stop)
@@ -172,9 +176,11 @@ def run():
             for n, r in records.items()
         },
     }
-    Path("signal_quality_results.json").write_text(json.dumps(out, indent=2))
-    export(out)
+    Path(output_path).write_text(json.dumps(out, indent=2))
+    if extra_filters is None:
+        export(out)
     print(json.dumps({n: v["all"] for n, v in out["results"].items()}, indent=2))
+    return out
 
 
 def export(out):
