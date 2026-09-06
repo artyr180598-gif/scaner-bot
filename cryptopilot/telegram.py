@@ -28,11 +28,17 @@ from cryptopilot.models import (
     Signal,
 )
 from cryptopilot.scanner import MarketScanner
+from cryptopilot.smart_money import (
+    SmartMoneyScanner,
+    format_smart_money_report,
+    format_smart_money_setup,
+)
 from cryptopilot.storage import SignalStore
 
 SCAN = "🔎 Сканировать рынок"
 ANALYZE = "🪙 Анализ монеты"
 EARLY = "⚡ До импульса"
+SMART_MONEY = "🐋 Крупный капитал"
 BEST = "⭐ Лучшие сигналы"
 BACKTEST = "📊 Бэктест"
 STATUS = "⚙️ Статус"
@@ -75,7 +81,8 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=SCAN), KeyboardButton(text=ANALYZE)],
-            [KeyboardButton(text=EARLY), KeyboardButton(text=BEST)],
+            [KeyboardButton(text=EARLY), KeyboardButton(text=SMART_MONEY)],
+            [KeyboardButton(text=BEST)],
             [KeyboardButton(text=BACKTEST), KeyboardButton(text=PERFORMANCE)],
             [KeyboardButton(text=STATUS), KeyboardButton(text=HELP)],
         ],
@@ -93,6 +100,7 @@ def build_router(
 ) -> Router:
     router = Router(name="cryptopilot")
     router.message.middleware(AuthorizationMiddleware(settings.allowed_chat_ids))
+    smart_money = SmartMoneyScanner(exchange, settings)
 
     @router.message(CommandStart())
     async def start(message: Message, state: FSMContext) -> None:
@@ -146,6 +154,24 @@ def build_router(
             health.last_error = str(exc)
             await progress.edit_text(
                 f"⚠️ Ранний радар не завершён: {html.escape(str(exc))}"
+            )
+
+    @router.message(Command("smartmoney"))
+    @router.message(F.text == SMART_MONEY)
+    async def smart_money_scan(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        progress = await message.answer(
+            "⏳ Ищу совпадение структуры, RVOL, OI и агрессивного потока сделок…"
+        )
+        try:
+            report = await smart_money.scan()
+            await progress.edit_text(format_smart_money_report(report))
+            for setup in report.setups[:5]:
+                await message.answer(format_smart_money_setup(setup))
+        except Exception as exc:
+            health.last_error = str(exc)
+            await progress.edit_text(
+                f"⚠️ Smart Money Radar не завершён: {html.escape(str(exc))}"
             )
 
     @router.message(Command("analyze"))
@@ -258,7 +284,7 @@ def build_router(
             "• Ступени 50/30/20 — не мартингейл: добавляться можно только до отмены сценария.\n"
             "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
-            "Команды: /menu, /scan, /early, /analyze BTC, /backtest BTC, /best, "
+            "Команды: /menu, /scan, /early, /smartmoney, /analyze BTC, /backtest BTC, /best, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
