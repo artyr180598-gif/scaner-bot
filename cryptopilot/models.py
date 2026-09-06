@@ -6,6 +6,9 @@ from enum import StrEnum
 from typing import Any
 
 
+CURRENT_STRATEGY_VERSION = "premove-3.6"
+
+
 class Side(StrEnum):
     LONG = "LONG"
     SHORT = "SHORT"
@@ -132,7 +135,7 @@ class Signal:
     success_interval_high: float | None = None
     calibration_samples: int = 0
     recent_expectancy_r: float | None = None
-    strategy_version: str = "3.1"
+    strategy_version: str = CURRENT_STRATEGY_VERSION
 
     @property
     def actionable(self) -> bool:
