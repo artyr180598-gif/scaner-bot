@@ -128,6 +128,7 @@ class Settings(BaseSettings):
     prime_spot_confirmation_enabled: bool = True
     prime_min_spot_taker_ratio: float = Field(default=0.60, ge=0.50, le=0.90)
     prime_min_spot_book_imbalance: float = Field(default=0.05, ge=0.0, le=0.80)
+    prime_min_spot_confirmations: int = Field(default=2, ge=1, le=3)
     prime_max_directional_perp_basis_bps: float = Field(default=20.0, ge=1.0, le=200.0)
     prime_min_spot_block_notional: float = Field(default=50_000, ge=0, le=100_000_000)
 
