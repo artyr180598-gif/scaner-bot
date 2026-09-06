@@ -112,6 +112,7 @@ class SmartMoneyScanner:
         self.last_report: SmartMoneyReport | None = None
         self._flow_watchlist: dict[str, tuple[Side, float]] = {}
         self._prime_candidates: tuple[SmartMoneySetup, ...] = ()
+        self._shadow_candidates: tuple[SmartMoneySetup, ...] = ()
 
     async def scan(self) -> SmartMoneyReport:
         async with self._lock:
@@ -202,6 +203,19 @@ class SmartMoneyScanner:
                     reverse=True,
                 )[:3]
             )
+            self._shadow_candidates = tuple(
+                sorted(
+                    (
+                        item
+                        for item in setups
+                        if item.plan is not None
+                        and item.stage != "ENTRY"
+                        and item.prime_score >= self.settings.prime_shadow_min_score
+                    ),
+                    key=lambda item: (item.prime_score, item.score),
+                    reverse=True,
+                )[:6]
+            )
             report = SmartMoneyReport(
                 exchange=self.exchange.name,
                 started_at=started,
@@ -221,6 +235,10 @@ class SmartMoneyScanner:
     def prime_candidates(self) -> tuple[SmartMoneySetup, ...]:
         """Highest-quality pre-move candidates; intentionally tiny to avoid alert spam."""
         return self._prime_candidates
+
+    def shadow_candidates(self) -> tuple[SmartMoneySetup, ...]:
+        """Broader silent sample used only to learn which PRIME patterns work later."""
+        return self._shadow_candidates
 
     @staticmethod
     def _build_flow_watchlist(
