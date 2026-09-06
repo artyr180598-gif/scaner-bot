@@ -190,7 +190,15 @@ class BybitClient(ExchangeClient):
                 log.debug("Bybit context %s unavailable for %s: %s", path, ticker.symbol, exc)
                 return None
 
-        oi_result, trades_result, book_result, ratio_result = await asyncio.gather(
+        (
+            oi_result,
+            trades_result,
+            book_result,
+            ratio_result,
+            spot_trades_result,
+            spot_book_result,
+            spot_ticker_result,
+        ) = await asyncio.gather(
             optional(
                 "/v5/market/open-interest",
                 {
@@ -217,11 +225,29 @@ class BybitClient(ExchangeClient):
                     "limit": 1,
                 },
             ),
+            optional(
+                "/v5/market/recent-trade",
+                {"category": "spot", "symbol": ticker.symbol, "limit": 60},
+            ),
+            optional(
+                "/v5/market/orderbook",
+                {"category": "spot", "symbol": ticker.symbol, "limit": 50},
+            ),
+            optional(
+                "/v5/market/tickers",
+                {"category": "spot", "symbol": ticker.symbol},
+            ),
         )
         values: list[float] = []
         taker_buy_ratio: float | None = None
         orderbook_imbalance: float | None = None
         long_short_ratio: float | None = None
+        spot_last: float | None = None
+        spot_taker_buy_ratio: float | None = None
+        spot_orderbook_imbalance: float | None = None
+        spot_block_trade_buy_ratio: float | None = None
+        spot_block_trade_notional: float | None = None
+        spot_perp_basis_bps: float | None = None
         try:
             rows = sorted(
                 (oi_result or {}).get("list", []), key=lambda item: int(item["timestamp"])
@@ -252,6 +278,54 @@ class BybitClient(ExchangeClient):
             long_short_ratio = float(latest["buyRatio"]) / sell_ratio if sell_ratio > 0 else None
         except (IndexError, KeyError, TypeError, ValueError):
             long_short_ratio = None
+        try:
+            spot_buy = spot_sell = 0.0
+            block_buy = block_sell = 0.0
+            for item in (spot_trades_result or {}).get("list", []):
+                notional = float(item["price"]) * float(item["size"])
+                if item.get("side") == "Buy":
+                    spot_buy += notional
+                    if item.get("isBlockTrade") is True:
+                        block_buy += notional
+                elif item.get("side") == "Sell":
+                    spot_sell += notional
+                    if item.get("isBlockTrade") is True:
+                        block_sell += notional
+            spot_total = spot_buy + spot_sell
+            block_total = block_buy + block_sell
+            spot_taker_buy_ratio = spot_buy / spot_total if spot_total > 0 else None
+            spot_block_trade_buy_ratio = (
+                block_buy / block_total if block_total > 0 else None
+            )
+            spot_block_trade_notional = block_total if block_total > 0 else None
+        except (KeyError, TypeError, ValueError):
+            spot_taker_buy_ratio = None
+            spot_block_trade_buy_ratio = None
+            spot_block_trade_notional = None
+        try:
+            spot_bids = sum(
+                float(row[0]) * float(row[1])
+                for row in (spot_book_result or {}).get("b", [])
+            )
+            spot_asks = sum(
+                float(row[0]) * float(row[1])
+                for row in (spot_book_result or {}).get("a", [])
+            )
+            spot_orderbook_imbalance = (
+                (spot_bids - spot_asks) / (spot_bids + spot_asks)
+                if spot_bids + spot_asks > 0
+                else None
+            )
+        except (IndexError, TypeError, ValueError):
+            spot_orderbook_imbalance = None
+        try:
+            spot_row = (spot_ticker_result or {}).get("list", [])[0]
+            spot_last = float(spot_row["lastPrice"])
+            if spot_last > 0:
+                spot_perp_basis_bps = (ticker.last / spot_last - 1) * 10_000
+        except (IndexError, KeyError, TypeError, ValueError, ZeroDivisionError):
+            spot_last = None
+            spot_perp_basis_bps = None
         change = _percentage_change(values[0], values[-1]) if len(values) >= 2 else None
         return replace(
             ticker,
@@ -260,6 +334,12 @@ class BybitClient(ExchangeClient):
             taker_buy_ratio=taker_buy_ratio,
             orderbook_imbalance=orderbook_imbalance,
             long_short_ratio=long_short_ratio,
+            spot_last=spot_last,
+            spot_taker_buy_ratio=spot_taker_buy_ratio,
+            spot_orderbook_imbalance=spot_orderbook_imbalance,
+            spot_block_trade_buy_ratio=spot_block_trade_buy_ratio,
+            spot_block_trade_notional=spot_block_trade_notional,
+            spot_perp_basis_bps=spot_perp_basis_bps,
         )
 
     async def ping(self) -> bool:
