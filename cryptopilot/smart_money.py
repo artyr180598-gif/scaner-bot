@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
+from cryptopilot.flow import FlowSnapshot, FlowTracker
 from cryptopilot.indicators import compute_features
 from cryptopilot.models import FeatureSet, Side, Ticker
 
@@ -28,6 +29,12 @@ class SmartMoneySetup:
     taker_buy_ratio: float | None
     orderbook_imbalance: float | None
     funding_pct: float
+    live_delta_ratio_60s: float | None
+    live_cvd_ratio_5m: float | None
+    live_volume_burst_ratio: float | None
+    live_oi_change_2m_pct: float | None
+    live_oi_acceleration_pct_per_min: float | None
+    live_absorption: str | None
     created_at: datetime
     reasons: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
@@ -53,10 +60,17 @@ class SmartMoneyScanner:
     deliberately low-weight because a snapshot can be spoofed or disappear quickly.
     """
 
-    def __init__(self, exchange: ExchangeClient, settings: Settings) -> None:
+    def __init__(
+        self,
+        exchange: ExchangeClient,
+        settings: Settings,
+        flow_tracker: FlowTracker | None = None,
+    ) -> None:
         self.exchange = exchange
         self.settings = settings
+        self.flow_tracker = flow_tracker
         self._lock = asyncio.Lock()
+        self.last_report: SmartMoneyReport | None = None
 
     async def scan(self) -> SmartMoneyReport:
         async with self._lock:
@@ -96,7 +110,7 @@ class SmartMoneyScanner:
 
             stage_rank = {"ENTRY": 3, "ARMED": 2, "WATCH": 1}
             setups.sort(key=lambda item: (stage_rank.get(item.stage, 0), item.score), reverse=True)
-            return SmartMoneyReport(
+            report = SmartMoneyReport(
                 exchange=self.exchange.name,
                 started_at=started,
                 finished_at=datetime.now(UTC),
@@ -105,6 +119,8 @@ class SmartMoneyScanner:
                 setups=tuple(setups[:8]),
                 errors=tuple(errors[:12]),
             )
+            self.last_report = report
+            return report
 
     def _universe(self, tickers: list[Ticker]) -> list[Ticker]:
         values = [
@@ -144,12 +160,13 @@ class SmartMoneyScanner:
             self.exchange.candles(ticker.symbol, "60", 240),
         )
         feature1h = compute_features(candles_1h)
+        flow = self.flow_tracker.snapshot(ticker.symbol) if self.flow_tracker is not None else None
 
         long_score, long_reasons, long_warnings = _direction_score(
-            Side.LONG, feature15, feature1h, enriched
+            Side.LONG, feature15, feature1h, enriched, flow
         )
         short_score, short_reasons, short_warnings = _direction_score(
-            Side.SHORT, feature15, feature1h, enriched
+            Side.SHORT, feature15, feature1h, enriched, flow
         )
         if max(long_score, short_score) < 62:
             return None
@@ -158,7 +175,7 @@ class SmartMoneyScanner:
         score = int(round(max(long_score, short_score)))
         reasons = long_reasons if bias is Side.LONG else short_reasons
         warnings = long_warnings if bias is Side.LONG else short_warnings
-        stage = _stage(bias, score, feature15, feature1h, enriched)
+        stage = _stage(bias, score, feature15, feature1h, enriched, flow)
 
         if stage == "WATCH" and score < 65:
             return None
@@ -181,6 +198,14 @@ class SmartMoneyScanner:
             taker_buy_ratio=enriched.taker_buy_ratio,
             orderbook_imbalance=enriched.orderbook_imbalance,
             funding_pct=enriched.funding_rate * 100,
+            live_delta_ratio_60s=flow.delta_ratio_60s if flow and flow.fresh else None,
+            live_cvd_ratio_5m=flow.cvd_ratio_5m if flow and flow.fresh else None,
+            live_volume_burst_ratio=flow.volume_burst_ratio if flow and flow.fresh else None,
+            live_oi_change_2m_pct=flow.oi_change_2m_pct if flow and flow.fresh else None,
+            live_oi_acceleration_pct_per_min=(
+                flow.oi_acceleration_pct_per_min if flow and flow.fresh else None
+            ),
+            live_absorption=flow.absorption if flow and flow.fresh else None,
             created_at=datetime.now(UTC),
             reasons=tuple(reasons[:5]),
             warnings=tuple(warnings[:4]),
@@ -213,6 +238,7 @@ def _direction_score(
     f15: FeatureSet,
     f1h: FeatureSet,
     ticker: Ticker,
+    flow: FlowSnapshot | None = None,
 ) -> tuple[float, list[str], list[str]]:
     bullish = side is Side.LONG
     score = 0.0
@@ -311,7 +337,78 @@ def _direction_score(
         score -= 7
         warnings.append("Цена слишком далеко ниже VWAP — риск погони за импульсом")
 
+    if flow is not None and flow.fresh:
+        live_score, live_reasons, live_warnings = _live_flow_adjustment(side, flow)
+        score += live_score
+        reasons.extend(live_reasons)
+        warnings.extend(live_warnings)
+
     return max(0.0, min(score, 100.0)), reasons, warnings
+
+
+def _live_flow_adjustment(
+    side: Side,
+    flow: FlowSnapshot,
+) -> tuple[float, list[str], list[str]]:
+    bullish = side is Side.LONG
+    direction = 1.0 if bullish else -1.0
+    directional_delta = direction * flow.delta_ratio_60s
+    directional_cvd = direction * flow.cvd_ratio_5m
+    score = 0.0
+    reasons: list[str] = []
+    warnings: list[str] = []
+
+    if directional_delta >= 0.18:
+        score += 10
+        reasons.append(f"Live delta 60s {directional_delta:+.0%} поддерживает {side.value}")
+    elif directional_delta <= -0.22:
+        score -= 8
+        warnings.append("Live taker delta сейчас против сценария")
+
+    if directional_cvd >= 0.10:
+        score += 7
+        reasons.append(f"Live CVD 5m {directional_cvd:+.0%} подтверждает поток")
+    elif directional_cvd <= -0.15:
+        score -= 5
+        warnings.append("5m CVD proxy расходится с направлением")
+
+    burst = flow.volume_burst_ratio
+    if burst is not None and burst >= 1.5:
+        score += 5
+        reasons.append(f"Поток сделок ускорился до {burst:.2f}× к прошлой минуте")
+
+    oi_change = flow.oi_change_2m_pct
+    if oi_change is not None:
+        if oi_change >= 0.10:
+            score += 5
+            reasons.append(f"Live OI +{oi_change:.2f}% за ~2 мин")
+        elif oi_change <= -0.20:
+            score -= 4
+            warnings.append(f"Live OI {oi_change:+.2f}%: позиции сокращаются")
+
+    acceleration = flow.oi_acceleration_pct_per_min
+    if acceleration is not None and acceleration >= 0.03:
+        score += 3
+        reasons.append(f"Ускорение OI {acceleration:+.3f}%/мин")
+
+    matching_absorption = (
+        flow.absorption == "BUY_ABSORPTION"
+        if bullish
+        else flow.absorption == "SELL_ABSORPTION"
+    )
+    opposing_absorption = (
+        flow.absorption == "SELL_ABSORPTION"
+        if bullish
+        else flow.absorption == "BUY_ABSORPTION"
+    )
+    if matching_absorption:
+        score += 8
+        reasons.append("Поток поглощается у цены — возможен пассивный набор до BOS")
+    elif opposing_absorption:
+        score -= 8
+        warnings.append("Обнаружено поглощение против выбранного направления")
+
+    return score, reasons, warnings
 
 
 def _stage(
@@ -320,6 +417,7 @@ def _stage(
     f15: FeatureSet,
     f1h: FeatureSet,
     ticker: Ticker,
+    flow: FlowSnapshot | None = None,
 ) -> str:
     bullish = side is Side.LONG
     breakout = f15.breakout_up if bullish else f15.breakout_down
@@ -336,6 +434,25 @@ def _stage(
     else:
         taker_ok = ticker.taker_buy_ratio <= 0.46
     oi_ok = ticker.open_interest_change_pct is None or ticker.open_interest_change_pct >= 0
+    flow_conflict = False
+    live_prepressure = False
+    if flow is not None and flow.fresh:
+        direction = 1.0 if bullish else -1.0
+        directional_delta = direction * flow.delta_ratio_60s
+        directional_cvd = direction * flow.cvd_ratio_5m
+        flow_conflict = directional_delta <= -0.22 and directional_cvd <= -0.12
+        burst_ok = flow.volume_burst_ratio is not None and flow.volume_burst_ratio >= 1.2
+        oi_live_ok = flow.oi_change_2m_pct is None or flow.oi_change_2m_pct >= 0
+        matching_absorption = (
+            flow.absorption == "BUY_ABSORPTION"
+            if bullish
+            else flow.absorption == "SELL_ABSORPTION"
+        )
+        live_prepressure = (
+            (directional_delta >= 0.12 or matching_absorption)
+            and burst_ok
+            and oi_live_ok
+        )
     if (
         score >= 78
         and breakout
@@ -343,9 +460,10 @@ def _stage(
         and taker_ok
         and oi_ok
         and htf
+        and not flow_conflict
     ):
         return "ENTRY"
-    if score >= 72 and near_level and htf:
+    if score >= 72 and htf and (near_level or live_prepressure):
         return "ARMED"
     return "WATCH"
 
@@ -399,6 +517,20 @@ def format_smart_money_setup(item: SmartMoneySetup) -> str:
     book = "н/д" if item.orderbook_imbalance is None else f"{item.orderbook_imbalance:+.0%}"
     reasons = "\n".join(f"• {html.escape(value)}" for value in item.reasons)
     warnings = "\n".join(f"• {html.escape(value)}" for value in item.warnings)
+    live_parts: list[str] = []
+    if item.live_delta_ratio_60s is not None:
+        live_parts.append(f"Δ60s {item.live_delta_ratio_60s:+.0%}")
+    if item.live_cvd_ratio_5m is not None:
+        live_parts.append(f"CVD5m {item.live_cvd_ratio_5m:+.0%}")
+    if item.live_volume_burst_ratio is not None:
+        live_parts.append(f"burst {item.live_volume_burst_ratio:.2f}×")
+    if item.live_oi_change_2m_pct is not None:
+        live_parts.append(f"OI2m {item.live_oi_change_2m_pct:+.2f}%")
+    if item.live_oi_acceleration_pct_per_min is not None:
+        live_parts.append(f"OI accel {item.live_oi_acceleration_pct_per_min:+.3f}%/мин")
+    if item.live_absorption:
+        live_parts.append(item.live_absorption)
+    live_line = " · ".join(live_parts)
     stage_text = {
         "ENTRY": "подтверждение уже есть; всё равно не гнаться за свечой",
         "ARMED": "сетап готовится; ждать закрытого 15m подтверждения уровня",
@@ -411,7 +543,8 @@ def format_smart_money_setup(item: SmartMoneySetup) -> str:
         f"Структура: 15m {item.structure_15m} · 1h {item.structure_1h}\n"
         f"RVOL: {item.rvol:.2f}× · OI: {oi} · taker: {taker}\n"
         f"Book: {book} · funding: {item.funding_pct:+.3f}%\n"
-        f"Trigger: <code>{_price(item.trigger_price)}</code> · "
+        + (f"Live flow: {html.escape(live_line)}\n" if live_line else "")
+        + f"Trigger: <code>{_price(item.trigger_price)}</code> · "
         f"invalidation: <code>{_price(item.invalidation_price)}</code>\n\n"
         f"<b>Почему в списке</b>\n{reasons or '• Совпало несколько независимых факторов'}\n"
         + (f"\n<b>Риски</b>\n{warnings}\n" if warnings else "")
