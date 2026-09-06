@@ -248,7 +248,8 @@ class SignalEngine:
             )
         elif trigger_distance_pct < 0.12:
             blockers.append(
-                f"До 1h trigger всего {trigger_distance_pct:.2f}% — слишком поздно для раннего радара"
+                f"До 1h trigger всего {trigger_distance_pct:.2f}% — "
+                "слишком поздно для раннего радара"
             )
         stage = (
             "ARMED_PREMOVE"
