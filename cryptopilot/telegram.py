@@ -244,7 +244,10 @@ def build_router(
     @router.message(F.text == BACKTEST)
     async def backtest_prompt(message: Message, state: FSMContext) -> None:
         await state.set_state(InputState.backtest_symbol)
-        await message.answer("Введите монету для walk-forward теста, например <code>ETH</code>:")
+        await message.answer(
+            "Введите монету для исторического trend-baseline, например <code>ETH</code>. "
+            "Это не полный PRIME 3.6: в свечной истории нет live Spot/book/CVD evidence."
+        )
 
     @router.message(InputState.backtest_symbol)
     async def backtest_input(message: Message, state: FSMContext) -> None:
@@ -409,7 +412,9 @@ async def run_backtest(message: Message, exchange: ExchangeClient, raw_symbol: s
     if not symbol:
         await message.answer("Не удалось распознать тикер. Пример: <code>BTC</code>.")
         return
-    progress = await message.answer(f"⏳ Walk-forward тест <b>{html.escape(symbol)}</b>…")
+    progress = await message.answer(
+        f"⏳ Исторический trend-baseline <b>{html.escape(symbol)}</b>…"
+    )
     try:
         candles = await exchange.candles(symbol, "60", 1000)
         result = WalkForwardBacktester().run(symbol, "1h", candles)
@@ -773,7 +778,7 @@ def format_prime_setup(item) -> str:
 def format_backtest(result: BacktestResult) -> str:
     profit_factor = "∞" if math.isinf(result.profit_factor) else f"{result.profit_factor:.2f}"
     return (
-        f"<b>Walk-forward: {html.escape(result.symbol)}</b>\n"
+        f"<b>Исторический trend-baseline: {html.escape(result.symbol)}</b>\n"
         f"Период: {result.started_at:%d.%m.%Y}–{result.finished_at:%d.%m.%Y}\n"
         f"Таймфрейм: {result.timeframe} · свечей: {result.bars}\n"
         f"Сделок: {result.trades} · W/L: {result.wins}/{result.losses}\n"
@@ -783,6 +788,7 @@ def format_backtest(result: BacktestResult) -> str:
         f"Max drawdown: {result.max_drawdown_r:.2f}R\n\n"
         "Тест использует только прошлые закрытые свечи, вход на следующем open, "
         "консервативный порядок SL/TP и поправку на комиссии/проскальзывание. "
+        "Этот тест не симулирует PRIME 3.6 live Spot/order-book/CVD/OI стек. "
         "Прошлая статистика не гарантирует будущий результат."
     )
 
