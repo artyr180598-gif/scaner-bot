@@ -12,6 +12,7 @@ from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.flow import FlowSnapshot, FlowTracker
 from cryptopilot.indicators import compute_features
+from cryptopilot.liquidity import LiquiditySnapshot, LiquidityTracker
 from cryptopilot.models import FeatureSet, Side, Ticker
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,15 @@ class SmartMoneySetup:
     live_oi_change_2m_pct: float | None
     live_oi_acceleration_pct_per_min: float | None
     live_absorption: str | None
+    persistent_book_imbalance: float | None
+    bid_wall_ratio: float | None
+    ask_wall_ratio: float | None
+    bid_wall_persistence_seconds: float
+    ask_wall_persistence_seconds: float
+    bid_replenishment_usdt_60s: float
+    ask_replenishment_usdt_60s: float
+    long_liquidation_usdt_60s: float
+    short_liquidation_usdt_60s: float
     distance_to_trigger_pct: float
     prime_score: int
     prime_ready: bool
@@ -82,10 +92,12 @@ class SmartMoneyScanner:
         exchange: ExchangeClient,
         settings: Settings,
         flow_tracker: FlowTracker | None = None,
+        liquidity_tracker: LiquidityTracker | None = None,
     ) -> None:
         self.exchange = exchange
         self.settings = settings
         self.flow_tracker = flow_tracker
+        self.liquidity_tracker = liquidity_tracker
         self._lock = asyncio.Lock()
         self.last_report: SmartMoneyReport | None = None
         self._flow_watchlist: dict[str, tuple[Side, float]] = {}
@@ -279,6 +291,14 @@ class SmartMoneyScanner:
         feature4h = compute_features(candles_4h)
         recent_move_15m_pct = _recent_close_move_pct(candles_5m, 3)
         flow = self.flow_tracker.snapshot(ticker.symbol) if self.flow_tracker is not None else None
+        liquidity = (
+            self.liquidity_tracker.snapshot(
+                ticker.symbol,
+                int(datetime.now(UTC).timestamp() * 1000),
+            )
+            if self.liquidity_tracker is not None
+            else None
+        )
 
         long_score, long_reasons, long_warnings = _direction_score(
             Side.LONG, feature15, feature1h, enriched, flow
@@ -310,6 +330,7 @@ class SmartMoneyScanner:
             feature4h,
             enriched,
             flow,
+            liquidity,
             recent_move_15m_pct,
             self.settings,
         )
@@ -349,6 +370,27 @@ class SmartMoneyScanner:
                 flow.oi_acceleration_pct_per_min if flow and flow.fresh else None
             ),
             live_absorption=flow.absorption if flow and flow.fresh else None,
+            persistent_book_imbalance=liquidity.imbalance_top10 if liquidity else None,
+            bid_wall_ratio=liquidity.bid_wall_ratio if liquidity else None,
+            ask_wall_ratio=liquidity.ask_wall_ratio if liquidity else None,
+            bid_wall_persistence_seconds=(
+                liquidity.bid_wall_persistence_seconds if liquidity else 0.0
+            ),
+            ask_wall_persistence_seconds=(
+                liquidity.ask_wall_persistence_seconds if liquidity else 0.0
+            ),
+            bid_replenishment_usdt_60s=(
+                liquidity.bid_replenishment_usdt_60s if liquidity else 0.0
+            ),
+            ask_replenishment_usdt_60s=(
+                liquidity.ask_replenishment_usdt_60s if liquidity else 0.0
+            ),
+            long_liquidation_usdt_60s=(
+                liquidity.long_liquidation_usdt_60s if liquidity else 0.0
+            ),
+            short_liquidation_usdt_60s=(
+                liquidity.short_liquidation_usdt_60s if liquidity else 0.0
+            ),
             distance_to_trigger_pct=distance_to_trigger_pct,
             prime_score=prime_score,
             prime_ready=prime_ready,
@@ -531,6 +573,7 @@ def _pre_move_score(
     f4h: FeatureSet,
     ticker: Ticker,
     flow: FlowSnapshot | None,
+    liquidity: LiquiditySnapshot | None,
     recent_move_15m_pct: float,
     settings: Settings,
 ) -> tuple[int, list[str], list[str]]:
@@ -751,6 +794,86 @@ def _pre_move_score(
         if matching_absorption and price_move <= settings.prime_max_price_move_60s_pct:
             score += 6
             reasons.append("Есть раннее поглощение без заметного движения цены")
+
+    if settings.liquidity_intelligence_enabled and liquidity is not None:
+        directional_wall = liquidity.bid_wall_ratio if bullish else liquidity.ask_wall_ratio
+        opposing_wall = liquidity.ask_wall_ratio if bullish else liquidity.bid_wall_ratio
+        directional_persistence = (
+            liquidity.bid_wall_persistence_seconds
+            if bullish
+            else liquidity.ask_wall_persistence_seconds
+        )
+        opposing_persistence = (
+            liquidity.ask_wall_persistence_seconds
+            if bullish
+            else liquidity.bid_wall_persistence_seconds
+        )
+        directional_replenishment = (
+            liquidity.bid_replenishment_usdt_60s
+            if bullish
+            else liquidity.ask_replenishment_usdt_60s
+        )
+        opposing_replenishment = (
+            liquidity.ask_replenishment_usdt_60s
+            if bullish
+            else liquidity.bid_replenishment_usdt_60s
+        )
+
+        persistent_support = (
+            directional_wall is not None
+            and directional_wall >= settings.prime_min_persistent_wall_ratio
+            and directional_persistence >= settings.prime_min_wall_persistence_seconds
+            and directional_replenishment >= settings.prime_min_replenishment_notional
+        )
+        persistent_resistance = (
+            opposing_wall is not None
+            and opposing_wall >= settings.prime_min_persistent_wall_ratio * 1.3
+            and opposing_persistence >= settings.prime_min_wall_persistence_seconds
+            and opposing_replenishment > max(
+                directional_replenishment * 1.5,
+                settings.prime_min_replenishment_notional,
+            )
+        )
+        if persistent_support:
+            score += 9
+            reasons.append(
+                "Стакан не просто показывает стену: уровень держится и пополняется"
+            )
+        if persistent_resistance:
+            blockers.append(
+                "Против сценария стоит более сильная устойчивая и пополняемая ликвидность"
+            )
+
+        trade_notional = flow.notional_60s if flow is not None and flow.fresh else 0.0
+        if trade_notional > 0:
+            squeeze_liquidation = (
+                liquidity.short_liquidation_usdt_60s
+                if bullish
+                else liquidity.long_liquidation_usdt_60s
+            )
+            flush_liquidation = (
+                liquidity.long_liquidation_usdt_60s
+                if bullish
+                else liquidity.short_liquidation_usdt_60s
+            )
+            squeeze_ratio = squeeze_liquidation / trade_notional
+            flush_ratio = flush_liquidation / trade_notional
+
+            if squeeze_ratio > settings.prime_max_directional_liquidation_ratio:
+                blockers.append(
+                    f"Движение уже подпитывают ликвидации ({squeeze_ratio:.0%} потока) — "
+                    "риск позднего входа"
+                )
+            elif (
+                flush_ratio >= 0.12
+                and abs(flow.price_change_60s_pct or 0.0)
+                <= settings.prime_max_price_move_60s_pct
+            ):
+                score += 5
+                reasons.append(
+                    "Противоположные ликвидации прошли, но цена удержалась — "
+                    "возможное поглощение"
+                )
 
     return int(round(max(0.0, min(score, 100.0)))), reasons, blockers
 
