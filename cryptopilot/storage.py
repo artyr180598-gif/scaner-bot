@@ -454,6 +454,66 @@ class SignalStore:
             "median_lead_seconds": statistics.median(leads) if leads else None,
         }
 
+    async def strict_alert_allowed(self, fingerprint: str, cooldown_minutes: int) -> bool:
+        threshold = datetime.now(UTC) - timedelta(minutes=cooldown_minutes)
+        async with aiosqlite.connect(self.path) as db:
+            row = await (
+                await db.execute(
+                    "SELECT sent_at FROM alerts WHERE fingerprint = ?",
+                    (fingerprint,),
+                )
+            ).fetchone()
+        if row is None:
+            return True
+        return datetime.fromisoformat(str(row[0])) < threshold
+
+    async def notification_budget_available(
+        self,
+        key: str,
+        *,
+        cooldown_minutes: int,
+        max_per_day: int,
+    ) -> bool:
+        now = datetime.now(UTC)
+        row = await self.get_runtime(f"notification_budget:{key}")
+        if row is None:
+            return True
+        try:
+            payload = json.loads(row[0])
+            last_sent = datetime.fromisoformat(str(payload["last_sent"]))
+            sent_date = str(payload["date"])
+            count = int(payload["count"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return True
+        if sent_date != now.date().isoformat():
+            return True
+        if count >= max_per_day:
+            return False
+        return last_sent <= now - timedelta(minutes=cooldown_minutes)
+
+    async def mark_notification_budget(self, key: str) -> None:
+        now = datetime.now(UTC)
+        runtime_key = f"notification_budget:{key}"
+        row = await self.get_runtime(runtime_key)
+        count = 0
+        if row is not None:
+            try:
+                payload = json.loads(row[0])
+                if str(payload.get("date")) == now.date().isoformat():
+                    count = int(payload.get("count", 0))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                count = 0
+        await self.set_runtime(
+            runtime_key,
+            json.dumps(
+                {
+                    "date": now.date().isoformat(),
+                    "count": count + 1,
+                    "last_sent": now.isoformat(),
+                }
+            ),
+        )
+
     async def set_runtime(self, key: str, value: str) -> None:
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self.path) as db:
