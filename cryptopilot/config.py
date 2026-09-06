@@ -61,8 +61,8 @@ class Settings(BaseSettings):
     early_shortlist_size: int = Field(default=10, ge=3, le=40)
     request_concurrency: int = Field(default=8, ge=1, le=20)
     timeframes: str = "15,60,240"
-    min_auto_confidence: int = Field(default=84, ge=55, le=95)
-    min_auto_confidence_short: int = Field(default=86, ge=55, le=95)
+    min_auto_confidence: int = Field(default=88, ge=55, le=95)
+    min_auto_confidence_short: int = Field(default=90, ge=55, le=95)
     min_manual_confidence: int = Field(default=72, ge=50, le=95)
     alert_cooldown_minutes: int = Field(default=180, ge=15, le=10_080)
     signal_expiry_minutes: int = Field(default=240, ge=30, le=2_880)
