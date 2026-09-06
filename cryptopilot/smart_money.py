@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import logging
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +12,9 @@ from cryptopilot.exchange import ExchangeClient
 from cryptopilot.flow import FlowSnapshot, FlowTracker
 from cryptopilot.indicators import compute_features
 from cryptopilot.models import FeatureSet, Side, Ticker
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +76,7 @@ class SmartMoneyScanner:
         self.flow_tracker = flow_tracker
         self._lock = asyncio.Lock()
         self.last_report: SmartMoneyReport | None = None
+        self._flow_watchlist: dict[str, tuple[Side, float]] = {}
 
     async def scan(self) -> SmartMoneyReport:
         async with self._lock:
@@ -93,6 +98,7 @@ class SmartMoneyScanner:
                 ranked.append((self._pre_score(feature), ticker, feature))
 
             ranked.sort(key=lambda item: item[0], reverse=True)
+            self._flow_watchlist = self._build_flow_watchlist(ranked[:24])
             deep_limit = min(max(self.settings.shortlist_size, 12), 24)
             candidates = ranked[:deep_limit]
 
@@ -122,6 +128,34 @@ class SmartMoneyScanner:
             )
             self.last_report = report
             return report
+
+    def flow_watchlist(self) -> dict[str, tuple[Side, float]]:
+        """Preselected candidates are streamed even before the deep score reaches WATCH."""
+        return dict(self._flow_watchlist)
+
+    @staticmethod
+    def _build_flow_watchlist(
+        ranked: list[tuple[float, Ticker, FeatureSet]],
+    ) -> dict[str, tuple[Side, float]]:
+        result: dict[str, tuple[Side, float]] = {}
+        for pre_score, ticker, feature in ranked:
+            if pre_score < 18:
+                continue
+            long_score = _structure_score(feature, Side.LONG)
+            short_score = _structure_score(feature, Side.SHORT)
+            if long_score == short_score:
+                if feature.range_position20 >= 0.62:
+                    bias = Side.LONG
+                elif feature.range_position20 <= 0.38:
+                    bias = Side.SHORT
+                else:
+                    continue
+            else:
+                bias = Side.LONG if long_score > short_score else Side.SHORT
+            trigger = feature.range_high20 if bias is Side.LONG else feature.range_low20
+            if trigger > 0:
+                result[ticker.symbol] = (bias, trigger)
+        return result
 
     def _universe(self, tickers: list[Ticker]) -> list[Ticker]:
         values = [
@@ -232,8 +266,10 @@ async def refresh_smart_money_watchlist(
             else float("inf")
         )
         if age >= interval_seconds and not scanner._lock.locked():
-            with suppress(Exception):
+            try:
                 await scanner.scan()
+            except Exception as exc:
+                log.warning("Smart money auto refresh failed: %s", type(exc).__name__)
         with suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=30)
 
