@@ -268,6 +268,29 @@ async def run() -> None:
                 raise RuntimeError("No configured Telegram chat accepted the early alert")
             health.alerts_total += 1
 
+        async def record_prime_shadow_candidate(item: SmartMoneySetup) -> None:
+            if (
+                not settings.prime_shadow_enabled
+                or item.plan is None
+                or item.bias.value == "NO_TRADE"
+            ):
+                return
+            await store.record_prime_shadow(
+                symbol=item.symbol,
+                exchange=item.exchange,
+                side=item.bias,
+                score=item.prime_score,
+                strategy_version=CURRENT_PRIME_STRATEGY_VERSION,
+                created_at=item.created_at,
+                entry_low=item.plan.entry_low,
+                entry_high=item.plan.entry_high,
+                stop_loss=item.plan.stop_loss,
+                take_profit=item.plan.take_profit_2,
+                entry_expires_at=item.plan.expires_at,
+                max_holding_hours=settings.prime_shadow_max_holding_hours,
+                dedup_minutes=settings.prime_shadow_dedup_minutes,
+            )
+
         async def send_prime_candidate(item: SmartMoneySetup) -> None:
             if not settings.prime_alerts_enabled or not item.prime_ready:
                 return
@@ -287,6 +310,9 @@ async def run() -> None:
             if not symbol_allowed or not budget_allowed:
                 return
 
+            # Every PRIME that can reach the user must also enter forward Shadow
+            # evaluation, including event-driven signals discovered between REST scans.
+            await record_prime_shadow_candidate(item)
             message_text = format_prime_setup(item)
 
             successes = 0
@@ -317,23 +343,7 @@ async def run() -> None:
         async def handle_smart_money_report(_report) -> None:
             if settings.prime_shadow_enabled:
                 for item in smart_money.shadow_candidates():
-                    if item.plan is None:
-                        continue
-                    await store.record_prime_shadow(
-                        symbol=item.symbol,
-                        exchange=item.exchange,
-                        side=item.bias,
-                        score=item.prime_score,
-                        strategy_version=CURRENT_PRIME_STRATEGY_VERSION,
-                        created_at=item.created_at,
-                        entry_low=item.plan.entry_low,
-                        entry_high=item.plan.entry_high,
-                        stop_loss=item.plan.stop_loss,
-                        take_profit=item.plan.take_profit_2,
-                        entry_expires_at=item.plan.expires_at,
-                        max_holding_hours=settings.prime_shadow_max_holding_hours,
-                        dedup_minutes=settings.prime_shadow_dedup_minutes,
-                    )
+                    await record_prime_shadow_candidate(item)
             candidates = smart_money.prime_candidates()
             if not candidates:
                 return
