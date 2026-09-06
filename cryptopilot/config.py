@@ -124,6 +124,7 @@ class Settings(BaseSettings):
     prime_min_trigger_distance_pct: float = Field(default=0.25, ge=0.05, le=2.0)
     prime_max_trigger_distance_pct: float = Field(default=1.20, ge=0.20, le=5.0)
     prime_max_price_move_60s_pct: float = Field(default=0.12, ge=0.02, le=2.0)
+    prime_max_directional_move_15m_pct: float = Field(default=0.35, ge=0.05, le=3.0)
 
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
