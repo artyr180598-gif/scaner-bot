@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-CURRENT_STRATEGY_VERSION = "premove-3.6"
-CURRENT_PRIME_STRATEGY_VERSION = "prime-3.6"
+CURRENT_STRATEGY_VERSION = "premove-3.6.1"
+CURRENT_PRIME_STRATEGY_VERSION = "prime-3.6.1"
 
 
 class Side(StrEnum):
