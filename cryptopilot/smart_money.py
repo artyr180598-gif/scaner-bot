@@ -127,13 +127,9 @@ class SmartMoneyScanner:
             ):
                 try:
                     confirmation_tickers = await self.confirmation_exchange.tickers()
-                    confirmation_map = {
-                        item.symbol: item for item in confirmation_tickers
-                    }
+                    confirmation_map = {item.symbol: item for item in confirmation_tickers}
                 except Exception as exc:
-                    errors.append(
-                        f"{self.confirmation_exchange.name}: {type(exc).__name__}"
-                    )
+                    errors.append(f"{self.confirmation_exchange.name}: {type(exc).__name__}")
                     log.warning(
                         "Cross-exchange ticker snapshot unavailable: %s",
                         type(exc).__name__,
@@ -163,16 +159,11 @@ class SmartMoneyScanner:
             self._flow_watchlist = self._build_flow_watchlist(prime_ranked[:16])
 
             deep_limit = min(max(self.settings.shortlist_size + 4, 16), 20)
-            candidates: list[tuple[float, Ticker, FeatureSet]] = []
-            seen_symbols: set[str] = set()
-            for candidate in ranked[:8] + prime_ranked[:12]:
-                symbol = candidate[1].symbol
-                if symbol in seen_symbols:
-                    continue
-                candidates.append(candidate)
-                seen_symbols.add(symbol)
-                if len(candidates) >= deep_limit:
-                    break
+            candidates = self._deep_candidates(
+                prime_ranked,
+                ranked if self.settings.smart_money_include_post_breakout else [],
+                deep_limit,
+            )
 
             deep = await asyncio.gather(
                 *(
@@ -246,6 +237,28 @@ class SmartMoneyScanner:
         """Preselected candidates are streamed even before the deep score reaches WATCH."""
         return dict(self._flow_watchlist)
 
+    @staticmethod
+    def _deep_candidates(prime_ranked, active_ranked, limit):
+        """Use the same minimum preparation score as the streaming watchlist.
+
+        Do not pad an empty early shortlist with active movers by default.
+        """
+        selected = []
+        seen = set()
+        early = [
+            row
+            for row in prime_ranked
+            if row[0] >= 28 and not row[2].breakout_up and not row[2].breakout_down
+        ]
+        for row in early[:limit] + active_ranked[:8]:
+            if row[1].symbol in seen:
+                continue
+            if len(selected) >= limit:
+                break
+            selected.append(row)
+            seen.add(row[1].symbol)
+        return selected
+
     def prime_candidates(self) -> tuple[SmartMoneySetup, ...]:
         """Highest-quality pre-move candidates; intentionally tiny to avoid alert spam."""
         return self._prime_candidates
@@ -266,10 +279,7 @@ class SmartMoneyScanner:
                 f"{normalized} is not an active USDT perpetual on {self.exchange.name}"
             )
         confirmation_ticker: Ticker | None = None
-        if (
-            self.settings.prime_cross_exchange_enabled
-            and self.confirmation_exchange is not None
-        ):
+        if self.settings.prime_cross_exchange_enabled and self.confirmation_exchange is not None:
             try:
                 secondary = await self.confirmation_exchange.tickers()
                 confirmation_ticker = next(
@@ -476,18 +486,13 @@ class SmartMoneyScanner:
                 > self.settings.prime_cross_exchange_max_price_divergence_bps
             ):
                 prime_blockers.append(
-                    f"{cross.exchange}: цены расходятся на "
-                    f"{cross.price_divergence_bps:.1f} bps"
+                    f"{cross.exchange}: цены расходятся на {cross.price_divergence_bps:.1f} bps"
                 )
             if cross.conflicts >= 2:
                 prime_blockers.append(
-                    f"{cross.exchange}: {cross.conflicts} независимых признака "
-                    "против сценария"
+                    f"{cross.exchange}: {cross.conflicts} независимых признака против сценария"
                 )
-            elif (
-                cross.confirmations
-                < self.settings.prime_cross_exchange_min_confirmations
-            ):
+            elif cross.confirmations < self.settings.prime_cross_exchange_min_confirmations:
                 prime_blockers.append(
                     f"{cross.exchange}: подтверждений только "
                     f"{cross.confirmations}/"
@@ -563,14 +568,8 @@ class SmartMoneyScanner:
             cross_exchange=cross.exchange if cross else None,
             cross_confirmations=cross.confirmations if cross else 0,
             cross_conflicts=cross.conflicts if cross else 0,
-            cross_price_divergence_bps=(
-                cross.price_divergence_bps if cross else None
-            ),
-            cross_summary=(
-                tuple(cross.reasons[:3] + cross.warnings[:2])
-                if cross
-                else ()
-            ),
+            cross_price_divergence_bps=(cross.price_divergence_bps if cross else None),
+            cross_summary=(tuple(cross.reasons[:3] + cross.warnings[:2]) if cross else ()),
             plan=plan_result.plan,
             distance_to_trigger_pct=distance_to_trigger_pct,
             prime_score=prime_score,
