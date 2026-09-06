@@ -609,7 +609,25 @@ def format_prime_setup(item) -> str:
         live_parts.append(f"burst {item.live_volume_burst_ratio:.2f}×")
     if item.live_oi_acceleration_pct_per_min is not None:
         live_parts.append(f"OI accel {item.live_oi_acceleration_pct_per_min:+.3f}%/мин")
-    live_line = " · ".join(live_parts) if live_parts else "основной live-поток ещё не разогнан"
+    live_line = (
+        " · ".join(live_parts)
+        if live_parts
+        else "основной live-поток ещё не разогнан"
+    )
+    if item.bias is Side.LONG:
+        wall_ratio = item.bid_wall_ratio
+        wall_seconds = item.bid_wall_persistence_seconds
+        replenishment = item.bid_replenishment_usdt_60s
+    else:
+        wall_ratio = item.ask_wall_ratio
+        wall_seconds = item.ask_wall_persistence_seconds
+        replenishment = item.ask_replenishment_usdt_60s
+    liquidity_line = (
+        f"wall {wall_ratio:.1f}×/{wall_seconds:.0f}с · "
+        f"replenishment ${replenishment:,.0f}/60с"
+        if wall_ratio is not None
+        else "устойчивая liquidity-wall пока не подтверждена"
+    )
 
     return (
         f"🎯 {side_icon} <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
@@ -622,6 +640,9 @@ def format_prime_setup(item) -> str:
         f"1h {html.escape(item.structure_1h)} · 4h {html.escape(item.structure_4h)}\n"
         f"RVOL {item.rvol:.2f}× · funding {item.funding_pct:+.3f}%\n"
         f"Spot: {html.escape(spot_line)}\n"
+        f"Liquidity: {html.escape(liquidity_line)}\n"
+        f"Liquidations 60с: LONG ${item.long_liquidation_usdt_60s:,.0f} · "
+        f"SHORT ${item.short_liquidation_usdt_60s:,.0f}\n"
         f"Live: {html.escape(live_line)}\n\n"
         f"<b>Почему PRIME</b>\n{reasons}\n\n"
         "Это ранний кандидат до очевидного импульса. Prime score — рейтинг качества, "
