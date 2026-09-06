@@ -41,6 +41,7 @@ from cryptopilot.storage import SignalStore
 from cryptopilot.telegram import (
     build_router,
     format_early_setup,
+    format_prime_setup,
     format_signal,
     main_keyboard,
     release_label,
@@ -255,85 +256,7 @@ async def run() -> None:
             if not symbol_allowed or not budget_allowed:
                 return
 
-            reasons = "\n".join(
-                f"• {html.escape(value)}" for value in item.prime_reasons
-            )
-            oi = (
-                f"{item.oi_change_pct:+.2f}%"
-                if item.oi_change_pct is not None
-                else "н/д"
-            )
-            flow_state = []
-            if item.live_delta_ratio_60s is not None:
-                flow_state.append(f"Δ60s {item.live_delta_ratio_60s:+.0%}")
-            if item.live_volume_burst_ratio is not None:
-                flow_state.append(f"burst {item.live_volume_burst_ratio:.2f}×")
-            if item.live_oi_acceleration_pct_per_min is not None:
-                flow_state.append(
-                    f"OI accel {item.live_oi_acceleration_pct_per_min:+.3f}%/мин"
-                )
-            flow_text = (
-                " · ".join(flow_state)
-                if flow_state
-                else "ещё нет достаточного live-потока"
-            )
-            spot_state = []
-            if item.spot_taker_buy_ratio is not None:
-                spot_state.append(f"spot BUY {item.spot_taker_buy_ratio:.0%}")
-            if item.spot_orderbook_imbalance is not None:
-                spot_state.append(f"book {item.spot_orderbook_imbalance:+.0%}")
-            if item.spot_block_trade_notional is not None:
-                spot_state.append(f"block ${item.spot_block_trade_notional:,.0f}")
-            if item.spot_perp_basis_bps is not None:
-                spot_state.append(f"perp/spot {item.spot_perp_basis_bps:+.1f} bps")
-            spot_text = (
-                " · ".join(spot_state)
-                if spot_state
-                else "нет доступного spot-подтверждения"
-            )
-            if item.bias.value == "LONG":
-                wall_ratio = item.bid_wall_ratio
-                wall_seconds = item.bid_wall_persistence_seconds
-                replenishment = item.bid_replenishment_usdt_60s
-            else:
-                wall_ratio = item.ask_wall_ratio
-                wall_seconds = item.ask_wall_persistence_seconds
-                replenishment = item.ask_replenishment_usdt_60s
-            wall_text = (
-                f"{wall_ratio:.1f}× / {wall_seconds:.0f}с · replenishment "
-                f"${replenishment:,.0f}/60с"
-                if wall_ratio is not None
-                else "ещё нет устойчивой стены"
-            )
-            liquidation_text = (
-                f"LONG ${item.long_liquidation_usdt_60s:,.0f} · "
-                f"SHORT ${item.short_liquidation_usdt_60s:,.0f}"
-            )
-
-            message_text = (
-                f"🎯 <b>{html.escape(item.symbol)} · PRIME PRE-MOVE</b>\n"
-                f"Сценарий: <b>{item.bias.value}</b> · Prime score: "
-                f"<b>{item.prime_score}/100</b>\n"
-                f"Цена сейчас: <code>{item.price:.8g}</code>\n"
-                f"Структурный trigger: <code>{item.trigger_price:.8g}</code> · "
-                f"до него {item.distance_to_trigger_pct:.2f}%\n"
-                f"Инвалидация сценария: <code>{item.invalidation_price:.8g}</code>\n"
-                f"Структура: 15m {html.escape(item.structure_15m)} · "
-                f"1h {html.escape(item.structure_1h)} · "
-                f"4h {html.escape(item.structure_4h)}\n"
-                f"Движение за ~15м: {item.recent_move_15m_pct:+.2f}%\n"
-                f"RVOL: {item.rvol:.2f}× · OI: {oi} · "
-                f"funding: {item.funding_pct:+.3f}%\n"
-                f"Spot: {html.escape(spot_text)}\n"
-                f"Liquidity: {html.escape(wall_text)}\n"
-                f"Liquidations 60с: {html.escape(liquidation_text)}\n"
-                f"Live: {html.escape(flow_text)}\n\n"
-                f"<b>Почему это TOP-кандидат до потока</b>\n{reasons}\n\n"
-                "🟢 Это редкий ранний кандидат: система специально требует, чтобы "
-                "цена ещё не ускорилась и основной поток не был разогнан. "
-                "Prime score — внутренний рейтинг, а не процент гарантии. "
-                "Если цена уже резко ушла, сообщение нельзя использовать для погони за входом."
-            )
+            message_text = format_prime_setup(item)
 
             successes = 0
             for chat_id in settings.allowed_chat_ids:
