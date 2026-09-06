@@ -9,11 +9,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from cryptopilot.config import Settings
+from cryptopilot.cross_exchange import CrossExchangeSnapshot, verify_cross_exchange
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.flow import FlowSnapshot, FlowTracker
 from cryptopilot.indicators import compute_features
 from cryptopilot.liquidity import LiquiditySnapshot, LiquidityTracker
-from cryptopilot.models import FeatureSet, Side, Ticker
+from cryptopilot.models import FeatureSet, Side, Ticker, TradePlan
+from cryptopilot.prime_plan import build_prime_plan
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +59,12 @@ class SmartMoneySetup:
     ask_replenishment_usdt_60s: float
     long_liquidation_usdt_60s: float
     short_liquidation_usdt_60s: float
+    cross_exchange: str | None
+    cross_confirmations: int
+    cross_conflicts: int
+    cross_price_divergence_bps: float | None
+    cross_summary: tuple[str, ...]
+    plan: TradePlan | None
     distance_to_trigger_pct: float
     prime_score: int
     prime_ready: bool
@@ -93,11 +101,13 @@ class SmartMoneyScanner:
         settings: Settings,
         flow_tracker: FlowTracker | None = None,
         liquidity_tracker: LiquidityTracker | None = None,
+        confirmation_exchange: ExchangeClient | None = None,
     ) -> None:
         self.exchange = exchange
         self.settings = settings
         self.flow_tracker = flow_tracker
         self.liquidity_tracker = liquidity_tracker
+        self.confirmation_exchange = confirmation_exchange
         self._lock = asyncio.Lock()
         self.last_report: SmartMoneyReport | None = None
         self._flow_watchlist: dict[str, tuple[Side, float]] = {}
@@ -109,6 +119,24 @@ class SmartMoneyScanner:
             errors: list[str] = []
             tickers = await self.exchange.tickers()
             universe = self._universe(tickers)
+            confirmation_map: dict[str, Ticker] = {}
+            if (
+                self.settings.prime_cross_exchange_enabled
+                and self.confirmation_exchange is not None
+            ):
+                try:
+                    confirmation_tickers = await self.confirmation_exchange.tickers()
+                    confirmation_map = {
+                        item.symbol: item for item in confirmation_tickers
+                    }
+                except Exception as exc:
+                    errors.append(
+                        f"{self.confirmation_exchange.name}: {type(exc).__name__}"
+                    )
+                    log.warning(
+                        "Cross-exchange ticker snapshot unavailable: %s",
+                        type(exc).__name__,
+                    )
 
             quick = await asyncio.gather(
                 *(self._quick(item) for item in universe),
@@ -146,7 +174,14 @@ class SmartMoneyScanner:
                     break
 
             deep = await asyncio.gather(
-                *(self._deep(ticker, feature15) for _, ticker, feature15 in candidates),
+                *(
+                    self._deep(
+                        ticker,
+                        feature15,
+                        confirmation_map.get(ticker.symbol),
+                    )
+                    for _, ticker, feature15 in candidates
+                ),
                 return_exceptions=True,
             )
             setups: list[SmartMoneySetup] = []
@@ -280,7 +315,12 @@ class SmartMoneyScanner:
             score += 4
         return max(0.0, score)
 
-    async def _deep(self, ticker: Ticker, feature15: FeatureSet) -> SmartMoneySetup | None:
+    async def _deep(
+        self,
+        ticker: Ticker,
+        feature15: FeatureSet,
+        confirmation_ticker: Ticker | None = None,
+    ) -> SmartMoneySetup | None:
         enriched, candles_1h, candles_4h, candles_5m = await asyncio.gather(
             self.exchange.enrich_ticker(ticker),
             self.exchange.candles(ticker.symbol, "60", 240),
@@ -318,6 +358,26 @@ class SmartMoneyScanner:
         if stage == "WATCH" and score < 65:
             return None
 
+        cross: CrossExchangeSnapshot | None = None
+        if (
+            self.settings.prime_cross_exchange_enabled
+            and self.confirmation_exchange is not None
+            and confirmation_ticker is not None
+        ):
+            try:
+                cross = await verify_cross_exchange(
+                    self.confirmation_exchange,
+                    confirmation_ticker,
+                    bias,
+                    feature15.close,
+                )
+            except Exception as exc:
+                log.debug(
+                    "Cross-exchange PRIME check unavailable for %s: %s",
+                    ticker.symbol,
+                    type(exc).__name__,
+                )
+
         trigger = feature15.range_high20 if bias is Side.LONG else feature15.range_low20
         invalidation = feature15.range_low20 if bias is Side.LONG else feature15.range_high20
         distance_to_trigger_pct = (
@@ -334,8 +394,53 @@ class SmartMoneyScanner:
             recent_move_15m_pct,
             self.settings,
         )
+
+        if cross is not None:
+            if (
+                cross.price_divergence_bps is not None
+                and cross.price_divergence_bps
+                > self.settings.prime_cross_exchange_max_price_divergence_bps
+            ):
+                prime_blockers.append(
+                    f"{cross.exchange}: цены расходятся на "
+                    f"{cross.price_divergence_bps:.1f} bps"
+                )
+            if cross.conflicts >= 2:
+                prime_blockers.append(
+                    f"{cross.exchange}: {cross.conflicts} независимых признака "
+                    "против сценария"
+                )
+            elif (
+                cross.confirmations
+                < self.settings.prime_cross_exchange_min_confirmations
+            ):
+                prime_blockers.append(
+                    f"{cross.exchange}: подтверждений только "
+                    f"{cross.confirmations}/"
+                    f"{self.settings.prime_cross_exchange_min_confirmations}"
+                )
+            else:
+                prime_score = min(100, prime_score + min(8, cross.confirmations * 2))
+                prime_reasons.append(
+                    f"{cross.exchange}: {cross.confirmations} независимых "
+                    "подтверждения того же сценария"
+                )
+                prime_reasons.extend(cross.reasons[:2])
+
+        plan_result = build_prime_plan(
+            bias,
+            feature15.close,
+            trigger,
+            candles_5m,
+            feature15,
+            self.settings,
+        )
+        prime_blockers.extend(plan_result.blockers)
         prime_ready = (
-            prime_score >= self.settings.prime_min_score and not prime_blockers and stage != "ENTRY"
+            prime_score >= self.settings.prime_min_score
+            and not prime_blockers
+            and stage != "ENTRY"
+            and plan_result.plan is not None
         )
         return SmartMoneySetup(
             symbol=ticker.symbol,
@@ -381,6 +486,18 @@ class SmartMoneyScanner:
             ask_replenishment_usdt_60s=(liquidity.ask_replenishment_usdt_60s if liquidity else 0.0),
             long_liquidation_usdt_60s=(liquidity.long_liquidation_usdt_60s if liquidity else 0.0),
             short_liquidation_usdt_60s=(liquidity.short_liquidation_usdt_60s if liquidity else 0.0),
+            cross_exchange=cross.exchange if cross else None,
+            cross_confirmations=cross.confirmations if cross else 0,
+            cross_conflicts=cross.conflicts if cross else 0,
+            cross_price_divergence_bps=(
+                cross.price_divergence_bps if cross else None
+            ),
+            cross_summary=(
+                tuple(cross.reasons[:3] + cross.warnings[:2])
+                if cross
+                else ()
+            ),
+            plan=plan_result.plan,
             distance_to_trigger_pct=distance_to_trigger_pct,
             prime_score=prime_score,
             prime_ready=prime_ready,
