@@ -40,6 +40,7 @@ def settings() -> Settings:
         telegram_chat_id="1",
         min_volume_usdt=1_000_000,
         timeframes="15,60,240",
+        main_scan_premove_only=False,
     )
 
 
@@ -104,3 +105,76 @@ def test_engine_rejects_illiquid_market(candle_factory) -> None:
 
     assert signal.side is Side.NO_TRADE
     assert any("ликвидности" in reason for reason in signal.blockers)
+
+
+def test_premove_gate_rejects_already_expanded_execution(candle_factory) -> None:
+    from dataclasses import replace
+
+    from cryptopilot.indicators import compute_features
+
+    config = Settings(
+        _env_file=None,
+        telegram_bot_token="test",
+        telegram_chat_id="1",
+        min_volume_usdt=1_000_000,
+        main_scan_premove_only=True,
+        main_scan_min_premove_readiness=50,
+    )
+    engine = SignalEngine(config)
+    execution = compute_features(candle_factory(interval="15", direction=1))
+    primary = compute_features(candle_factory(interval="60", direction=1))
+    structural = compute_features(candle_factory(interval="240", direction=1))
+    execution = replace(
+        execution,
+        breakout_up=True,
+        relative_volume20=1.9,
+        range_high20=execution.close * 1.002,
+        range_position20=0.95,
+        supertrend_direction=1,
+    )
+    primary = replace(primary, breakout_up=False, breakout_down=False, supertrend_direction=1)
+    structural = replace(structural, supertrend_direction=1)
+    market = replace(
+        ticker(),
+        last=execution.close,
+        bid=execution.close * 0.9999,
+        ask=execution.close * 1.0001,
+        open_interest_change_pct=1.0,
+        taker_buy_ratio=0.60,
+    )
+
+    _, _, _, _, _, blockers = engine._main_premove_score(
+        Side.LONG,
+        execution,
+        primary,
+        structural,
+        market,
+        candle_factory(interval="15", direction=1),
+    )
+
+    assert any("пробой" in item.lower() or "rvol" in item.lower() for item in blockers)
+
+
+def test_quick_opportunity_score_penalizes_price_expansion(candle_factory) -> None:
+    from dataclasses import replace
+
+    config = Settings(
+        _env_file=None,
+        telegram_bot_token="test",
+        telegram_chat_id="1",
+    )
+    engine = SignalEngine(config)
+    base = candle_factory(interval="15", direction=0)
+    expanded = list(base)
+    last = expanded[-1]
+    expanded[-1] = replace(
+        last,
+        open=last.open,
+        high=last.high * 1.12,
+        low=last.low,
+        close=last.close * 1.10,
+        volume=last.volume * 8,
+        turnover=last.turnover * 8,
+    )
+
+    assert engine.quick_opportunity_score(expanded) < engine.quick_opportunity_score(base)
