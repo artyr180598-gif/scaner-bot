@@ -284,7 +284,11 @@ class LiveRadar:
                     for s in self.candidates()[:20]
                     if s.actionable and s.expires_at > now
                 }
-                flow_map = self.flow_candidates() if self.flow_enabled and self.flow_candidates else {}
+                flow_map = (
+                    self.flow_candidates()
+                    if self.flow_enabled and self.flow_candidates
+                    else {}
+                )
                 stream_symbols = set(setups) | set(flow_map)
                 desired_topics = {f"publicTrade.{s}" for s in stream_symbols}
                 if self.flow_enabled:
@@ -382,7 +386,11 @@ class LiveRadar:
                             self.dropped += 1
                             log.warning("Live radar queue full; dropping event")
 
-                if self.flow_enabled and self.flow_tracker is not None and self.settings is not None:
+                if (
+                    self.flow_enabled
+                    and self.flow_tracker is not None
+                    and self.settings is not None
+                ):
                     candidate = flow_map.get(symbol)
                     if candidate is not None:
                         bias, trigger_price = candidate
