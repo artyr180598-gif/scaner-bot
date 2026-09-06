@@ -35,12 +35,12 @@ from cryptopilot.smart_money import (
 )
 from cryptopilot.storage import SignalStore
 
-SCAN = "🔎 Сканировать рынок"
+SCAN = "🔎 Лучшие до движения"
 ANALYZE = "🪙 Анализ монеты"
 EARLY = "⚡ До импульса"
 SMART_MONEY = "🐋 Крупный капитал"
 PRIME = "🎯 PRIME поиск"
-BEST = "⭐ Лучшие сигналы"
+BEST = "⭐ Лучший сейчас"
 BACKTEST = "📊 Бэктест"
 STATUS = "⚙️ Статус"
 PERFORMANCE = "📈 Результаты"
@@ -109,9 +109,9 @@ def build_router(
         await state.clear()
         await message.answer(
             f"<b>CryptoPilot {html.escape(release_label())}</b>\n\n"
-            "Я сканирую ликвидные USDT‑фьючерсы, подтверждаю идею на нескольких "
-            "таймфреймах и показываю только планы с контролируемым риском. "
-            "Автоторговли нет: ордера я не размещаю.\n\n"
+            "Я сканирую ликвидные USDT‑фьючерсы и во всех основных режимах сначала "
+            "ищу подготовку движения ДО разгона цены. Уже пробитые/улетевшие сценарии "
+            "понижаются или скрываются. Автоторговли нет: ордера я не размещаю.\n\n"
             "Нажмите кнопку ниже.",
             reply_markup=main_keyboard(),
         )
@@ -128,7 +128,9 @@ def build_router(
     @router.message(F.text == SCAN)
     async def scan(message: Message, state: FSMContext) -> None:
         await state.clear()
-        progress = await message.answer("⏳ Проверяю ликвидность и делаю многофакторный анализ…")
+        progress = await message.answer(
+            "⏳ PRE-MOVE скан: ищу сжатие, поджатие к trigger, OI и направление до ускорения…"
+        )
         try:
             report = await scanner.scan_market()
             health.scans_total += 1
@@ -163,7 +165,7 @@ def build_router(
     async def smart_money_scan(message: Message, state: FSMContext) -> None:
         await state.clear()
         progress = await message.answer(
-            "⏳ Ищу совпадение структуры, RVOL, OI и агрессивного потока сделок…"
+            "⏳ Smart Money PRE-MOVE: ищу структуру, OI, spot/flow и поджатие до пробоя…"
         )
         try:
             report = await smart_money.scan()
@@ -210,7 +212,7 @@ def build_router(
     async def analyze_command(message: Message, state: FSMContext) -> None:
         symbol = command_argument(message.text)
         if symbol:
-            await run_analysis(message, scanner, symbol)
+            await run_analysis(message, scanner, smart_money, symbol)
         else:
             await state.set_state(InputState.analysis_symbol)
             await message.answer(
@@ -225,7 +227,7 @@ def build_router(
     @router.message(InputState.analysis_symbol)
     async def analyze_input(message: Message, state: FSMContext) -> None:
         await state.clear()
-        await run_analysis(message, scanner, message.text or "")
+        await run_analysis(message, scanner, smart_money, message.text or "")
 
     @router.message(Command("backtest"))
     async def backtest_command(message: Message, state: FSMContext) -> None:
@@ -251,19 +253,44 @@ def build_router(
     @router.message(Command("best"))
     @router.message(F.text == BEST)
     async def best(message: Message) -> None:
-        rows = await store.recent(8, actionable_only=True)
-        if not rows:
-            await message.answer("Пока нет сохранённых торговых планов. Запустите сканирование.")
-            return
-        lines = ["<b>Последние найденные планы</b>"]
-        for row in rows:
-            icon = "🟢" if row["side"] == "LONG" else "🔴"
-            created = datetime.fromisoformat(row["created_at"]).astimezone(UTC)
-            lines.append(
-                f"{icon} <b>{html.escape(row['symbol'])}</b> {row['side']} · "
-                f"{row['confidence']}/100 · {created:%d.%m %H:%M} UTC"
+        progress = await message.answer(
+            "⏳ Ищу один лучший актуальный PRE-MOVE вариант прямо сейчас…"
+        )
+        try:
+            smart_report = await smart_money.scan()
+            prime = smart_money.prime_candidates()
+            if prime:
+                await progress.edit_text(
+                    "🎯 <b>Лучший вариант сейчас — PRIME</b>\n"
+                    "Он прошёл самый строгий набор ранних фильтров."
+                )
+                await message.answer(format_prime_setup(prime[0]))
+                return
+            if smart_report.setups:
+                await progress.edit_text(
+                    "🟡 <b>PRIME пока нет.</b> Ниже лучший ранний Smart Money кандидат; "
+                    "это наблюдение, а не готовый вход."
+                )
+                await message.answer(format_smart_money_setup(smart_report.setups[0]))
+                return
+            early_report = await scanner.scan_early_moves()
+            if early_report.setups:
+                await progress.edit_text(
+                    "🔵 <b>Сильного Smart Money подтверждения пока нет.</b> "
+                    "Ниже лучший ранний кандидат по сжатию."
+                )
+                await message.answer(format_early_setup(early_report.setups[0]))
+                return
+            await progress.edit_text(
+                "⚪ <b>NO TRADE</b>\n"
+                "Сейчас нет варианта, который стоит показывать до движения. "
+                "Бот не подменяет отсутствие сетапа поздним сигналом."
             )
-        await message.answer("\n".join(lines))
+        except Exception as exc:
+            health.last_error = str(exc)
+            await progress.edit_text(
+                f"⚠️ Поиск лучшего варианта не завершён: {html.escape(str(exc))}"
+            )
 
     @router.message(Command("performance"))
     @router.message(F.text == PERFORMANCE)
@@ -294,9 +321,11 @@ def build_router(
             f"Версия: <code>{html.escape(release_label())}</code>\n"
             f"Telegram: ✅ @{html.escape(health.bot_username)}\n"
             f"{exchange.name} API: {'✅' if api_ok else '❌'}\n"
-            f"Автомониторинг: ✅ каждые {settings.scan_interval_seconds // 60} мин\n"
-            f"Автопорог: LONG {settings.min_auto_confidence}/100 · "
-            f"SHORT {settings.min_auto_confidence_short}/100\n"
+            f"Фоновый контроль: ✅ каждые {settings.scan_interval_seconds // 60} мин\n"
+            f"Обычные trend-auto алерты: "
+            f"{'✅' if settings.standard_auto_alerts_enabled else '❌ (PRIME-first)'}\n"
+            f"PRE-MOVE режим основного скана: "
+            f"{'✅' if settings.main_scan_premove_only else '❌'}\n"
             f"Ранний радар: "
             f"{'авто-наблюдения' if settings.early_auto_alerts else 'только вручную'}\n"
             f"PRIME: cross-exchange "
@@ -318,6 +347,7 @@ def build_router(
             "• Стоп нельзя отодвигать после входа. Размер позиции уже ограничен заданным риском.\n"
             "• Ступени 50/30/20 — не мартингейл: добавляться можно только до отмены сценария.\n"
             "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
+            "• Уже разогнанная цена не превращается в сигнал: такой сценарий блокируется как поздний.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
             "Команды: /menu, /scan, /early, /smartmoney, /prime, /analyze BTC, "
             "/backtest BTC, /best, /primestats, "
@@ -330,13 +360,31 @@ def build_router(
     return router
 
 
-async def run_analysis(message: Message, scanner: MarketScanner, raw_symbol: str) -> None:
+async def run_analysis(
+    message: Message,
+    scanner: MarketScanner,
+    smart_money: SmartMoneyScanner,
+    raw_symbol: str,
+) -> None:
     symbol = normalize_symbol(raw_symbol)
     if not symbol:
         await message.answer("Не удалось распознать тикер. Пример: <code>BTC</code>.")
         return
-    progress = await message.answer(f"⏳ Анализирую <b>{html.escape(symbol)}</b>…")
+    progress = await message.answer(
+        f"⏳ PRE-MOVE анализ <b>{html.escape(symbol)}</b>: сначала проверяю PRIME/Smart Money…"
+    )
     try:
+        smart_setup = await smart_money.analyze_symbol(symbol)
+        if smart_setup is not None and smart_setup.prime_ready:
+            await progress.edit_text(format_prime_setup(smart_setup))
+            return
+        if smart_setup is not None and smart_setup.stage != "ENTRY":
+            await progress.edit_text(
+                format_smart_money_setup(smart_setup)
+                + "\n\n⚪ Точный PRIME-план пока не выдан: "
+                "для входа не хватает части строгих подтверждений."
+            )
+            return
         signal = await scanner.analyze_symbol(symbol)
         await progress.edit_text(format_signal(signal))
     except Exception as exc:
@@ -471,9 +519,19 @@ def format_signal(signal: Signal) -> str:
         or "• Явных дополнительных рисков модель не выделила"
     )
     calibration = _format_signal_calibration(signal)
+    premove = signal.market_context.get("premove_readiness")
+    trigger = signal.market_context.get("premove_trigger")
+    trigger_distance = signal.market_context.get("premove_trigger_distance_pct")
+    premove_line = ""
+    if premove is not None and trigger is not None and trigger_distance is not None:
+        premove_line = (
+            f"PRE-MOVE: <b>{premove:.0f}/100</b> · "
+            f"trigger <code>{price(trigger)}</code> · до него {trigger_distance:.2f}%\n"
+        )
     return (
         f"{icon} <b>{html.escape(signal.symbol)} · {signal.side.value}</b>\n"
         f"Биржа: {signal.exchange} · BTC regime: {signal.regime}\n"
+        f"{premove_line}"
         f"Качество сетапа: <b>{signal.confidence}/100</b> · "
         f"автопорог {signal.required_confidence}/100\n"
         f"{calibration}\n"
@@ -507,14 +565,14 @@ def format_scan(report: ScanReport, manual_threshold: int) -> str:
     qualified = [item for item in report.signals if item.confidence >= manual_threshold]
     duration = (report.finished_at - report.started_at).total_seconds()
     return (
-        "<b>Сканирование завершено</b>\n"
+        "<b>PRE-MOVE сканирование завершено</b>\n"
         f"Биржа: {report.exchange}\n"
         f"Ликвидный universe: {report.universe_count}\n"
         f"Глубоко проверено: {report.analyzed_count}\n"
         f"Планов от {manual_threshold}/100: {len(qualified)}\n"
         f"Время: {duration:.1f} сек\n\n"
         + (
-            "Ниже отправляю лучшие варианты."
+            "Ниже отправляю только варианты, где основной импульс ещё не должен быть реализован."
             if qualified
             else "Сейчас чистых сетапов нет — NO TRADE."
         )
