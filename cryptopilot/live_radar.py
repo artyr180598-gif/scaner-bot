@@ -168,6 +168,7 @@ class LiveRadar:
         self.settings = settings
         self.flow_queue: asyncio.Queue[FlowPressureEvent] = asyncio.Queue(maxsize=20)
         self.flow_delivered = 0
+        self.flow_observed = 0
         self.flow_dropped = 0
         self._flow_validation_active: dict[int, ActiveFlowValidation] = {}
 
@@ -199,16 +200,14 @@ class LiveRadar:
     async def deliver_flow(self, event: FlowPressureEvent) -> None:
         assert self.settings is not None
         assert self.send_flow is not None
-        allowed = await self.store.should_alert_event(
+        allowed = await self.store.strict_alert_allowed(
             event.fingerprint,
-            event.price,
             self.settings.flow_alert_cooldown_minutes,
         )
         if not allowed:
             self.flow_dropped += 1
             return
-        await asyncio.wait_for(self.send_flow(event), timeout=5)
-        await self.store.mark_event_alerted(event.fingerprint, event.price)
+
         if self.settings.flow_validation_enabled:
             observation_id = await self.store.record_flow_observation(
                 symbol=event.symbol,
@@ -232,8 +231,29 @@ class LiveRadar:
                         + self.settings.flow_validation_window_minutes * 60_000
                     ),
                 )
-        self.flow_delivered += 1
-        log.info("Flow radar delivered %s score=%d", event.symbol, event.score)
+
+        await self.store.mark_event_alerted(event.fingerprint, event.price)
+        self.flow_observed += 1
+
+        if self.settings.flow_auto_alerts_enabled:
+            budget = await self.store.notification_budget_available(
+                "flow",
+                cooldown_minutes=self.settings.flow_global_cooldown_minutes,
+                max_per_day=self.settings.flow_max_alerts_per_day,
+            )
+            if budget:
+                await asyncio.wait_for(self.send_flow(event), timeout=5)
+                await self.store.mark_notification_budget("flow")
+                self.flow_delivered += 1
+                log.info("Flow radar notified %s score=%d", event.symbol, event.score)
+                return
+
+        log.info(
+            "Flow radar observed silently %s score=%d auto_alerts=%s",
+            event.symbol,
+            event.score,
+            self.settings.flow_auto_alerts_enabled,
+        )
 
     async def _resolve_live_flow_validation(
         self,
