@@ -30,7 +30,7 @@ from cryptopilot.models import (
 )
 from cryptopilot.prime_delivery import refresh_prime_entry
 from cryptopilot.scanner import MarketScanner
-from cryptopilot.smart_money import SmartMoneyScanner
+from cryptopilot.smart_money import SmartMoneyScanner, format_smart_money_setup
 from cryptopilot.storage import SignalStore
 
 UNIFIED = "🎯 Единый поиск"
@@ -136,47 +136,149 @@ def build_router(
     async def unified_search(message: Message, state: FSMContext) -> None:
         await state.clear()
         if search_lock.locked():
-            await message.answer("Поиск уже идёт. Дождитесь общего результата.")
+            await message.answer(
+                "⏳ Поиск уже идёт. Я не запускаю второй тяжёлый скан параллельно; "
+                "результат первого появится автоматически."
+            )
             return
         async with search_lock:
             progress = await message.answer(
-                "⏳ Единый поиск: ранний отбор → PRIME-проверки → свежая цена.\n"
-                "На сканирование — до 60 секунд, включая ожидание фонового поиска.",
+                "⏳ Единый поиск запущен.\n"
+                "1/3 — сканирую ликвидный рынок на подготовку ДО импульса.",
                 reply_markup=main_keyboard(),
             )
+            scan_task = asyncio.create_task(smart_money.scan())
+            started = asyncio.get_running_loop().time()
+            report = None
+            used_cached = False
             try:
-                report = await smart_money.scan()
-                health.scans_total += 1
-                candidates = smart_money.prime_candidates()
-                await progress.edit_text(
-                    f"🎯 <b>Единый поиск · {report.finished_at:%H:%M:%S} UTC</b>\n"
-                    f"Монет в отборе: {report.universe_count} · "
-                    f"глубоко проверено: {report.analyzed_count} · "
-                    f"ошибок данных: {len(report.errors)}\n"
-                    "PRIME и «Крупный капитал» теперь используют один результат. "
-                    "Рейтинг не является вероятностью прибыли."
-                )
-                if not candidates:
-                    await message.answer(
-                        "⚪ <b>NO TRADE — подтверждённого PRIME-входа нет.</b>\n"
-                        "Ранний радар доступен для наблюдения; его кандидаты не являются входами."
+                while report is None:
+                    done, _ = await asyncio.wait({scan_task}, timeout=8)
+                    if scan_task in done:
+                        report = scan_task.result()
+                        break
+                    elapsed = int(asyncio.get_running_loop().time() - started)
+                    preselected = smart_money.flow_watchlist()
+                    stage = (
+                        "2/3 — глубокая PRIME-проверка лучших кандидатов"
+                        if preselected
+                        else "1/3 — ранний отбор ещё продолжается"
                     )
-                    return
+                    try:
+                        await progress.edit_text(
+                            f"⏳ {stage}.\n"
+                            f"Прошло {elapsed} сек · под live-наблюдением: "
+                            f"{len(preselected)} монет."
+                        )
+                    except Exception:
+                        pass
+                    if elapsed >= 36:
+                        scan_task.cancel()
+                        scan_task.add_done_callback(_consume_background_task)
+                        cached = smart_money.last_report
+                        if cached is not None:
+                            age = (datetime.now(UTC) - cached.finished_at).total_seconds()
+                            if 0 <= age <= 300:
+                                report = cached
+                                used_cached = True
+                                break
+                        preview = smart_money.flow_watchlist()
+                        health.last_error = "manual PRIME search exceeded 36 seconds"
+                        text = (
+                            "⚠️ Глубокий скан не завершился вовремя, поэтому я не оставляю "
+                            "сообщение висеть бесконечно.\n"
+                            "Торговый вход не подтверждён."
+                        )
+                        try:
+                            await progress.edit_text(text)
+                        except Exception:
+                            await message.answer(text)
+                        if preview:
+                            await message.answer(format_flow_watchlist_preview(preview))
+                        return
+
+                health.scans_total += 1
+                fresh_age = max(
+                    0,
+                    int((datetime.now(UTC) - report.finished_at).total_seconds()),
+                )
+                source = (
+                    f"резервный кэш {fresh_age} сек"
+                    if used_cached
+                    else "свежий скан"
+                )
+                candidates = tuple(
+                    sorted(
+                        (item for item in report.setups if item.prime_ready),
+                        key=lambda item: (item.prime_score, item.score),
+                        reverse=True,
+                    )
+                )
+                summary = (
+                    f"🎯 <b>Единый поиск · {report.finished_at:%H:%M:%S} UTC</b>\n"
+                    f"Источник: {source} · рынок: {report.universe_count} · "
+                    f"глубоко: {report.analyzed_count} · ошибок данных: {len(report.errors)}\n"
+                    f"PRIME-ready: {len(candidates)} · PRE-MOVE наблюдений: "
+                    f"{len(report.setups)}."
+                )
+                try:
+                    await progress.edit_text(summary)
+                except Exception:
+                    await message.answer(summary)
+
+                delivered = 0
                 for item in candidates[:3]:
                     checked = await refresh_prime_entry(item, exchange, settings)
                     await message.answer(format_prime_setup(checked))
+                    delivered += int(checked.prime_ready)
+
+                if delivered:
+                    return
+
+                prepare = [
+                    item
+                    for item in report.setups
+                    if not item.prime_ready and item.stage in {"ARMED", "WATCH"}
+                ][:3]
+                if prepare:
+                    await message.answer(
+                        "🟡 <b>Строгого PRIME-входа сейчас нет, но бот нашёл "
+                        "подготовку ДО импульса.</b>\n"
+                        "Это watchlist: ждём усиления OI/Spot/Flow, не догоняем цену."
+                    )
+                    for item in prepare:
+                        await message.answer(format_smart_money_setup(item))
+                    return
+
+                preview = smart_money.flow_watchlist()
+                if preview:
+                    await message.answer(format_flow_watchlist_preview(preview))
+                else:
+                    await message.answer(
+                        "⚪ <b>NO TRADE</b> — сейчас нет достаточно чистой подготовки "
+                        "до движения. Бот продолжает фоновый поиск и не подменяет "
+                        "отсутствие сетапа поздним сигналом."
+                    )
             except TimeoutError:
-                health.last_error = "PRIME scan exceeded 60 seconds"
-                await progress.edit_text(
-                    "⚠️ Биржевые запросы или очередь сканирования не уложились в 60 секунд.\n"
-                    "Поиск остановлен, вход не подтверждён. Это сбой получения данных, "
-                    "а не результат «подходящих монет нет». Фоновый поиск попробует снова."
+                health.last_error = "PRIME scan hard deadline"
+                text = (
+                    "⚠️ PRIME-скан остановлен по жёсткому дедлайну. "
+                    "Бот продолжит фоновый поиск; зависшего сообщения больше не будет."
                 )
+                try:
+                    await progress.edit_text(text)
+                except Exception:
+                    await message.answer(text)
             except Exception as exc:
                 health.last_error = type(exc).__name__
-                await progress.edit_text(
-                    "⚠️ Поиск не завершён. Вход не подтверждён: " + html.escape(type(exc).__name__)
+                text = (
+                    "⚠️ Поиск не завершён. Вход не подтверждён: "
+                    + html.escape(type(exc).__name__)
                 )
+                try:
+                    await progress.edit_text(text)
+                except Exception:
+                    await message.answer(text)
 
     @router.message(Command("early"))
     @router.message(F.text == EARLY)
