@@ -98,6 +98,16 @@ class Settings(BaseSettings):
     early_setup_expiry_minutes: int = Field(default=720, ge=60, le=2_880)
     early_min_squeeze_bars: int = Field(default=2, ge=1, le=20)
 
+    smart_money_auto_scan_enabled: bool = True
+    smart_money_scan_interval_seconds: int = Field(default=300, ge=120, le=3600)
+    flow_radar_enabled: bool = True
+    flow_min_notional_60s: float = Field(default=20_000, ge=1_000, le=50_000_000)
+    flow_delta_ratio_threshold: float = Field(default=0.16, ge=0.05, le=0.8)
+    flow_volume_burst_ratio: float = Field(default=1.4, ge=1.0, le=10.0)
+    flow_min_oi_change_pct_2m: float = Field(default=0.10, ge=0.0, le=20.0)
+    flow_min_alert_score: int = Field(default=70, ge=50, le=95)
+    flow_alert_cooldown_minutes: int = Field(default=90, ge=15, le=1440)
+
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
     max_position_pct: float = Field(default=25, gt=0, le=100)
