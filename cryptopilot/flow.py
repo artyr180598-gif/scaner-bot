@@ -309,12 +309,9 @@ class FlowTracker:
             return None
         if snapshot.notional_60s < min_notional_60s:
             return None
-        if (
-            max_spread_bps is not None
-            and snapshot.spread_bps is not None
-            and snapshot.spread_bps > max_spread_bps
-        ):
-            return None
+        if max_spread_bps is not None:
+            if snapshot.spread_bps is None or snapshot.spread_bps > max_spread_bps:
+                return None
         if trigger_price <= 0 or snapshot.price <= 0:
             return None
 
@@ -326,6 +323,8 @@ class FlowTracker:
             return None
         distance_pct = abs(snapshot.price / trigger_price - 1) * 100
         if distance_pct > 1.5:
+            return None
+        if snapshot.price_change_60s_pct is not None and abs(snapshot.price_change_60s_pct) > 0.25:
             return None
 
         direction = 1.0 if bullish else -1.0
@@ -401,6 +400,33 @@ class FlowTracker:
         elif distance_pct <= 1.0:
             score += 6
 
+        # A high raw score is not enough. FLOW_BUILDUP must have fresh directional
+        # delta + 5m CVD + volume acceleration + OI expansion. Absorption is allowed
+        # to have opposite 60s delta, but still needs rising OI and non-collapsing flow.
+        if event_type == "FLOW_BUILDUP":
+            if (
+                directional_delta < delta_threshold
+                or directional_cvd < 0.08
+                or burst is None
+                or burst < burst_threshold
+                or oi_change is None
+                or oi_change < min_oi_change_pct
+            ):
+                return None
+        else:
+            if (
+                not matching_absorption
+                or burst is None
+                or burst < 0.90
+                or oi_change is None
+                or oi_change < min_oi_change_pct
+            ):
+                return None
+            if directional_cvd < -0.08 and not (
+                acceleration is not None and acceleration >= 0.03
+            ):
+                return None
+
         funding_pct = snapshot.funding_pct
         if funding_pct is not None:
             directional_funding = funding_pct if bullish else -funding_pct
@@ -411,8 +437,8 @@ class FlowTracker:
                 )
 
         score = max(0, min(score, 100))
-        # Avoid a one-metric alert: require independent agreement even with a high raw score.
-        if confirmations < 3:
+        # Require broad confluence; the screenshots showed that 3 confirmations were too loose.
+        if confirmations < 4:
             return None
 
         key = f"{symbol.upper()}:{bias.value}:{event_type}"
