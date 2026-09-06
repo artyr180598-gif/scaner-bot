@@ -70,6 +70,16 @@ async def run() -> None:
         settings.http_timeout_seconds,
         settings.request_concurrency,
     )
+    confirmation_exchange = None
+    if settings.prime_cross_exchange_enabled:
+        confirmation_name = "binance" if settings.exchange == "bybit" else "bybit"
+        confirmation_exchange = build_exchange(
+            confirmation_name,
+            settings.bybit_base_url,
+            settings.binance_base_url,
+            settings.http_timeout_seconds,
+            max(2, settings.request_concurrency // 2),
+        )
     store = SignalStore(settings.database_path)
     await store.initialize()
     engine = SignalEngine(settings)
@@ -81,6 +91,7 @@ async def run() -> None:
         settings,
         flow_tracker,
         liquidity_tracker,
+        confirmation_exchange,
     )
     flow_validator = (
         FlowForwardValidator(exchange, store, settings)
@@ -188,7 +199,7 @@ async def run() -> None:
                 await bot.send_message(
                     chat_id,
                     f"✅ <b>CryptoPilot {release_label()} запущен</b>\n"
-                    "Режим PRIME: редкие pre-move кандидаты; обычный Flow анализируется тихо.\n"
+                    "Режим PRIME: pre-move + Spot + liquidity + cross-exchange + торговый план.\n"
                     "Если панель скрыта, отправьте /menu.",
                     reply_markup=main_keyboard(),
                     disable_notification=True,
@@ -519,6 +530,8 @@ async def run() -> None:
         await dispatcher.storage.close()
         await bot.session.close()
         await exchange.close()
+        if confirmation_exchange is not None:
+            await confirmation_exchange.close()
         await health_runner.cleanup()
         log.info("CryptoPilot stopped")
 
