@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     standard_auto_alerts_enabled: bool = False
     main_scan_premove_only: bool = True
     main_scan_min_premove_readiness: int = Field(default=72, ge=50, le=95)
-    main_scan_min_trigger_distance_pct: float = Field(default=0.12, ge=0.03, le=2.0)
+    main_scan_min_trigger_distance_pct: float = Field(default=0.08, ge=0.03, le=2.0)
     main_scan_max_trigger_distance_pct: float = Field(default=1.40, ge=0.20, le=5.0)
     main_scan_max_recent_move_pct: float = Field(default=0.45, ge=0.05, le=3.0)
     main_scan_max_execution_rvol: float = Field(default=1.55, ge=0.8, le=4.0)
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     early_radar_enabled: bool = True
     live_radar_enabled: bool = True
     squeeze_lab_enabled: bool = True
-    live_watchlist_interval_seconds: int = Field(default=180, ge=60, le=3600)
+    live_watchlist_interval_seconds: int = Field(default=120, ge=60, le=3600)
     early_auto_alerts: bool = False
     min_early_readiness: int = Field(default=68, ge=50, le=95)
     min_early_auto_readiness: int = Field(default=80, ge=55, le=95)
@@ -106,11 +106,11 @@ class Settings(BaseSettings):
     early_min_squeeze_bars: int = Field(default=2, ge=1, le=20)
 
     smart_money_auto_scan_enabled: bool = True
-    smart_money_scan_interval_seconds: int = Field(default=180, ge=120, le=3600)
+    smart_money_scan_interval_seconds: int = Field(default=120, ge=120, le=3600)
     smart_money_include_post_breakout: bool = False
     flow_radar_enabled: bool = True
     flow_auto_alerts_enabled: bool = False
-    flow_watchlist_limit: int = Field(default=8, ge=3, le=20)
+    flow_watchlist_limit: int = Field(default=16, ge=3, le=20)
     flow_min_notional_60s: float = Field(default=35_000, ge=1_000, le=50_000_000)
     flow_delta_ratio_threshold: float = Field(default=0.20, ge=0.05, le=0.8)
     flow_volume_burst_ratio: float = Field(default=1.5, ge=1.0, le=10.0)
@@ -134,7 +134,12 @@ class Settings(BaseSettings):
     prime_global_cooldown_minutes: int = Field(default=180, ge=30, le=1440)
     prime_symbol_cooldown_minutes: int = Field(default=720, ge=60, le=10_080)
     prime_max_alerts_per_day: int = Field(default=3, ge=1, le=20)
-    prime_min_trigger_distance_pct: float = Field(default=0.25, ge=0.05, le=2.0)
+    prepare_alerts_enabled: bool = True
+    prepare_min_score: int = Field(default=80, ge=70, le=95)
+    prepare_global_cooldown_minutes: int = Field(default=60, ge=15, le=1440)
+    prepare_symbol_cooldown_minutes: int = Field(default=240, ge=30, le=10_080)
+    prepare_max_alerts_per_day: int = Field(default=4, ge=1, le=20)
+    prime_min_trigger_distance_pct: float = Field(default=0.08, ge=0.05, le=2.0)
     prime_max_trigger_distance_pct: float = Field(default=1.20, ge=0.20, le=5.0)
     prime_max_price_move_60s_pct: float = Field(default=0.12, ge=0.02, le=2.0)
     prime_max_directional_move_15m_pct: float = Field(default=0.35, ge=0.05, le=3.0)
@@ -153,7 +158,7 @@ class Settings(BaseSettings):
     prime_max_directional_liquidation_ratio: float = Field(default=0.25, ge=0.05, le=2.0)
 
     prime_cross_exchange_enabled: bool = True
-    prime_cross_exchange_required: bool = True
+    prime_cross_exchange_required: bool = False
     prime_cross_exchange_min_confirmations: int = Field(default=2, ge=1, le=4)
     prime_cross_exchange_max_price_divergence_bps: float = Field(
         default=35.0, ge=5.0, le=200.0
