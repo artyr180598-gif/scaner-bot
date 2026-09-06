@@ -177,6 +177,9 @@ def test_websocket_feeds_public_trade_and_ticker_into_flow_tracker():
                     "lastPrice": "99.90",
                     "openInterest": "10000",
                     "openInterestValue": "999000",
+                    "bid1Price": "99.89",
+                    "ask1Price": "99.91",
+                    "fundingRate": "0.0001",
                 },
             },
             {
@@ -237,6 +240,9 @@ def test_websocket_feeds_public_trade_and_ticker_into_flow_tracker():
         assert snapshot is not None
         assert snapshot.delta_ratio_60s == 1.0
         assert snapshot.notional_60s > 2_000
+        assert snapshot.spread_bps is not None
+        assert snapshot.spread_bps < 12
+        assert snapshot.funding_pct == 0.01
 
     asyncio.run(check())
 
