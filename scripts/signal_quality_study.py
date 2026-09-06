@@ -75,8 +75,8 @@ def summarize(rows):
     return out
 
 
-def run(extra_filters=None, output_path="signal_quality_results.json"):
-    btc = load("BTCUSDT")
+def run(extra_filters=None, output_path="signal_quality_results.json", loader=load):
+    btc = loader("BTCUSDT")
     btc4 = aggregate_candles(btc, 240)
     fb = feature_arrays(btc4)
     btc_times = [c.open_time_ms + 14400000 for c in btc4]
@@ -89,7 +89,7 @@ def run(extra_filters=None, output_path="signal_quality_results.json"):
     if extra_filters is not None:
         records = {name: [] for name in extra_filters}
     for symbol in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]:
-        bars = btc if symbol == "BTCUSDT" else load(symbol)
+        bars = btc if symbol == "BTCUSDT" else loader(symbol)
         h1 = aggregate_candles(bars, 60)
         h4 = aggregate_candles(bars, 240)
         f = feature_arrays(bars)
