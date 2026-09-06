@@ -77,7 +77,7 @@ def test_pre_bos_pressure_requires_confluence_and_stays_before_trigger() -> None
         tracker.pressure_event(
             "TESTUSDT",
             Side.LONG,
-            99.80,
+            99.78,
             min_notional_60s=1_000,
             delta_threshold=0.16,
             burst_threshold=1.4,
