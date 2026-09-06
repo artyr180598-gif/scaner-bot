@@ -147,8 +147,9 @@ class SignalEngine:
         if distance_from_ema > 1.4:
             blockers.append("Цена уже слишком далеко ушла от EMA20")
         if execution.breakout_up or execution.breakout_down:
-            readiness += 6
-            reasons.append("На 15m появляется первая активация границы диапазона")
+            blockers.append(
+                "15m пробой уже начался — ранний радар не превращает позднее подтверждение в вход"
+            )
         if primary.cmf20 >= 0.08 and bias is Side.LONG:
             readiness += 5
             reasons.append(f"CMF20 {primary.cmf20:+.2f}: накопление поддерживает LONG")
@@ -235,15 +236,28 @@ class SignalEngine:
             )
         trigger = primary.range_high20 if bias is Side.LONG else primary.range_low20
         opposite_trigger = primary.range_low20 if bias is Side.LONG else primary.range_high20
-        execution_activation = (bias is Side.LONG and execution.breakout_up) or (
-            bias is Side.SHORT and execution.breakout_down
+        trigger_distance_pct = (
+            abs(ticker.last / trigger - 1) * 100
+            if trigger > 0 and ticker.last > 0
+            else float("inf")
         )
+        if 0.20 <= trigger_distance_pct <= 1.60:
+            readiness = min(95, readiness + 5)
+            reasons.append(
+                f"До 1h trigger {trigger_distance_pct:.2f}% — есть пространство до импульса"
+            )
+        elif trigger_distance_pct < 0.12:
+            blockers.append(
+                f"До 1h trigger всего {trigger_distance_pct:.2f}% — слишком поздно для раннего радара"
+            )
         stage = (
-            "CONFIRMED_WATCH"
-            if execution_activation
-            and execution.relative_volume20 >= 1.15
-            and (ticker.taker_buy_ratio is None or flow_aligned)
+            "ARMED_PREMOVE"
+            if not (execution.breakout_up or execution.breakout_down)
+            and 0.20 <= trigger_distance_pct <= 1.60
             and trend_guard_aligned
+            and compression_votes >= 3
+            and readiness >= self.settings.min_early_readiness
+            and (ticker.taker_buy_ratio is None or flow_aligned)
             else "WATCH"
         )
         invalidation = (
@@ -281,6 +295,7 @@ class SignalEngine:
                 else -2.0,
                 "supertrend_1h": float(primary.supertrend_direction),
                 "supertrend_4h": float(structural.supertrend_direction),
+                "trigger_distance_pct": float(trigger_distance_pct),
             },
         )
 
