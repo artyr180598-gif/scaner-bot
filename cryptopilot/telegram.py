@@ -589,7 +589,7 @@ def format_early_scan(report: EarlyScanReport) -> str:
         f"Сетапов до пробоя: {len(report.setups)}\n"
         f"Время: {duration:.1f} сек\n\n"
         + (
-            "Ниже — лучшие сценарии наблюдения. Вход только после триггера."
+            "Ниже — сценарии, где цена ещё не должна была пробить 15m структуру."
             if report.setups
             else "Сейчас подтверждённого предимпульсного сжатия нет."
         )
@@ -604,9 +604,9 @@ def format_early_setup(setup: EarlySetup) -> str:
         or "• Дополнительных рисков радар не выделил"
     )
     stage = (
-        "ПОДТВЕРЖДЁННОЕ НАБЛЮДЕНИЕ 15m"
-        if setup.stage == "CONFIRMED_WATCH"
-        else "НАБЛЮДЕНИЕ"
+        "ARMED PRE-MOVE — ДО 15m ПРОБОЯ"
+        if setup.stage == "ARMED_PREMOVE"
+        else "РАННЕЕ НАБЛЮДЕНИЕ"
     )
     metrics = setup.metrics
     taker = metrics.get("taker_buy_ratio", -1)
@@ -624,6 +624,11 @@ def format_early_setup(setup: EarlySetup) -> str:
             + ("1h ↑" if metrics.get("supertrend_1h", 0) > 0 else "1h ↓")
             + " · "
             + ("4h ↑" if metrics.get("supertrend_4h", 0) > 0 else "4h ↓")
+        )
+        + (
+            f"\n• До 1h trigger: {metrics.get('trigger_distance_pct', 0):.2f}%"
+            if "trigger_distance_pct" in metrics
+            else ""
         )
     )
     return (
