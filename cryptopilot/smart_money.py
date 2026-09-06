@@ -333,6 +333,19 @@ class SmartMoneyScanner:
         """Highest-quality pre-move candidates; intentionally tiny to avoid alert spam."""
         return self._prime_candidates
 
+    def prepare_candidates(self) -> tuple[SmartMoneySetup, ...]:
+        """Strong early observations that are not yet strict PRIME entries."""
+        report = self.last_report
+        if report is None:
+            return ()
+        values = [
+            item
+            for item in report.setups
+            if is_prepare_candidate(item, self.settings)
+        ]
+        values.sort(key=lambda item: (item.prime_score, item.score), reverse=True)
+        return tuple(values[:3])
+
     def shadow_candidates(self) -> tuple[SmartMoneySetup, ...]:
         """Broader silent sample used only to learn which PRIME patterns work later."""
         return self._shadow_candidates
@@ -650,6 +663,45 @@ class SmartMoneyScanner:
             prime_reasons=tuple(prime_reasons[:6]),
             prime_blockers=tuple(prime_blockers[:4]),
         )
+
+
+def is_prepare_candidate(item: SmartMoneySetup, settings: Settings) -> bool:
+    """High-quality pre-move observation; deliberately not labelled as an entry."""
+    if item.prime_ready or item.stage != "ARMED" or item.bias is Side.NO_TRADE:
+        return False
+    if item.prime_score < settings.prepare_min_score:
+        return False
+    if not (
+        settings.prime_min_trigger_distance_pct
+        <= item.distance_to_trigger_pct
+        <= settings.prime_max_trigger_distance_pct
+    ):
+        return False
+    directional_move = (
+        item.recent_move_15m_pct
+        if item.bias is Side.LONG
+        else -item.recent_move_15m_pct
+    )
+    if directional_move > settings.prime_max_directional_move_15m_pct:
+        return False
+    if item.rvol > 1.35:
+        return False
+    if item.cross_conflicts >= 2:
+        return False
+    if item.oi_change_pct is not None and item.oi_change_pct < -1:
+        return False
+    directional_funding = item.funding_pct if item.bias is Side.LONG else -item.funding_pct
+    if directional_funding > settings.flow_max_directional_funding_pct:
+        return False
+    if item.spot_taker_buy_ratio is not None:
+        directional_spot = (
+            item.spot_taker_buy_ratio
+            if item.bias is Side.LONG
+            else 1 - item.spot_taker_buy_ratio
+        )
+        if directional_spot < 0.45:
+            return False
+    return True
 
 
 async def refresh_smart_money_watchlist(
