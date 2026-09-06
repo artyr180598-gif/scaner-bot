@@ -42,6 +42,10 @@ def test_adaptive_defaults_are_conservative() -> None:
     assert config.prime_min_spot_taker_ratio >= 0.60
     assert config.prime_min_spot_confirmations >= 2
     assert config.prime_max_directional_perp_basis_bps <= 20
+    assert config.liquidity_intelligence_enabled
+    assert config.liquidity_orderbook_watch_limit <= 4
+    assert config.prime_min_persistent_wall_ratio >= 2.5
+    assert config.prime_min_wall_persistence_seconds >= 10
     assert config.max_auto_signals_per_scan == 1
     assert not config.early_auto_alerts
     assert config.flow_radar_enabled
