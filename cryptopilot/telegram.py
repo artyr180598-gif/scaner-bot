@@ -318,8 +318,14 @@ def build_router(
                 + (
                     "Ниже только планы с техническим стопом и приемлемым R/R."
                     if report.signals
-                    else "Сейчас полной RID-последовательности нет — NO TRADE."
+                    else "Среди успешно проверенных монет готовых RID-планов нет — NO TRADE."
                 )
+                + ("\n\nПричины отказов:\n" + "\n".join(
+                    html.escape(line) for line in report.diagnostics
+                ) if report.diagnostics else "")
+                + ("\n\nНе удалось проверить:\n" + "\n".join(
+                    html.escape(line) for line in report.errors[:5]
+                ) if report.errors else "")
             )
             for signal in report.signals[:3]:
                 await message.answer(format_rid_signal(signal))

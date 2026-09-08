@@ -12,6 +12,7 @@ import asyncio
 import logging
 import math
 import statistics
+from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -465,7 +466,9 @@ class RidScanner:
                 else:
                     ranked.append((self._quick_rank(result), ticker, result))
             ranked.sort(key=lambda row: row[0], reverse=True)
-            shortlisted = ranked[: self.settings.rid_shortlist_size]
+            # Rank controls processing order, not eligibility. A large move must
+            # never exclude a quieter valid pullback further down the list.
+            shortlisted = ranked
 
             async def analyze(row: tuple[float, Ticker, list[Candle]]) -> Signal:
                 _, ticker, bars5 = row
@@ -508,25 +511,37 @@ class RidScanner:
                         )
                 return signal
 
-            analyzed = await asyncio.gather(
-                *(analyze(row) for row in shortlisted), return_exceptions=True
-            )
+            analyzed = []
+            for offset in range(0, len(shortlisted), self.settings.rid_shortlist_size):
+                batch = shortlisted[offset : offset + self.settings.rid_shortlist_size]
+                analyzed.extend(await asyncio.gather(
+                    *(analyze(row) for row in batch), return_exceptions=True
+                ))
             signals: list[Signal] = []
+            rejected: Counter[str] = Counter()
+            completed = 0
             for row, result in zip(shortlisted, analyzed, strict=True):
                 if isinstance(result, BaseException):
                     errors.append(f"{row[1].symbol}: {type(result).__name__}")
                     log.warning("RID analysis failed for %s: %s", row[1].symbol, result)
                 elif result.actionable:
+                    completed += 1
                     signals.append(result)
+                else:
+                    completed += 1
+                    rejected.update(result.blockers or ["Условия входа не выполнены"])
             signals.sort(key=lambda item: item.confidence, reverse=True)
             report = ScanReport(
                 exchange=self.exchange.name,
                 started_at=started,
                 finished_at=datetime.now(UTC),
                 universe_count=len(universe),
-                analyzed_count=len(shortlisted),
+                analyzed_count=completed,
                 signals=tuple(signals),
-                errors=tuple(errors[:12]),
+                errors=tuple(errors),
+                diagnostics=tuple(
+                    f"{reason}: {count}" for reason, count in rejected.most_common(5)
+                ),
             )
             self.last_report = report
             self.last_error = None
