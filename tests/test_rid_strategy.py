@@ -35,11 +35,52 @@ def test_scan_checks_beyond_first_batch_and_counts_failures(monkeypatch):
                           100, datetime.now(UTC), blockers=["No pattern"])
 
         monkeypatch.setattr("cryptopilot.rid_strategy.analyze_rid_pattern", evaluate)
+        monkeypatch.setattr(RidScanner, "_quick_rank", lambda self, bars: 100.0)
         report = await RidScanner(exchange, store, settings).scan()
         assert set(seen) == {ticker.symbol for ticker in tickers}
+        assert report.universe_count == 5
+        assert report.screened_count == 5
+        assert report.shortlisted_count == 5
         assert report.analyzed_count == 4
         assert len(report.errors) == 1
         assert report.diagnostics == ("No pattern: 4",)
+
+    asyncio.run(scenario())
+
+
+def test_scan_reviews_whole_market_then_deep_checks_only_rid_affinity() -> None:
+    async def scenario() -> None:
+        settings = Settings(
+            _env_file=None,
+            rid_universe_size=10,
+            rid_shortlist_size=3,
+            rid_discovery_min_volume_usdt=1_000_000,
+        )
+        tickers = [replace(_ticker(100), symbol=f"COIN{i}USDT") for i in range(12)]
+        tickers[-2:] = [replace(item, turnover_24h=100_000) for item in tickers[-2:]]
+        exchange = AsyncMock()
+        exchange.name = "BYBIT"
+        exchange.tickers.return_value = tickers
+
+        async def candles(symbol: str, interval: str, limit: int):
+            if interval == "5" and symbol in {"COIN1USDT", "COIN4USDT", "COIN7USDT"}:
+                return _rid_5m(Side.LONG)
+            return _bars(interval)
+
+        exchange.candles.side_effect = candles
+        report = await RidScanner(exchange, AsyncMock(), settings).scan()
+
+        assert report.universe_count == 12
+        assert report.screened_count == 10
+        assert report.shortlisted_count == 3
+        assert report.analyzed_count == 3
+        assert any("Недостаточная ликвидность" in line for line in report.diagnostics)
+        five_minute_symbols = {
+            call.args[0]
+            for call in exchange.candles.await_args_list
+            if call.args[1] == "5"
+        }
+        assert len(five_minute_symbols) == 10
 
     asyncio.run(scenario())
 

@@ -525,32 +525,104 @@ class RidScanner:
         self.last_error: str | None = None
 
     def _universe(self, tickers: list[Ticker]) -> list[Ticker]:
+        """Return every valid active contract; never preselect by popularity."""
         rows = [
             item
             for item in tickers
             if item.symbol not in self.settings.excluded_symbol_set
-            and item.turnover_24h >= self.settings.min_volume_usdt
             and item.last > 0
             and item.bid > 0
             and item.ask >= item.bid
-            and item.spread_bps <= self.settings.max_spread_bps
         ]
         rows.sort(key=lambda item: item.turnover_24h, reverse=True)
-        return rows[: self.settings.rid_universe_size]
+        return rows
+
+    def _is_screenable(self, ticker: Ticker) -> bool:
+        """Keep candle traffic and eventual entries within executable markets."""
+        return bool(
+            ticker.turnover_24h >= self.settings.rid_discovery_min_volume_usdt
+            and ticker.spread_bps <= self.settings.rid_discovery_max_spread_bps
+        )
 
     @staticmethod
-    def _quick_rank(bars: list[Candle]) -> float:
-        if len(bars) < 40:
+    def _aggregate_15m(bars: list[Candle]) -> list[Candle]:
+        """Build closed 15m bars locally so discovery needs one request per symbol."""
+        groups: dict[int, list[Candle]] = {}
+        duration = INTERVAL_MS["15"]
+        for bar in bars:
+            bucket = bar.open_time_ms // duration * duration
+            groups.setdefault(bucket, []).append(bar)
+        output: list[Candle] = []
+        for bucket, rows in sorted(groups.items()):
+            rows.sort(key=lambda item: item.open_time_ms)
+            if len(rows) != 3 or any(
+                right.open_time_ms - left.open_time_ms != INTERVAL_MS["5"]
+                for left, right in zip(rows, rows[1:], strict=False)
+            ):
+                continue
+            output.append(
+                Candle(
+                    open_time_ms=bucket,
+                    open=rows[0].open,
+                    high=max(item.high for item in rows),
+                    low=min(item.low for item in rows),
+                    close=rows[-1].close,
+                    volume=sum(item.volume for item in rows),
+                    turnover=sum(item.turnover for item in rows),
+                )
+            )
+        return output
+
+    def _quick_rank(self, bars: list[Candle]) -> float:
+        """Cheap RID-affinity score; zero means no recent abnormal impulse."""
+        if len(bars) < 60:
             return 0.0
-        recent = bars[-30:]
-        baseline = _median([bar.volume for bar in bars[-50:-30]])
-        if baseline <= 0:
-            return 0.0
-        move = (max(bar.high for bar in recent) - min(bar.low for bar in recent)) / max(
-            recent[-1].close, 1e-12
-        )
-        burst = max(bar.volume for bar in recent) / baseline
-        return move * 100 + min(burst, 10)
+        best = 0.0
+        series = (("5", bars), ("15", self._aggregate_15m(bars)))
+        sides = (Side.LONG, Side.SHORT) if self.settings.rid_short_enabled else (Side.LONG,)
+        for timeframe, rows in series:
+            if len(rows) < 60:
+                continue
+            try:
+                features = _rid_features(rows)
+            except (ValueError, ZeroDivisionError):
+                continue
+            for side in sides:
+                leg = _latest_impulse(
+                    rows,
+                    features.atr14,
+                    side,
+                    min_atr=max(1.5, self.settings.rid_min_impulse_atr * 0.60),
+                    max_atr=self.settings.rid_max_impulse_atr * 1.40,
+                    min_rvol=max(1.10, self.settings.rid_min_impulse_rvol * 0.65),
+                )
+                if leg is None:
+                    continue
+                post = rows[leg.extreme_index + 1 :]
+                if not post:
+                    continue
+                size = max(abs(leg.extreme - leg.origin), 1e-12)
+                if side is Side.LONG:
+                    retracement = (leg.extreme - min(item.low for item in post)) / size
+                else:
+                    retracement = (max(item.high for item in post) - leg.extreme) / size
+                impulse_volume = max(
+                    item.volume for item in rows[leg.start_index : leg.extreme_index + 1]
+                )
+                quiet_ratio = _median([item.volume for item in post]) / max(
+                    impulse_volume, 1e-12
+                )
+                recency = len(rows) - 1 - leg.extreme_index
+                score = (
+                    leg.size_atr * 8
+                    + min(leg.volume_ratio, 8) * 4
+                    + max(0, 12 - recency)
+                    + (10 if 0.10 <= retracement <= 0.65 else 0)
+                    + (8 if quiet_ratio <= 1.05 else 0)
+                    + (2 if timeframe == "15" else 0)
+                )
+                best = max(best, score)
+        return best
 
     async def scan(self) -> ScanReport:
         async with self.scan_lock:
@@ -558,20 +630,26 @@ class RidScanner:
             errors: list[str] = []
             tickers = await self.exchange.tickers()
             universe = self._universe(tickers)
+            screenable = [item for item in universe if self._is_screenable(item)]
             quick = await asyncio.gather(
-                *(self.exchange.candles(item.symbol, "5", 260) for item in universe),
+                *(self.exchange.candles(item.symbol, "5", 260) for item in screenable),
                 return_exceptions=True,
             )
             ranked: list[tuple[float, Ticker, list[Candle]]] = []
-            for ticker, result in zip(universe, quick, strict=True):
+            screened = 0
+            quick_rejected = 0
+            for ticker, result in zip(screenable, quick, strict=True):
                 if isinstance(result, BaseException):
                     errors.append(f"{ticker.symbol}: {type(result).__name__}")
                 else:
-                    ranked.append((self._quick_rank(result), ticker, result))
+                    screened += 1
+                    rank = self._quick_rank(result)
+                    if rank > 0:
+                        ranked.append((rank, ticker, result))
+                    else:
+                        quick_rejected += 1
             ranked.sort(key=lambda row: row[0], reverse=True)
-            # Rank controls processing order, not eligibility. A large move must
-            # never exclude a quieter valid pullback further down the list.
-            shortlisted = ranked
+            shortlisted = ranked[: self.settings.rid_universe_size]
 
             async def analyze(row: tuple[float, Ticker, list[Candle]]) -> Signal:
                 _, ticker, bars5 = row
@@ -623,6 +701,13 @@ class RidScanner:
             signals: list[Signal] = []
             candidates: list[Signal] = []
             rejected: Counter[str] = Counter()
+            execution_rejected = len(universe) - len(screenable)
+            if execution_rejected:
+                rejected["Недостаточная ликвидность или слишком широкий спред"] += (
+                    execution_rejected
+                )
+            if quick_rejected:
+                rejected["Первичный 5m/15m RID-фильтр не пройден"] += quick_rejected
             completed = 0
             for row, result in zip(shortlisted, analyzed, strict=True):
                 if isinstance(result, BaseException):
@@ -652,11 +737,16 @@ class RidScanner:
                     f"{reason}: {count}" for reason, count in rejected.most_common(5)
                 ),
                 candidates=tuple(candidates),
+                screened_count=screened,
+                shortlisted_count=len(shortlisted),
             )
             log.info(
-                "RID scan: universe=%d analyzed=%d entries=%d watch=%d errors=%d "
+                "RID scan: market=%d screened=%d preliminary=%d analyzed=%d "
+                "entries=%d watch=%d errors=%d "
                 "entry_symbols=%s watch_symbols=%s diagnostics=%s",
                 len(universe),
+                screened,
+                len(shortlisted),
                 completed,
                 len(signals),
                 len(candidates),

@@ -180,8 +180,12 @@ class Settings(BaseSettings):
     rid_short_enabled: bool = False
     rid_auto_scan_enabled: bool = True
     rid_scan_interval_seconds: int = Field(default=120, ge=120, le=3600)
+    # Every active USDT perpetual is reviewed from the exchange ticker snapshot.
+    # This limit applies only to the expensive 15m/1h + microstructure stage.
     rid_universe_size: int = Field(default=60, ge=10, le=150)
     rid_shortlist_size: int = Field(default=14, ge=3, le=30)
+    rid_discovery_min_volume_usdt: float = Field(default=1_000_000, ge=0)
+    rid_discovery_max_spread_bps: float = Field(default=30.0, ge=1.0, le=200.0)
     rid_manual_min_score: int = Field(default=72, ge=60, le=95)
     rid_auto_min_score: int = Field(default=88, ge=70, le=98)
     rid_auto_min_samples: int = Field(default=30, ge=10, le=500)
