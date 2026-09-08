@@ -197,6 +197,22 @@ def test_rid_can_confirm_on_fifteen_minutes() -> None:
     assert signal.market_context["rid_timeframe_minutes"] == 15
 
 
+def test_young_listing_can_be_analyzed_without_hourly_confirmation() -> None:
+    bars5 = _rid_5m(Side.LONG)
+    signal = analyze_rid_pattern(
+        "NEWUSDT",
+        "BYBIT",
+        _ticker(bars5[-1].close),
+        {"5": bars5, "15": _bars("15"), "60": _bars("60", count=40)},
+        Settings(_env_file=None, rid_manual_min_score=60, rid_max_impulse_atr=8),
+    )
+
+    assert signal.actionable
+    assert signal.market_context["rid_hourly_history_available"] == 0
+    assert "60" not in signal.features
+    assert not is_rid_auto_candidate(signal, Settings(_env_file=None))
+
+
 def test_rid_auto_waits_for_forward_calibration_and_live_confirmation() -> None:
     bars5 = _rid_5m(Side.LONG)
     settings = Settings(
