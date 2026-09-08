@@ -243,6 +243,64 @@ class SignalStore:
                 )
             await db.commit()
 
+    async def record_paper_candidate(
+        self,
+        signal: Signal,
+        *,
+        max_holding_hours: int,
+        dedup_minutes: int,
+    ) -> int:
+        """Record a forward paper plan without pretending it was sent as an alert."""
+        if signal.plan is None or signal.side is Side.NO_TRADE:
+            return 0
+        threshold = signal.created_at - timedelta(minutes=dedup_minutes)
+        async with aiosqlite.connect(self.path) as db:
+            duplicate = await (
+                await db.execute(
+                    """
+                    SELECT id FROM paper_trades
+                    WHERE symbol=? AND side=? AND strategy_version=?
+                      AND (status IN ('WAITING', 'OPEN') OR created_at>=?)
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (
+                        signal.symbol,
+                        signal.side.value,
+                        signal.strategy_version,
+                        threshold.astimezone(UTC).isoformat(),
+                    ),
+                )
+            ).fetchone()
+            if duplicate is not None:
+                return 0
+            exit_expires = signal.created_at + timedelta(hours=max_holding_hours)
+            cursor = await db.execute(
+                """
+                INSERT INTO paper_trades
+                    (symbol, exchange, side, confidence, regime, strategy_version,
+                     created_at, entry_expires_at, exit_expires_at, entry_low,
+                     entry_high, stop_loss, take_profit, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'WAITING')
+                """,
+                (
+                    signal.symbol,
+                    signal.exchange,
+                    signal.side.value,
+                    signal.confidence,
+                    signal.regime,
+                    signal.strategy_version,
+                    signal.created_at.astimezone(UTC).isoformat(),
+                    signal.plan.expires_at.astimezone(UTC).isoformat(),
+                    exit_expires.astimezone(UTC).isoformat(),
+                    signal.plan.entry_low,
+                    signal.plan.entry_high,
+                    signal.plan.stop_loss,
+                    signal.plan.take_profit_2,
+                ),
+            )
+            await db.commit()
+            return int(cursor.lastrowid or 0)
+
     async def open_paper_trades(self) -> list[PaperTrade]:
         async with aiosqlite.connect(self.path) as db:
             rows = await (
@@ -321,11 +379,17 @@ class SignalStore:
             )
             await db.commit()
 
-    async def active_paper_count(self) -> int:
+    async def active_paper_count(self, strategy_version: str | None = None) -> int:
+        where = "status IN ('WAITING', 'OPEN')"
+        parameters: tuple[object, ...] = ()
+        if strategy_version:
+            where += " AND strategy_version=?"
+            parameters = (strategy_version,)
         async with aiosqlite.connect(self.path) as db:
             row = await (
                 await db.execute(
-                    "SELECT COUNT(*) FROM paper_trades WHERE status IN ('WAITING', 'OPEN')"
+                    f"SELECT COUNT(*) FROM paper_trades WHERE {where}",  # noqa: S608
+                    parameters,
                 )
             ).fetchone()
         return int(row[0]) if row else 0

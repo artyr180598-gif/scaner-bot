@@ -32,6 +32,7 @@ from cryptopilot.live_radar import (
 from cryptopilot.models import CURRENT_PRIME_STRATEGY_VERSION, EarlySetup, Signal
 from cryptopilot.prime_delivery import refresh_prime_entry
 from cryptopilot.prime_shadow import PrimeShadowTracker
+from cryptopilot.rid_strategy import RidScanner
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.smart_money import (
     SmartMoneyScanner,
@@ -45,6 +46,7 @@ from cryptopilot.telegram import (
     build_router,
     format_early_setup,
     format_prime_setup,
+    format_rid_signal,
     format_signal,
     main_keyboard,
     release_label,
@@ -88,6 +90,7 @@ async def run() -> None:
     await store.initialize()
     engine = SignalEngine(settings)
     scanner = MarketScanner(exchange, engine, store, settings)
+    rid_scanner = RidScanner(exchange, store, settings) if settings.rid_enabled else None
     flow_tracker = FlowTracker()
     liquidity_tracker = LiquidityTracker()
     smart_money = SmartMoneyScanner(
@@ -110,7 +113,7 @@ async def run() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
-    router = build_router(scanner, exchange, store, settings, health, smart_money)
+    router = build_router(scanner, exchange, store, settings, health, smart_money, rid_scanner)
     live: LiveRadar | None = None
     lab = SqueezeLab(exchange, store, settings) if settings.squeeze_lab_enabled else None
     if lab is not None:
@@ -198,6 +201,8 @@ async def run() -> None:
                 BotCommand(command="search", description="Единый поиск подходящих PRIME-монет"),
                 BotCommand(command="scan", description="Единый поиск (тот же результат)"),
                 BotCommand(command="early", description="Радар до импульса"),
+                BotCommand(command="rid", description="Отдельная стратегия RID"),
+                BotCommand(command="ridstats", description="Независимая RID paper-статистика"),
                 BotCommand(
                     command="smartmoney",
                     description="Единый поиск (прежняя команда Smart Money)",
@@ -265,6 +270,22 @@ async def run() -> None:
                     log.exception("Failed to deliver early alert to an authorized chat")
             if successes == 0:
                 raise RuntimeError("No configured Telegram chat accepted the early alert")
+            health.alerts_total += 1
+
+        async def send_rid_alert(signal_item: Signal) -> None:
+            successes = 0
+            for chat_id in settings.allowed_chat_ids:
+                try:
+                    await bot.send_message(
+                        chat_id,
+                        "🚨 <b>Автоматически подтверждён сильный RID-сетап</b>",
+                    )
+                    await bot.send_message(chat_id, format_rid_signal(signal_item))
+                    successes += 1
+                except Exception:
+                    log.exception("RID alert delivery failed")
+            if not successes:
+                raise RuntimeError("No configured Telegram chat accepted the RID alert")
             health.alerts_total += 1
 
         async def record_prime_shadow_candidate(item: SmartMoneySetup) -> None:
@@ -490,6 +511,13 @@ async def run() -> None:
                         handle_smart_money_report,
                     ),
                     name="smart-money-watchlist-refresh",
+                )
+            )
+        if rid_scanner is not None and settings.rid_auto_scan_enabled:
+            tasks.add(
+                asyncio.create_task(
+                    rid_scanner.monitor(send_rid_alert, stop_event),
+                    name="rid-strategy-monitor",
                 )
             )
         if lab is not None:

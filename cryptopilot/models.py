@@ -7,6 +7,7 @@ from typing import Any
 
 CURRENT_STRATEGY_VERSION = "premove-3.6.1"
 CURRENT_PRIME_STRATEGY_VERSION = "prime-3.6.1"
+CURRENT_RID_STRATEGY_VERSION = "rid-long-pullback-1.0.0"
 
 
 class Side(StrEnum):
@@ -143,6 +144,8 @@ class Signal:
 
     @property
     def fingerprint(self) -> str:
+        if self.strategy_version.startswith("rid-"):
+            return f"RID:{self.exchange}:{self.symbol}:{self.side}"
         return f"{self.exchange}:{self.symbol}:{self.side}"
 
     def to_dict(self) -> dict[str, Any]:

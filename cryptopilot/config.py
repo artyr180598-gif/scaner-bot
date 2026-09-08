@@ -174,6 +174,34 @@ class Settings(BaseSettings):
     prime_shadow_max_holding_hours: int = Field(default=72, ge=4, le=336)
     prime_shadow_min_samples: int = Field(default=30, ge=10, le=500)
 
+    # RID is an isolated post-impulse continuation/reversal experiment.  It never
+    # changes PRIME ranking or reuses PRIME notification budgets.
+    rid_enabled: bool = True
+    rid_short_enabled: bool = False
+    rid_auto_scan_enabled: bool = True
+    rid_scan_interval_seconds: int = Field(default=120, ge=120, le=3600)
+    rid_universe_size: int = Field(default=60, ge=10, le=150)
+    rid_shortlist_size: int = Field(default=14, ge=3, le=30)
+    rid_manual_min_score: int = Field(default=72, ge=60, le=95)
+    rid_auto_min_score: int = Field(default=88, ge=70, le=98)
+    rid_auto_min_samples: int = Field(default=30, ge=10, le=500)
+    rid_auto_min_win_rate: float = Field(default=45.0, ge=30.0, le=90.0)
+    rid_auto_min_expectancy_r: float = Field(default=0.10, ge=0.0, le=2.0)
+    rid_max_alerts_per_day: int = Field(default=2, ge=1, le=10)
+    rid_global_cooldown_minutes: int = Field(default=180, ge=30, le=1440)
+    rid_symbol_cooldown_minutes: int = Field(default=720, ge=60, le=10_080)
+    rid_min_impulse_atr: float = Field(default=2.5, ge=1.5, le=8.0)
+    rid_max_impulse_atr: float = Field(default=5.0, ge=3.0, le=20.0)
+    rid_min_impulse_rvol: float = Field(default=1.8, ge=1.0, le=10.0)
+    rid_max_pullback_volume_ratio: float = Field(default=0.85, ge=0.2, le=1.5)
+    rid_min_retracement: float = Field(default=0.25, ge=0.05, le=0.8)
+    rid_max_retracement: float = Field(default=0.50, ge=0.4, le=1.5)
+    rid_max_stop_pct: float = Field(default=4.5, ge=0.5, le=10.0)
+    rid_min_plan_rr: float = Field(default=1.8, ge=1.2, le=4.0)
+    rid_entry_expiry_minutes: int = Field(default=45, ge=10, le=180)
+    rid_max_holding_hours: int = Field(default=72, ge=4, le=168)
+    rid_paper_dedup_minutes: int = Field(default=720, ge=60, le=10_080)
+
     account_equity_usdt: float = Field(default=1000, gt=0)
     risk_per_trade_pct: float = Field(default=0.5, gt=0, le=2)
     max_position_pct: float = Field(default=25, gt=0, le=100)
@@ -231,6 +259,14 @@ class Settings(BaseSettings):
                 "MAIN_SCAN_MIN_TRIGGER_DISTANCE_PCT cannot exceed "
                 "MAIN_SCAN_MAX_TRIGGER_DISTANCE_PCT"
             )
+        if self.rid_shortlist_size > self.rid_universe_size:
+            raise ValueError("RID_SHORTLIST_SIZE cannot exceed RID_UNIVERSE_SIZE")
+        if self.rid_auto_min_score < self.rid_manual_min_score:
+            raise ValueError("RID_AUTO_MIN_SCORE must be >= RID_MANUAL_MIN_SCORE")
+        if self.rid_min_retracement >= self.rid_max_retracement:
+            raise ValueError("RID_MIN_RETRACEMENT must be below RID_MAX_RETRACEMENT")
+        if self.rid_min_impulse_atr >= self.rid_max_impulse_atr:
+            raise ValueError("RID_MIN_IMPULSE_ATR must be below RID_MAX_IMPULSE_ATR")
         return self
 
     @property

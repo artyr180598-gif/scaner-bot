@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.models import (
+    CURRENT_RID_STRATEGY_VERSION,
     CURRENT_STRATEGY_VERSION,
     Candle,
     Side,
@@ -86,6 +87,51 @@ class PaperExchange(ExchangeClient):
 
     async def close(self) -> None:
         return None
+
+
+def test_rid_candidate_is_recorded_once_without_marking_an_alert(tmp_path) -> None:
+    async def scenario() -> None:
+        store = SignalStore(tmp_path / "signals.sqlite3")
+        await store.initialize()
+        created = datetime.now(UTC)
+        plan = TradePlan(
+            100,
+            101,
+            98,
+            103,
+            106,
+            109,
+            2,
+            "test",
+            created + timedelta(minutes=30),
+            100,
+            1,
+            2,
+        )
+        signal = Signal(
+            "TESTUSDT",
+            "BYBIT",
+            Side.LONG,
+            90,
+            90,
+            "RID_CONTINUATION",
+            100,
+            created,
+            plan=plan,
+            strategy_version=CURRENT_RID_STRATEGY_VERSION,
+        )
+        first = await store.record_paper_candidate(
+            signal, max_holding_hours=72, dedup_minutes=720
+        )
+        duplicate = await store.record_paper_candidate(
+            signal, max_holding_hours=72, dedup_minutes=720
+        )
+
+        assert first > 0 and duplicate == 0
+        assert await store.active_paper_count(CURRENT_RID_STRATEGY_VERSION) == 1
+        assert await store.strict_alert_allowed(signal.fingerprint, 720)
+
+    asyncio.run(scenario())
 
 
 def test_paper_tracker_enters_and_calibrates_closed_signal(tmp_path) -> None:
