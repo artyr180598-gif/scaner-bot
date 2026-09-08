@@ -20,6 +20,7 @@ from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.health import RuntimeHealth
 from cryptopilot.models import (
+    CURRENT_RID_STRATEGY_VERSION,
     CURRENT_STRATEGY_VERSION,
     BacktestResult,
     CalibrationStats,
@@ -30,6 +31,7 @@ from cryptopilot.models import (
     Signal,
 )
 from cryptopilot.prime_delivery import refresh_prime_entry
+from cryptopilot.rid_strategy import RidScanner
 from cryptopilot.scanner import MarketScanner
 from cryptopilot.smart_money import SmartMoneyScanner, format_smart_money_setup
 from cryptopilot.storage import SignalStore
@@ -40,6 +42,7 @@ ANALYZE = "🪙 Анализ монеты"
 EARLY = "⚡ До импульса"
 SMART_MONEY = "🐋 Крупный капитал"
 PRIME = "🎯 PRIME поиск"
+RID = "🧭 Стратегия RID"
 BEST = "⭐ Лучший сейчас"
 BACKTEST = "📊 Бэктест"
 STATUS = "⚙️ Статус"
@@ -82,9 +85,10 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=UNIFIED), KeyboardButton(text=ANALYZE)],
-            [KeyboardButton(text=EARLY), KeyboardButton(text=BEST)],
-            [KeyboardButton(text=BACKTEST), KeyboardButton(text=PERFORMANCE)],
-            [KeyboardButton(text=STATUS), KeyboardButton(text=HELP)],
+            [KeyboardButton(text=RID), KeyboardButton(text=EARLY)],
+            [KeyboardButton(text=BEST), KeyboardButton(text=BACKTEST)],
+            [KeyboardButton(text=PERFORMANCE), KeyboardButton(text=STATUS)],
+            [KeyboardButton(text=HELP)],
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите действие",
@@ -98,10 +102,12 @@ def build_router(
     settings: Settings,
     health: RuntimeHealth,
     smart_money: SmartMoneyScanner | None = None,
+    rid_scanner: RidScanner | None = None,
 ) -> Router:
     router = Router(name="cryptopilot")
     router.message.middleware(AuthorizationMiddleware(settings.allowed_chat_ids))
     smart_money = smart_money or SmartMoneyScanner(exchange, settings)
+    rid_scanner = rid_scanner or RidScanner(exchange, store, settings)
     search_lock = asyncio.Lock()
 
     @router.message(CommandStart())
@@ -293,6 +299,41 @@ def build_router(
             health.last_error = str(exc)
             await progress.edit_text(f"⚠️ Ранний радар не завершён: {html.escape(str(exc))}")
 
+    @router.message(Command("rid"))
+    @router.message(F.text == RID)
+    async def rid_search(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        progress = await message.answer(
+            "⏳ Стратегия RID: ищу ликвидные монеты с последовательностью\n"
+            "импульс → затухающий откат → подтверждённая повторная активация."
+        )
+        try:
+            report = await asyncio.wait_for(rid_scanner.scan(), timeout=60)
+            duration = (report.finished_at - report.started_at).total_seconds()
+            await progress.edit_text(
+                "🧭 <b>RID-поиск завершён</b>\n"
+                f"Биржа: {report.exchange} · ликвидных монет: {report.universe_count}\n"
+                f"Глубоко проверено: {report.analyzed_count} · ошибок: {len(report.errors)}\n"
+                f"Готовых торговых планов: {len(report.signals)} · время: {duration:.1f} сек\n\n"
+                + (
+                    "Ниже только планы с техническим стопом и приемлемым R/R."
+                    if report.signals
+                    else "Сейчас полной RID-последовательности нет — NO TRADE."
+                )
+            )
+            for signal in report.signals[:3]:
+                await message.answer(format_rid_signal(signal))
+        except TimeoutError:
+            await progress.edit_text(
+                "⚠️ RID-поиск остановлен по лимиту времени. Старый сигнал не отправляю; "
+                "автоматический мониторинг продолжает работать."
+            )
+        except Exception as exc:
+            health.last_error = str(exc)
+            await progress.edit_text(
+                f"⚠️ RID-поиск не завершён: {html.escape(type(exc).__name__)}"
+            )
+
     @router.message(Command("analyze"))
     async def analyze_command(message: Message, state: FSMContext) -> None:
         symbol = command_argument(message.text)
@@ -362,6 +403,33 @@ def build_router(
             format_performance(overall, longs, shorts, active, settings.calibration_min_samples)
         )
 
+    @router.message(Command("ridstats"))
+    async def rid_statistics(message: Message) -> None:
+        overall, longs, shorts, active = await asyncio.gather(
+            store.calibration(
+                strategy_version=CURRENT_RID_STRATEGY_VERSION,
+                limit=settings.calibration_lookback,
+            ),
+            store.calibration(
+                side=Side.LONG,
+                strategy_version=CURRENT_RID_STRATEGY_VERSION,
+                limit=settings.calibration_lookback,
+            ),
+            store.calibration(
+                side=Side.SHORT,
+                strategy_version=CURRENT_RID_STRATEGY_VERSION,
+                limit=settings.calibration_lookback,
+            ),
+            store.active_paper_count(strategy_version=CURRENT_RID_STRATEGY_VERSION),
+        )
+        report = format_performance(
+            overall, longs, shorts, active, settings.rid_auto_min_samples
+        )
+        await message.answer(
+            report.replace("Реальная paper-статистика", "RID · независимая paper-статистика", 1)
+            + "\nАвтоуведомления включатся только при подтверждённом положительном edge."
+        )
+
     @router.message(Command("status"))
     @router.message(F.text == STATUS)
     async def status(message: Message) -> None:
@@ -372,7 +440,10 @@ def build_router(
             health.last_error = str(exc)
         last = scanner.last_report
         last_scan = last.finished_at.strftime("%d.%m.%Y %H:%M UTC") if last else "ещё не было"
-        active_paper = await store.active_paper_count()
+        active_paper, active_rid = await asyncio.gather(
+            store.active_paper_count(),
+            store.active_paper_count(strategy_version=CURRENT_RID_STRATEGY_VERSION),
+        )
         prime_finished = (
             smart_money.last_report.finished_at.strftime('%d.%m %H:%M UTC')
             if smart_money.last_report else 'ещё не было'
@@ -392,6 +463,12 @@ def build_router(
             f"Live watchlist сейчас: {len(smart_money.flow_watchlist())} монет\n"
             f"Последний завершённый PRIME-скан: "
             f"{prime_finished}\n"
+            "RID автопоиск: "
+            f"{'✅' if settings.rid_enabled and settings.rid_auto_scan_enabled else '❌'} "
+            f"· {settings.rid_scan_interval_seconds} сек · "
+            f"auto score ≥ {settings.rid_auto_min_score}\n"
+            f"RID paper-планов сейчас: {active_rid} · минимум для auto: "
+            f"{settings.rid_auto_min_samples}\n"
             f"Фоновый контроль: ✅ каждые {settings.scan_interval_seconds // 60} мин\n"
             f"Обычные trend-auto алерты: "
             f"{'✅' if settings.standard_auto_alerts_enabled else '❌ (PRIME-first)'}\n"
@@ -417,12 +494,16 @@ def build_router(
             "• Вход действителен только внутри указанной зоны и до срока истечения.\n"
             "• Стоп нельзя отодвигать после входа. Размер позиции уже ограничен заданным риском.\n"
             "• В PRIME-плане усреднение не предусмотрено.\n"
+            "• RID существует отдельно от PRIME. В нём возможны только три заранее "
+            "рассчитанные части 50/30/20 с единым стопом и неизменным общим риском.\n"
+            "• RID SHORT пока выключен: зеркальная SHORT-гипотеза не прошла "
+            "отложенную историческую проверку.\n"
             "• Обычное плечо 1–2x, жёсткий максимум 3x; плечо не повышает допустимый риск.\n"
             "• Уже разогнанная цена не превращается в сигнал: "
             "такой сценарий блокируется как поздний.\n"
             "• NO TRADE означает, что подтверждений недостаточно.\n\n"
             "Команды: /menu, /search, /scan, /early, /smartmoney, /prime, /analyze BTC, "
-            "/backtest BTC, /best, /primestats, "
+            "/backtest BTC, /best, /rid, /ridstats, /primestats, "
             "/performance, /status.\n\n"
             "⚠️ Это аналитическая система, а не персональная финансовая рекомендация. "
             "Фьючерсы могут привести к полной потере капитала.",
@@ -430,6 +511,61 @@ def build_router(
         )
 
     return router
+
+
+def format_rid_signal(signal: Signal) -> str:
+    if not signal.actionable or signal.plan is None:
+        return f"⚪ <b>{html.escape(signal.symbol)} · RID NO TRADE</b>"
+    icon = "🟢" if signal.side is Side.LONG else "🔴"
+    plan = signal.plan
+    reasons = "\n".join(f"• {html.escape(item)}" for item in signal.reasons)
+    risks = "\n".join(f"• {html.escape(item)}" for item in signal.risks)
+    risks = risks or "• Дополнительных рисков не выделено"
+    if signal.estimated_success_pct is None:
+        probability = (
+            "Вероятность: ещё не калибрована "
+            f"(закрытых RID paper-сделок: {signal.calibration_samples}; минимум ещё не накоплен)"
+        )
+    else:
+        probability = (
+            f"Paper-частота успеха: <b>{signal.estimated_success_pct:.1f}%</b> "
+            f"(95% диапазон {signal.success_interval_low:.1f}–"
+            f"{signal.success_interval_high:.1f}%, n={signal.calibration_samples})"
+        )
+    m = signal.market_context
+    action = "LONG" if signal.side is Side.LONG else "SHORT"
+    return (
+        f"🧭 {icon} <b>{html.escape(signal.symbol)} · RID {action}</b>\n"
+        f"Биржа: {signal.exchange} · качество: <b>{signal.confidence}/100</b>\n"
+        f"{probability}\n\n"
+        "<b>Что обнаружено</b>\n"
+        f"Импульс: {m.get('rid_impulse_atr', 0):.1f} ATR · "
+        f"объём {m.get('rid_impulse_rvol', 0):.1f}× нормы\n"
+        f"Откат: {m.get('rid_retracement', 0):.0%} · "
+        f"восстановление {m.get('rid_recovery', 0):.0%}\n"
+        f"Объём отката/импульса: {m.get('rid_pullback_volume_ratio', 0):.2f}\n\n"
+        "<b>Торговый план</b>\n"
+        f"Зона: <code>{price(plan.entry_low)}–{price(plan.entry_high)}</code>\n"
+        f"1-я часть 50%: <code>{price(plan.scale_entries[0])}</code>\n"
+        f"2-я часть 30%: <code>{price(plan.scale_entries[1])}</code>\n"
+        f"3-я часть 20%: <code>{price(plan.scale_entries[2])}</code>\n"
+        f"Единый стоп: <code>{price(plan.stop_loss)}</code>\n"
+        f"TP1: <code>{price(plan.take_profit_1)}</code> · "
+        f"TP2: <code>{price(plan.take_profit_2)}</code> · "
+        f"TP3: <code>{price(plan.take_profit_3)}</code>\n"
+        "На TP1: закрыть 50%; только после подтверждённого исполнения перенести "
+        "стоп оставшейся части в безубыток. TP2: ещё 30%; TP3: остаток 20%.\n"
+        f"TP2 после издержек: <b>{plan.risk_reward_2:.2f}R</b> · "
+        f"действителен до {plan.expires_at:%d.%m %H:%M} UTC\n"
+        f"Размер: ≈ ${plan.suggested_notional:.2f} · "
+        f"риск по стопу ≈ ${plan.risk_amount:.2f} · плечо {plan.recommended_leverage}×\n\n"
+        "<b>Почему</b>\n"
+        f"{reasons}\n\n"
+        "<b>Риски</b>\n"
+        f"{risks}\n\n"
+        "Это не мартингейл: 50/30/20 — части одного заранее ограниченного объёма. "
+        "После стопа добавляться запрещено. Качество — рейтинг, а не вероятность прибыли."
+    )
 
 
 async def run_analysis(
