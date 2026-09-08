@@ -168,6 +168,8 @@ class ScanReport:
     errors: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
     candidates: tuple[Signal, ...] = ()
+    screened_count: int = 0
+    shortlisted_count: int = 0
 
 
 @dataclass(slots=True)

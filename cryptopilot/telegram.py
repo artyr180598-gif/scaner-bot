@@ -312,8 +312,10 @@ def build_router(
             duration = (report.finished_at - report.started_at).total_seconds()
             await progress.edit_text(
                 "🧭 <b>RID-поиск завершён</b>\n"
-                f"Биржа: {report.exchange} · ликвидных монет: {report.universe_count}\n"
-                f"Глубоко проверено: {report.analyzed_count} · ошибок: {len(report.errors)}\n"
+                f"Биржа: {report.exchange} · весь рынок: {report.universe_count} контрактов\n"
+                f"5m/15m скрининг: {report.screened_count} · "
+                f"предварительных RID-кандидатов: {report.shortlisted_count}\n"
+                f"Глубокий анализ: {report.analyzed_count} · ошибок: {len(report.errors)}\n"
                 f"Готовых торговых планов: {len(report.signals)} · время: {duration:.1f} сек\n\n"
                 f"Под наблюдением: {len(report.candidates)}\n\n"
                 + (

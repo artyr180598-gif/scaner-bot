@@ -1,3 +1,3 @@
 """CryptoPilot: conservative market intelligence, never an order executor."""
 
-__version__ = "3.7.2"
+__version__ = "3.7.3"
