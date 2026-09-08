@@ -50,10 +50,12 @@ def _median(values: list[float]) -> float:
     return float(statistics.median(values)) if values else 0.0
 
 
-def _validate_closed_series(bars: list[Candle], interval: str, now: datetime) -> None:
+def _validate_closed_series(
+    bars: list[Candle], interval: str, now: datetime, *, minimum: int = 210
+) -> None:
     duration = INTERVAL_MS[interval]
-    if len(bars) < 210:
-        raise ValueError(f"RID requires 210 closed {interval} candles")
+    if len(bars) < minimum:
+        raise ValueError(f"RID requires {minimum} closed {interval} candles")
     if any(
         right.open_time_ms - left.open_time_ms != duration
         for left, right in zip(bars, bars[1:], strict=False)
@@ -65,6 +67,19 @@ def _validate_closed_series(bars: list[Candle], interval: str, now: datetime) ->
         raise ValueError(f"RID rejected an unclosed {interval} candle")
     if now_ms - closed_at > 2 * duration + 90_000:
         raise ValueError(f"RID rejected stale {interval} candles")
+
+
+def _rid_features(bars: list[Candle]):
+    """Calculate the RID subset after 60 real bars without inventing recent data.
+
+    The shared feature engine includes EMA200 and requires 210 rows. For young
+    listings, left-padding with the first known close only seeds that long EMA;
+    RID decisions use EMA20/50, DMI, ATR and Supertrend after at least 60 real bars.
+    """
+    if len(bars) < 60:
+        raise ValueError("RID feature set requires 60 real closed candles")
+    padded = [bars[0]] * max(0, 210 - len(bars)) + bars
+    return compute_features(padded)
 
 
 def _latest_impulse(
@@ -237,10 +252,15 @@ def analyze_rid_pattern(
     now: datetime | None = None,
 ) -> Signal:
     now = now or datetime.now(UTC)
-    for interval in ("5", "15", "60"):
-        _validate_closed_series(series[interval], interval, now)
-    features = {key: compute_features(value) for key, value in series.items()}
-    f15, f60 = features["15"], features["60"]
+    _validate_closed_series(series["5"], "5", now, minimum=60)
+    _validate_closed_series(series["15"], "15", now, minimum=60)
+    _validate_closed_series(series["60"], "60", now, minimum=1)
+    features = {key: _rid_features(series[key]) for key in ("5", "15")}
+    hourly_available = len(series["60"]) >= 60
+    if hourly_available:
+        features["60"] = _rid_features(series["60"])
+    f15 = features["15"]
+    f60 = features.get("60")
     evaluations: list[
         tuple[
             int,
@@ -300,7 +320,9 @@ def analyze_rid_pattern(
                     if timeframe == "5"
                     else (f15.ema20 > f15.ema50 or f15.supertrend_direction > 0)
                 )
-                trend60 = f60.ema20 > f60.ema50 or f60.supertrend_direction > 0
+                trend60 = bool(
+                    f60 and (f60.ema20 > f60.ema50 or f60.supertrend_direction > 0)
+                )
                 flow_support = sum(
                     (
                         ticker.taker_buy_ratio is not None and ticker.taker_buy_ratio >= 0.52,
@@ -324,7 +346,9 @@ def analyze_rid_pattern(
                     if timeframe == "5"
                     else (f15.ema20 < f15.ema50 or f15.supertrend_direction < 0)
                 )
-                trend60 = f60.ema20 < f60.ema50 or f60.supertrend_direction < 0
+                trend60 = bool(
+                    f60 and (f60.ema20 < f60.ema50 or f60.supertrend_direction < 0)
+                )
                 flow_support = sum(
                     (
                         ticker.taker_buy_ratio is not None and ticker.taker_buy_ratio <= 0.48,
@@ -389,7 +413,11 @@ def analyze_rid_pattern(
                 reasons.append(f"Закрытая {timeframe}m свеча подтвердила продолжение")
             risks = []
             if not trend60:
-                risks.append("Часовой тренд ещё не полностью согласован")
+                risks.append(
+                    "Для подтверждения 1h пока недостаточно истории"
+                    if not hourly_available
+                    else "Часовой тренд ещё не полностью согласован"
+                )
             if flow_support == 0:
                 risks.append("Поток и открытый интерес ещё не дали подтверждения")
             metrics = {
@@ -402,6 +430,7 @@ def analyze_rid_pattern(
                 "rid_trend60_confirmed": float(trend60),
                 "rid_timeframe_minutes": float(timeframe),
                 "rid_stage_rank": float(stage_rank),
+                "rid_hourly_history_available": float(hourly_available),
             }
             evaluations.append(
                 (
@@ -625,12 +654,15 @@ class RidScanner:
                 candidates=tuple(candidates),
             )
             log.info(
-                "RID scan: universe=%d analyzed=%d entries=%d watch=%d errors=%d diagnostics=%s",
+                "RID scan: universe=%d analyzed=%d entries=%d watch=%d errors=%d "
+                "entry_symbols=%s watch_symbols=%s diagnostics=%s",
                 len(universe),
                 completed,
                 len(signals),
                 len(candidates),
                 len(errors),
+                [item.symbol for item in signals[:5]],
+                [item.symbol for item in candidates[:5]],
                 dict(rejected.most_common(5)),
             )
             self.last_report = report

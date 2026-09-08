@@ -7,7 +7,7 @@ from typing import Any
 
 CURRENT_STRATEGY_VERSION = "premove-3.6.1"
 CURRENT_PRIME_STRATEGY_VERSION = "prime-3.6.1"
-CURRENT_RID_STRATEGY_VERSION = "rid-mtf-pullback-2.0.0"
+CURRENT_RID_STRATEGY_VERSION = "rid-mtf-pullback-2.1.0"
 
 
 class Side(StrEnum):
