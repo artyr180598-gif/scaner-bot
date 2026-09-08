@@ -315,6 +315,7 @@ def build_router(
                 f"Биржа: {report.exchange} · ликвидных монет: {report.universe_count}\n"
                 f"Глубоко проверено: {report.analyzed_count} · ошибок: {len(report.errors)}\n"
                 f"Готовых торговых планов: {len(report.signals)} · время: {duration:.1f} сек\n\n"
+                f"Под наблюдением: {len(report.candidates)}\n\n"
                 + (
                     "Ниже только планы с техническим стопом и приемлемым R/R."
                     if report.signals
@@ -329,6 +330,8 @@ def build_router(
             )
             for signal in report.signals[:3]:
                 await message.answer(format_rid_signal(signal))
+            for candidate in report.candidates[:3]:
+                await message.answer(format_rid_candidate(candidate))
         except TimeoutError:
             await progress.edit_text(
                 "⚠️ RID-поиск остановлен по лимиту времени. Старый сигнал не отправляю; "
@@ -571,6 +574,32 @@ def format_rid_signal(signal: Signal) -> str:
         f"{risks}\n\n"
         "Это не мартингейл: 50/30/20 — части одного заранее ограниченного объёма. "
         "После стопа добавляться запрещено. Качество — рейтинг, а не вероятность прибыли."
+    )
+
+
+def format_rid_candidate(signal: Signal) -> str:
+    m = signal.market_context
+    timeframe = int(m.get("rid_timeframe_minutes", 5))
+    stage = signal.regime.removeprefix("RID_")
+    stage_text = {
+        "FORMING": "формируется откат",
+        "ARMED": "структура готова, ждём триггер",
+    }.get(stage, "наблюдение")
+    blockers = "\n".join(f"• {html.escape(item)}" for item in signal.blockers)
+    reasons = "\n".join(f"• {html.escape(item)}" for item in signal.reasons)
+    return (
+        f"👀 <b>{html.escape(signal.symbol)} · RID НАБЛЮДЕНИЕ</b>\n"
+        f"Направление: {signal.side.value} · фаза: <b>{stage_text}</b>\n"
+        f"Рабочий таймфрейм: {timeframe}m · готовность: {signal.confidence}/100\n"
+        f"Текущая цена: <code>{price(signal.price)}</code>\n\n"
+        f"Импульс: {m.get('rid_impulse_atr', 0):.1f} ATR · "
+        f"объём {m.get('rid_impulse_rvol', 0):.1f}× нормы\n"
+        f"Откат: {m.get('rid_retracement', 0):.0%} · "
+        f"восстановление {m.get('rid_recovery', 0):.0%}\n\n"
+        f"<b>Что подтверждено</b>\n{reasons}\n\n"
+        f"<b>Чего ждём</b>\n{blockers}\n\n"
+        "⚪ Это список наблюдения, вход и торговый план ещё не подтверждены. "
+        "Фоновый RID продолжает следить за рынком."
     )
 
 

@@ -64,8 +64,8 @@ def _bars(interval: str, direction: int = 1, count: int = 260) -> list[Candle]:
     return rows
 
 
-def _rid_5m(side: Side) -> list[Candle]:
-    rows = _bars("5", 1 if side is Side.LONG else -1)
+def _rid_bars(timeframe: str, side: Side) -> list[Candle]:
+    rows = _bars(timeframe, 1 if side is Side.LONG else -1)
     anchor = rows[-15].close
     sign = 1 if side is Side.LONG else -1
     # A four-candle displacement, then a quieter pullback/compression and finally
@@ -99,6 +99,10 @@ def _rid_5m(side: Side) -> list[Candle]:
             turnover=close * volume,
         )
     return rows
+
+
+def _rid_5m(side: Side) -> list[Candle]:
+    return _rid_bars("5", side)
 
 
 def _ticker(price: float) -> Ticker:
@@ -173,8 +177,24 @@ def test_rid_does_not_fire_without_reactivation() -> None:
         Settings(_env_file=None, rid_manual_min_score=60, rid_max_impulse_atr=8),
     )
 
-    assert signal.side is Side.NO_TRADE
+    assert signal.side is Side.LONG
     assert signal.plan is None
+    assert signal.regime == "RID_ARMED"
+    assert any("триггер" in blocker for blocker in signal.blockers)
+
+
+def test_rid_can_confirm_on_fifteen_minutes() -> None:
+    bars15 = _rid_bars("15", Side.LONG)
+    signal = analyze_rid_pattern(
+        "TESTUSDT",
+        "BYBIT",
+        _ticker(bars15[-1].close),
+        {"5": _bars("5"), "15": bars15, "60": _bars("60")},
+        Settings(_env_file=None, rid_manual_min_score=60, rid_max_impulse_atr=8),
+    )
+
+    assert signal.actionable
+    assert signal.market_context["rid_timeframe_minutes"] == 15
 
 
 def test_rid_auto_waits_for_forward_calibration_and_live_confirmation() -> None:

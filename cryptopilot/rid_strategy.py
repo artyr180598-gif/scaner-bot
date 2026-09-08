@@ -237,122 +237,187 @@ def analyze_rid_pattern(
     now: datetime | None = None,
 ) -> Signal:
     now = now or datetime.now(UTC)
-    bars5 = series["5"]
     for interval in ("5", "15", "60"):
         _validate_closed_series(series[interval], interval, now)
     features = {key: compute_features(value) for key, value in series.items()}
-    f5, f15, f60 = features["5"], features["15"], features["60"]
-    evaluations: list[tuple[int, Side, ImpulseLeg, dict[str, float], list[str], list[str]]] = []
+    f15, f60 = features["15"], features["60"]
+    evaluations: list[
+        tuple[
+            int,
+            bool,
+            Side,
+            ImpulseLeg,
+            str,
+            list[Candle],
+            float,
+            dict[str, float],
+            list[str],
+            list[str],
+            list[str],
+        ]
+    ] = []
+    impulse_count = 0
 
     sides = (Side.LONG, Side.SHORT) if settings.rid_short_enabled else (Side.LONG,)
-    for side in sides:
-        leg = _latest_impulse(
-            bars5,
-            f5.atr14,
-            side,
-            min_atr=settings.rid_min_impulse_atr,
-            max_atr=settings.rid_max_impulse_atr,
-            min_rvol=settings.rid_min_impulse_rvol,
-        )
-        if leg is None:
-            continue
-        post = bars5[leg.extreme_index + 1 :]
-        if len(post) < 2:
-            continue
-        impulse_volume = max(bar.volume for bar in bars5[leg.start_index : leg.extreme_index + 1])
-        pullback_volume_ratio = _median([bar.volume for bar in post[:-1]]) / max(
-            impulse_volume, 1e-12
-        )
-        if pullback_volume_ratio > settings.rid_max_pullback_volume_ratio:
-            continue
-
-        size = abs(leg.extreme - leg.origin)
-        latest = bars5[-1]
-        previous = bars5[-4:-1]
-        if side is Side.LONG:
-            pullback_extreme = min(bar.low for bar in post)
-            retracement = (leg.extreme - pullback_extreme) / size
-            recovery = (latest.close - pullback_extreme) / size
-            reactivated = (
-                latest.close > latest.open
-                and latest.close > max(bar.close for bar in previous)
-                and latest.close <= leg.extreme + 0.30 * f5.atr14
+    for timeframe in ("5", "15"):
+        bars = series[timeframe]
+        base_features = features[timeframe]
+        for side in sides:
+            leg = _latest_impulse(
+                bars,
+                base_features.atr14,
+                side,
+                min_atr=settings.rid_min_impulse_atr,
+                max_atr=settings.rid_max_impulse_atr,
+                min_rvol=settings.rid_min_impulse_rvol,
             )
-            trend15 = f15.ema20 > f15.ema50 and f15.dmi_spread > -8
-            trend60 = f60.ema20 > f60.ema50 or f60.supertrend_direction > 0
-            flow_support = sum(
+            if leg is None:
+                continue
+            impulse_count += 1
+            post = bars[leg.extreme_index + 1 :]
+            if len(post) < 2:
+                continue
+            impulse_volume = max(
+                bar.volume for bar in bars[leg.start_index : leg.extreme_index + 1]
+            )
+            pullback_volume_ratio = _median([bar.volume for bar in post[:-1]]) / max(
+                impulse_volume, 1e-12
+            )
+            size = abs(leg.extreme - leg.origin)
+            latest = bars[-1]
+            previous = bars[-4:-1]
+            if side is Side.LONG:
+                pullback_extreme = min(bar.low for bar in post)
+                retracement = (leg.extreme - pullback_extreme) / size
+                recovery = (latest.close - pullback_extreme) / size
+                reactivated = (
+                    latest.close > latest.open
+                    and latest.close > max(bar.close for bar in previous)
+                    and latest.close <= leg.extreme + 0.30 * base_features.atr14
+                )
+                primary_trend = (
+                    (f15.ema20 > f15.ema50 and f15.dmi_spread > -8)
+                    if timeframe == "5"
+                    else (f15.ema20 > f15.ema50 or f15.supertrend_direction > 0)
+                )
+                trend60 = f60.ema20 > f60.ema50 or f60.supertrend_direction > 0
+                flow_support = sum(
+                    (
+                        ticker.taker_buy_ratio is not None and ticker.taker_buy_ratio >= 0.52,
+                        ticker.orderbook_imbalance is not None
+                        and ticker.orderbook_imbalance >= 0.03,
+                        ticker.open_interest_change_pct is not None
+                        and ticker.open_interest_change_pct > 0,
+                    )
+                )
+            else:
+                pullback_extreme = max(bar.high for bar in post)
+                retracement = (pullback_extreme - leg.extreme) / size
+                recovery = (pullback_extreme - latest.close) / size
+                reactivated = (
+                    latest.close < latest.open
+                    and latest.close < min(bar.close for bar in previous)
+                    and latest.close >= leg.extreme - 0.30 * base_features.atr14
+                )
+                primary_trend = (
+                    (f15.ema20 < f15.ema50 and f15.dmi_spread < 8)
+                    if timeframe == "5"
+                    else (f15.ema20 < f15.ema50 or f15.supertrend_direction < 0)
+                )
+                trend60 = f60.ema20 < f60.ema50 or f60.supertrend_direction < 0
+                flow_support = sum(
+                    (
+                        ticker.taker_buy_ratio is not None and ticker.taker_buy_ratio <= 0.48,
+                        ticker.orderbook_imbalance is not None
+                        and ticker.orderbook_imbalance <= -0.03,
+                        ticker.open_interest_change_pct is not None
+                        and ticker.open_interest_change_pct > 0,
+                    )
+                )
+
+            quiet = pullback_volume_ratio <= settings.rid_max_pullback_volume_ratio
+            retracement_ok = (
+                settings.rid_min_retracement
+                <= retracement
+                <= settings.rid_max_retracement
+            )
+            ready = quiet and retracement_ok and recovery >= 0.18 and primary_trend and reactivated
+            # Keep only structurally plausible preparations. This makes the manual
+            # screen useful without converting a watch candidate into an entry.
+            watchable = (
+                0.12 <= retracement <= min(0.60, settings.rid_max_retracement + 0.10)
+                and pullback_volume_ratio <= max(1.05, settings.rid_max_pullback_volume_ratio)
+                and primary_trend
+            )
+            if not ready and not watchable:
+                continue
+
+            score = round(
+                25
+                + min(12, (leg.size_atr - settings.rid_min_impulse_atr) * 4 + 5)
+                + min(12, (leg.volume_ratio - settings.rid_min_impulse_rvol) * 3 + 5)
+                + (10 if quiet else 3)
+                + (12 if retracement_ok else 5)
+                + (8 if primary_trend else 0)
+                + (7 if trend60 else 0)
+                + (10 if reactivated else 0)
+                + min(4, flow_support * 2)
+            )
+            blockers: list[str] = []
+            if not quiet:
+                blockers.append("Объём отката ещё не затих")
+            if retracement < settings.rid_min_retracement:
+                blockers.append("Откат ещё слишком мелкий — зона не сформирована")
+            elif retracement > settings.rid_max_retracement:
+                blockers.append("Откат глубже рабочего диапазона — ждём возврат структуры")
+            if recovery < 0.18:
+                blockers.append("Цена ещё слабо восстановилась после отката")
+            if not reactivated:
+                blockers.append(f"Ждём закрытый {timeframe}m триггер продолжения")
+            if not primary_trend:
+                blockers.append("Старший тренд пока не подтверждает направление")
+
+            stage_rank = 3 if ready else (2 if quiet and retracement_ok else 1)
+            stage = "ENTRY" if ready else ("ARMED" if stage_rank == 2 else "FORMING")
+            reasons = [
+                f"На {timeframe}m найден импульс {leg.size_atr:.1f} ATR "
+                f"с объёмом {leg.volume_ratio:.1f}× нормы",
+                f"Откат {retracement:.0%}, объём отката {pullback_volume_ratio:.2f} от импульса",
+                f"Тренд подтверждён на {'15m' if timeframe == '5' else '1h'}",
+            ]
+            if reactivated:
+                reasons.append(f"Закрытая {timeframe}m свеча подтвердила продолжение")
+            risks = []
+            if not trend60:
+                risks.append("Часовой тренд ещё не полностью согласован")
+            if flow_support == 0:
+                risks.append("Поток и открытый интерес ещё не дали подтверждения")
+            metrics = {
+                "rid_impulse_atr": leg.size_atr,
+                "rid_impulse_rvol": leg.volume_ratio,
+                "rid_retracement": retracement,
+                "rid_recovery": recovery,
+                "rid_pullback_volume_ratio": pullback_volume_ratio,
+                "rid_flow_confirmations": float(flow_support),
+                "rid_trend60_confirmed": float(trend60),
+                "rid_timeframe_minutes": float(timeframe),
+                "rid_stage_rank": float(stage_rank),
+            }
+            evaluations.append(
                 (
-                    ticker.taker_buy_ratio is not None and ticker.taker_buy_ratio >= 0.52,
-                    ticker.orderbook_imbalance is not None and ticker.orderbook_imbalance >= 0.03,
-                    ticker.open_interest_change_pct is not None
-                    and ticker.open_interest_change_pct > 0,
+                    score,
+                    ready,
+                    side,
+                    leg,
+                    stage,
+                    bars,
+                    base_features.atr14,
+                    metrics,
+                    reasons,
+                    risks,
+                    blockers,
                 )
             )
-        else:
-            pullback_extreme = max(bar.high for bar in post)
-            retracement = (pullback_extreme - leg.extreme) / size
-            recovery = (pullback_extreme - latest.close) / size
-            reactivated = (
-                latest.close < latest.open
-                and latest.close < min(bar.close for bar in previous)
-                and latest.close >= leg.extreme - 0.30 * f5.atr14
-            )
-            trend15 = f15.ema20 < f15.ema50 and f15.dmi_spread < 8
-            trend60 = f60.ema20 < f60.ema50 or f60.supertrend_direction < 0
-            flow_support = sum(
-                (
-                    ticker.taker_buy_ratio is not None and ticker.taker_buy_ratio <= 0.48,
-                    ticker.orderbook_imbalance is not None and ticker.orderbook_imbalance <= -0.03,
-                    ticker.open_interest_change_pct is not None
-                    and ticker.open_interest_change_pct > 0,
-                )
-            )
-        if not settings.rid_min_retracement <= retracement <= settings.rid_max_retracement:
-            continue
-        if recovery < 0.18 or not reactivated or not trend15:
-            continue
-
-        retrace_points = 15 if 0.30 <= retracement <= 0.70 else 8
-        score = min(
-            100,
-            round(
-                20
-                + min(15, (leg.size_atr - settings.rid_min_impulse_atr) * 5 + 7)
-                + min(15, (leg.volume_ratio - settings.rid_min_impulse_rvol) * 4 + 7)
-                + min(15, max(0, 1 - pullback_volume_ratio) * 18)
-                + retrace_points
-                + 18
-                + (10 if trend60 else 3)
-                + min(7, flow_support * 2.5)
-            ),
-        )
-        pattern = "контролируемый откат" if retracement <= 0.75 else "сбор ликвидности и возврат"
-        reasons = [
-            f"Первичный 5m импульс {leg.size_atr:.1f} ATR с объёмом {leg.volume_ratio:.1f}× нормы",
-            f"После импульса объём сжался до {pullback_volume_ratio:.2f} от пикового",
-            f"Откат {retracement:.0%}: {pattern}; восстановление {recovery:.0%} импульса",
-            "Последняя закрытая 5m свеча вернула локальные закрытия — "
-            "повторная активация подтверждена",
-            f"15m тренд подтверждает {side.value}; 1h "
-            f"{'подтверждает' if trend60 else 'пока нейтрален'}",
-        ]
-        risks = []
-        if retracement > 0.75:
-            risks.append("Глубокий вынос ликвидности: вероятность повторного теста повышена")
-        if not trend60:
-            risks.append("Часовой тренд ещё не полностью согласован с направлением")
-        if flow_support == 0:
-            risks.append("Деривативный поток не дал дополнительного подтверждения")
-        metrics = {
-            "rid_impulse_atr": leg.size_atr,
-            "rid_impulse_rvol": leg.volume_ratio,
-            "rid_retracement": retracement,
-            "rid_recovery": recovery,
-            "rid_pullback_volume_ratio": pullback_volume_ratio,
-            "rid_flow_confirmations": float(flow_support),
-            "rid_trend60_confirmed": float(trend60),
-        }
-        evaluations.append((score, side, leg, metrics, reasons, risks))
 
     if not evaluations:
         return Signal(
@@ -364,15 +429,24 @@ def analyze_rid_pattern(
             regime="RID_NONE",
             price=ticker.last,
             created_at=now,
-            blockers=["Нет закрытой последовательности импульс → тихий откат → реактивация"],
+            blockers=[
+                "Свежий импульс нужного размера и объёма не найден"
+                if impulse_count == 0
+                else "Импульс есть, но безопасная структура отката ещё не сформирована"
+            ],
             features=features,
             required_confidence=settings.rid_manual_min_score,
             strategy_version=CURRENT_RID_STRATEGY_VERSION,
         )
 
-    score, side, leg, metrics, reasons, risks = max(evaluations, key=lambda row: row[0])
-    plan, blockers = _plan(side, ticker, bars5, leg, f5.atr14, settings, now)
-    if score < settings.rid_manual_min_score:
+    ready_rows = [row for row in evaluations if row[1]]
+    selected = max(ready_rows or evaluations, key=lambda row: row[0])
+    score, ready, side, leg, stage, bars, atr, metrics, reasons, risks, blockers = selected
+    plan = None
+    if ready:
+        plan, plan_blockers = _plan(side, ticker, bars, leg, atr, settings, now)
+        blockers.extend(plan_blockers)
+    if ready and score < settings.rid_manual_min_score:
         blockers.append(f"RID score {score}/100 ниже ручного порога")
         plan = None
     return Signal(
@@ -381,7 +455,7 @@ def analyze_rid_pattern(
         side=side,
         confidence=score,
         score=float(score),
-        regime="RID_CONTINUATION",
+        regime=f"RID_{stage}",
         price=ticker.last,
         created_at=now,
         reasons=reasons,
@@ -518,6 +592,7 @@ class RidScanner:
                     *(analyze(row) for row in batch), return_exceptions=True
                 ))
             signals: list[Signal] = []
+            candidates: list[Signal] = []
             rejected: Counter[str] = Counter()
             completed = 0
             for row, result in zip(shortlisted, analyzed, strict=True):
@@ -527,10 +602,15 @@ class RidScanner:
                 elif result.actionable:
                     completed += 1
                     signals.append(result)
+                elif result.side is not Side.NO_TRADE:
+                    completed += 1
+                    candidates.append(result)
+                    rejected.update(result.blockers or ["RID-триггер ещё не подтверждён"])
                 else:
                     completed += 1
                     rejected.update(result.blockers or ["Условия входа не выполнены"])
             signals.sort(key=lambda item: item.confidence, reverse=True)
+            candidates.sort(key=lambda item: item.confidence, reverse=True)
             report = ScanReport(
                 exchange=self.exchange.name,
                 started_at=started,
@@ -542,6 +622,16 @@ class RidScanner:
                 diagnostics=tuple(
                     f"{reason}: {count}" for reason, count in rejected.most_common(5)
                 ),
+                candidates=tuple(candidates),
+            )
+            log.info(
+                "RID scan: universe=%d analyzed=%d entries=%d watch=%d errors=%d diagnostics=%s",
+                len(universe),
+                completed,
+                len(signals),
+                len(candidates),
+                len(errors),
+                dict(rejected.most_common(5)),
             )
             self.last_report = report
             self.last_error = None
