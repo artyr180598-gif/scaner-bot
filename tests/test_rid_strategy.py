@@ -1,14 +1,47 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from cryptopilot.config import Settings
 from cryptopilot.exchange import INTERVAL_MS
 from cryptopilot.models import Candle, Side, Ticker
-from cryptopilot.rid_strategy import analyze_rid_pattern, is_rid_auto_candidate
+from cryptopilot.rid_strategy import RidScanner, analyze_rid_pattern, is_rid_auto_candidate
+
+
+def test_scan_checks_beyond_first_batch_and_counts_failures(monkeypatch):
+    async def scenario():
+        settings = Settings(_env_file=None, rid_shortlist_size=3)
+        tickers = [replace(_ticker(100), symbol=f"COIN{i}USDT") for i in range(5)]
+        exchange = AsyncMock()
+        exchange.name = "BYBIT"
+        exchange.tickers.return_value = tickers
+        exchange.candles.return_value = _bars("5")
+        store = AsyncMock()
+        seen = []
+
+        def evaluate(symbol, name, ticker, candles, settings):
+            from datetime import UTC, datetime
+
+            from cryptopilot.models import Signal
+            seen.append(symbol)
+            if symbol == "COIN0USDT":
+                raise ValueError("insufficient history")
+            return Signal(symbol, name, Side.NO_TRADE, 0, 0, "RID_NONE",
+                          100, datetime.now(UTC), blockers=["No pattern"])
+
+        monkeypatch.setattr("cryptopilot.rid_strategy.analyze_rid_pattern", evaluate)
+        report = await RidScanner(exchange, store, settings).scan()
+        assert set(seen) == {ticker.symbol for ticker in tickers}
+        assert report.analyzed_count == 4
+        assert len(report.errors) == 1
+        assert report.diagnostics == ("No pattern: 4",)
+
+    asyncio.run(scenario())
 
 
 def _bars(interval: str, direction: int = 1, count: int = 260) -> list[Candle]:

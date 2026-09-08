@@ -166,6 +166,7 @@ class ScanReport:
     analyzed_count: int
     signals: tuple[Signal, ...]
     errors: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
