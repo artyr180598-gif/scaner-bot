@@ -16,7 +16,7 @@ from cryptopilot.rid_hypotheses import detect_hypotheses
 from scripts.rid_backtest import _parse
 
 
-def replay(bars):
+def replay(bars, eligible=None):
     records = []
     busy_until = -1
     for i in range(60, len(bars) - 97):
@@ -30,6 +30,8 @@ def replay(bars):
             continue
         hypotheses = detect_hypotheses(history)
         if not hypotheses:
+            continue
+        if eligible is not None and not eligible(bars[i].open_time_ms):
             continue
         h = hypotheses[0]
         sign = 1 if h.side is Side.LONG else -1
