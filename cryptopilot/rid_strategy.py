@@ -30,6 +30,7 @@ from cryptopilot.models import (
     Ticker,
     TradePlan,
 )
+from cryptopilot.rid_hypotheses import detect_hypotheses
 from cryptopilot.storage import SignalStore
 
 log = logging.getLogger(__name__)
@@ -407,7 +408,7 @@ def analyze_rid_pattern(
                 f"На {timeframe}m найден импульс {leg.size_atr:.1f} ATR "
                 f"с объёмом {leg.volume_ratio:.1f}× нормы",
                 f"Откат {retracement:.0%}, объём отката {pullback_volume_ratio:.2f} от импульса",
-                f"Тренд подтверждён на {'15m' if timeframe == '5' else '1h'}",
+                "Основное направление подтверждено на 15m",
             ]
             if reactivated:
                 reasons.append(f"Закрытая {timeframe}m свеча подтвердила продолжение")
@@ -449,6 +450,35 @@ def analyze_rid_pattern(
             )
 
     if not evaluations:
+        hypotheses = (
+            detect_hypotheses(series["15"], allow_short=settings.rid_short_enabled)
+            if settings.rid_research_observation_enabled else []
+        )
+        if hypotheses:
+            hypothesis = hypotheses[0]
+            return Signal(
+                symbol=symbol, exchange=exchange, side=hypothesis.side,
+                confidence=0, score=0, regime="RID_RESEARCH", price=ticker.last,
+                created_at=now, features=features,
+                strategy_version="rid-research-structure-1.0.0",
+                required_confidence=settings.rid_manual_min_score,
+                reasons=[
+                    "Эксперимент: " + (
+                        "продолжение после тихой паузы в тренде"
+                        if hypothesis.name == "TREND_PAUSE" else "выход из сжатой базы"
+                    ),
+                    f"15m закрытие за границей {hypothesis.trigger:.8g}; "
+                    f"объём {hypothesis.volume_ratio:.2f}×",
+                    "Это гипотеза по скриншотам, не установленный индикатор RID",
+                ],
+                blockers=["До независимой проверки прибыльности торговый вход запрещён"],
+                market_context={
+                    "rid_timeframe_minutes": 15.0,
+                    "rid_research_only": 1.0,
+                    "rid_research_trigger": hypothesis.trigger,
+                    "rid_research_invalidation": hypothesis.invalidation,
+                },
+            )
         return Signal(
             symbol=symbol,
             exchange=exchange,
@@ -622,6 +652,10 @@ class RidScanner:
                     + (2 if timeframe == "15" else 0)
                 )
                 best = max(best, score)
+        if self.settings.rid_research_observation_enabled and detect_hypotheses(
+            self._aggregate_15m(bars), allow_short=self.settings.rid_short_enabled
+        ):
+            best = max(best, 60.0)
         return best
 
     async def scan(self) -> ScanReport:

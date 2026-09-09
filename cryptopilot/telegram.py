@@ -581,6 +581,16 @@ def format_rid_signal(signal: Signal) -> str:
 
 def format_rid_candidate(signal: Signal) -> str:
     m = signal.market_context
+    if m.get("rid_research_only"):
+        reasons = "\n".join(f"• {html.escape(item)}" for item in signal.reasons)
+        return (
+            f"🧪 <b>{html.escape(signal.symbol)} · RID ЭКСПЕРИМЕНТ</b>\n"
+            f"Направление: {signal.side.value} · 15m\n"
+            f"{reasons}\n"
+            f"Граница отмены гипотезы: {price(m['rid_research_invalidation'])}\n\n"
+            "Вероятность успеха не установлена. Это не сигнал на вход: "
+            "торговый план и автоматические торговые уведомления отключены."
+        )
     timeframe = int(m.get("rid_timeframe_minutes", 5))
     stage = signal.regime.removeprefix("RID_")
     stage_text = {
