@@ -177,6 +177,9 @@ class Settings(BaseSettings):
     # RID is an isolated post-impulse continuation/reversal experiment.  It never
     # changes PRIME ranking or reuses PRIME notification budgets.
     rid_enabled: bool = True
+    # Experimental screenshot hypotheses failed their initial historical study.
+    # Opt-in observation only; never executable signals or automatic alerts.
+    rid_research_observation_enabled: bool = False
     rid_short_enabled: bool = False
     rid_auto_scan_enabled: bool = True
     rid_scan_interval_seconds: int = Field(default=120, ge=120, le=3600)
