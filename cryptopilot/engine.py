@@ -201,6 +201,28 @@ class SignalEngine:
             ):
                 readiness -= 8
                 risks.append(f"Taker buy ratio {ticker.taker_buy_ratio:.0%} против сценария")
+        if ticker.near_book_imbalance is not None:
+            directional = (
+                ticker.near_book_imbalance
+                if side is Side.LONG
+                else -ticker.near_book_imbalance
+            )
+            if directional >= 0.12:
+                reasons.append(f"Near-book {directional:+.0%} подтверждает ближайшую ликвидность")
+            elif directional <= -0.18:
+                risks.append(f"Near-book {directional:+.0%} против направления")
+
+        if ticker.buy_slippage_10k_bps is not None and ticker.sell_slippage_10k_bps is not None:
+            slippage = (
+                ticker.buy_slippage_10k_bps
+                if side is Side.LONG
+                else ticker.sell_slippage_10k_bps
+            )
+            if slippage > 12:
+                risks.append(f"Глубина стакана: ~{slippage:.1f} bps на 10k USDT")
+            elif slippage <= 4:
+                reasons.append(f"Глубина стакана достаточна: ~{slippage:.1f} bps на 10k USDT")
+
         if ticker.orderbook_imbalance is not None:
             book_aligned = (bias is Side.LONG and ticker.orderbook_imbalance >= 0.12) or (
                 bias is Side.SHORT and ticker.orderbook_imbalance <= -0.12
@@ -865,6 +887,9 @@ class SignalEngine:
             "oi_change_pct": ticker.open_interest_change_pct,
             "taker_buy_ratio": ticker.taker_buy_ratio,
             "orderbook_imbalance": ticker.orderbook_imbalance,
+            "near_book_imbalance": ticker.near_book_imbalance,
+            "buy_slippage_10k_bps": ticker.buy_slippage_10k_bps,
+            "sell_slippage_10k_bps": ticker.sell_slippage_10k_bps,
             "long_short_ratio": ticker.long_short_ratio,
         }
         values.update({key: value for key, value in optional.items() if value is not None})
