@@ -186,16 +186,43 @@ class HummingbotLab:
         except Exception as exc:
             return {"error": f"{type(exc).__name__}: {exc}"}
 
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        # Keep the Lab independent from Telegram/CCXT/Hummingbot pair notation.
+        # Bybit market-data requests must receive BTCUSDT, while Hummingbot
+        # configs use BTC-USDT. This also handles BTC-USDT:USDT safely.
+        normalized = (symbol or "").strip().upper().split(":", 1)[0]
+        normalized = normalized.replace("/", "").replace("-", "").replace("_", "")
+        if normalized.endswith("USDTUSDT"):
+            normalized = normalized[:-4]
+        if not normalized:
+            raise ValueError("Hummingbot Lab: empty trading symbol")
+        return normalized
+
     async def _history(self, symbol: str, interval: str) -> list[Candle]:
-        # Exchange clients expose a paginated history helper when available.
+        # Normalize once at the Lab boundary so every exchange implementation
+        # receives the same canonical market symbol.
+        market_symbol = self._normalize_symbol(symbol)
+        log = __import__("logging").getLogger(__name__)
+        log.info(
+            "Hummingbot Lab history request: exchange=%s symbol=%s interval=%s days=%s",
+            self.exchange.name, market_symbol, interval,
+            self.settings.hummingbot_lab_history_days,
+        )
         historical = getattr(self.exchange, "historical_candles", None)
-        if historical is not None:
-            return await historical(
-                symbol,
-                interval,
-                days=self.settings.hummingbot_lab_history_days,
-            )
-        return await self.exchange.candles(symbol, interval, 1000)
+        try:
+            if historical is not None:
+                return await historical(
+                    market_symbol,
+                    interval,
+                    days=self.settings.hummingbot_lab_history_days,
+                )
+            return await self.exchange.candles(market_symbol, interval, 1000)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Hummingbot Lab history failed: exchange={self.exchange.name} "
+                f"symbol={market_symbol} interval={interval} · {type(exc).__name__}: {exc}"
+            ) from exc
 
     def _backtest(self, name: str, candles: list[Candle]) -> LabMetrics:
         risk_values: list[float] = []
