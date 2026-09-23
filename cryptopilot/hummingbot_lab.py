@@ -3,13 +3,11 @@ from __future__ import annotations
 import asyncio
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any
-
+from datetime import UTC, datetime
 import aiohttp
 
 from cryptopilot.config import Settings
-from cryptopilot.exchange import ExchangeClient, INTERVAL_MS
+from cryptopilot.exchange import ExchangeClient
 from cryptopilot.models import Candle
 
 
