@@ -97,9 +97,30 @@ class HummingbotLab:
                     return candidate, (), f"{type(exc).__name__}: {exc}"
 
             validated = await asyncio.gather(
-                *(validate(item) for item in candidates[: min(3, len(candidates))])
+                *(validate(item) for item in candidates[: min(8, len(candidates))])
             )
-            for idx, (candidate, metrics, error) in enumerate(validated, 1):
+            qualified = []
+            for candidate, metrics, error in validated:
+                research_ok = (
+                    not error
+                    and any(
+                        getattr(m, "samples", 0) >= 30
+                        and getattr(m, "profit_factor", 0.0) >= 1.0
+                        and getattr(m, "total_r", -999.0) > 0
+                        for m in metrics
+                    )
+                )
+                if research_ok:
+                    qualified.append((candidate, metrics, error))
+            qualified.sort(key=lambda item: item[0].score, reverse=True)
+            if not qualified:
+                lines.extend([
+                    "<b>Нет кандидата, прошедшего quality gate.</b>",
+                    "Сетапы были найдены, но текущая историческая проверка не дала достаточно подтверждения.",
+                    "Это специально отсекает красивые, но статистически слабые входы.",
+                ])
+                return "\n".join(lines)
+            for idx, (candidate, metrics, error) in enumerate(qualified[:3], 1):
                 icon = "🟢" if candidate.side.value == "LONG" else "🔴"
                 lines.extend([
                     f"{icon} <b>#{idx} {candidate.symbol} · {candidate.side.value} · {candidate.stage}</b>",
