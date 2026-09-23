@@ -65,7 +65,9 @@ def evaluate(side: Side, ticker: Ticker) -> HummingbotFusion:
         adverse = ticker.spot_perp_basis_bps if side is Side.LONG else -ticker.spot_perp_basis_bps
         if adverse > 35:
             delta -= 4.0
-            risks.append(f"HB basis: perp premium {ticker.spot_perp_basis_bps:+.0f} bps is stretched")
+            risks.append(
+                f"HB basis: perp premium {ticker.spot_perp_basis_bps:+.0f} bps is stretched"
+            )
         elif adverse < -20:
             delta += 2.0
             reasons.append(f"HB basis: {ticker.spot_perp_basis_bps:+.0f} bps leaves room")
