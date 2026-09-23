@@ -115,13 +115,13 @@ class BybitClient(ExchangeClient):
 
     @staticmethod
     def _market_symbol(symbol: str) -> str:
-        return symbol.replace("/", "").replace("-", "").replace("_", "").upper()
-
-    @staticmethod
-    def _market_symbol(symbol: str) -> str:
-        # Scaner/Hummingbot may use canonical BTC-USDT while Bybit V5 requires
-        # the exchange symbol BTCUSDT (uppercase, no separator).
-        return symbol.replace("/", "").replace("-", "").replace("_", "").upper()
+        # Scaner/Hummingbot can use BTC-USDT, BTC/USDT or CCXT-style
+        # BTC-USDT:USDT. Bybit V5 requires the plain exchange symbol BTCUSDT.
+        normalized = (symbol or "").strip().upper().split(":", 1)[0]
+        normalized = normalized.replace("/", "").replace("-", "").replace("_", "")
+        if normalized.endswith("USDTUSDT"):
+            normalized = normalized[:-4]
+        return normalized
 
     def __init__(self, base_url: str, timeout_seconds: float, concurrency: int) -> None:
         self.http = JsonClient(base_url, timeout_seconds, concurrency)
