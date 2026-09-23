@@ -40,6 +40,9 @@ class Ticker:
     open_interest_change_pct: float | None = None
     taker_buy_ratio: float | None = None
     orderbook_imbalance: float | None = None
+    near_book_imbalance: float | None = None
+    buy_slippage_10k_bps: float | None = None
+    sell_slippage_10k_bps: float | None = None
     long_short_ratio: float | None = None
     spot_last: float | None = None
     spot_taker_buy_ratio: float | None = None
