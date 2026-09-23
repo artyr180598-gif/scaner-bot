@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from base64 import b64encode
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import aiohttp
@@ -55,7 +56,15 @@ class HummingbotLab:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.settings.http_timeout_seconds)
             ) as session:
-                async with session.get(self.settings.hummingbot_api_url.rstrip("/") + "/") as response:
+                headers = {}
+                if self.settings.hummingbot_api_username:
+                    token = b64encode(
+                        f"{self.settings.hummingbot_api_username}:{self.settings.hummingbot_api_password}".encode()
+                    ).decode()
+                    headers["Authorization"] = f"Basic {token}"
+                async with session.get(
+                    self.settings.hummingbot_api_url.rstrip("/") + "/", headers=headers
+                ) as response:
                     if response.status < 400:
                         return f"API online · HTTP {response.status}"
                     return f"API отвечает с HTTP {response.status}"
@@ -63,6 +72,8 @@ class HummingbotLab:
             return f"API недоступен · {type(exc).__name__}"
 
     async def report(self, symbol: str = "BTCUSDT") -> LabReport:
+        if not self.settings.hummingbot_lab_enabled:
+            raise RuntimeError("HUMMINGBOT_LAB_ENABLED=false")
         async with self._lock:
             candles = await self._history(symbol.upper(), self.settings.hummingbot_lab_interval)
             if len(candles) < 250:
