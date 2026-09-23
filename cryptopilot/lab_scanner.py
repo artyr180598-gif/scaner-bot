@@ -149,7 +149,11 @@ class LabMarketScanner:
         else:
             risks.append("1h/4h trend not fully aligned")
 
-        momentum_ok = (f60.rsi14 >= 52 and f60.macd_hist > 0) if side is Side.LONG else (f60.rsi14 <= 48 and f60.macd_hist < 0)
+        momentum_ok = (
+            (f60.rsi14 >= 52 and f60.macd_hist > 0)
+            if side is Side.LONG
+            else (f60.rsi14 <= 48 and f60.macd_hist < 0)
+        )
         if momentum_ok:
             points += 12
             reasons.append(f"RSI {f60.rsi14:.0f} + MACD support direction")
@@ -187,7 +191,11 @@ class LabMarketScanner:
                 risks.append("open interest falling")
 
         if ticker.taker_buy_ratio is not None:
-            aligned_flow = ticker.taker_buy_ratio >= 0.54 if side is Side.LONG else ticker.taker_buy_ratio <= 0.46
+            aligned_flow = (
+                ticker.taker_buy_ratio >= 0.54
+                if side is Side.LONG
+                else ticker.taker_buy_ratio <= 0.46
+            )
             if aligned_flow:
                 points += 7
                 reasons.append(f"taker flow {ticker.taker_buy_ratio:.0%} aligned")
@@ -242,7 +250,11 @@ class LabMarketScanner:
         if stop_pct > self.settings.hummingbot_lab_max_stop_pct * 100:
             risks.append(f"stop distance {stop_pct:.1f}% is wide")
             score = max(0, score - 7)
-        rr = abs(tp2 - entry_high) / max(abs(entry_high - stop), 1e-12) if side is Side.LONG else abs(entry_low - tp2) / max(abs(stop - entry_low), 1e-12)
+        rr = (
+            abs(tp2 - entry_high) / max(abs(entry_high - stop), 1e-12)
+            if side is Side.LONG
+            else abs(entry_low - tp2) / max(abs(stop - entry_low), 1e-12)
+        )
         leverage = 1 if score < 78 else min(2, self.settings.max_leverage)
 
         indicators = (
@@ -332,7 +344,10 @@ class LabMarketScanner:
         # Donchian structure + early position
         dh, dl = np.max(high[-20:-1]), np.min(low[-20:-1])
         pos20 = (close[-1] - dl) / max(dh - dl, 1e-12)
-        if (side is Side.LONG and 0.60 <= pos20 <= 0.90) or (side is Side.SHORT and 0.10 <= pos20 <= 0.40):
+        if (
+            (side is Side.LONG and 0.60 <= pos20 <= 0.90)
+            or (side is Side.SHORT and 0.10 <= pos20 <= 0.40)
+        ):
             points += 5
             reasons.append(f"Donchian position {pos20:.2f} leaves room for expansion")
 
