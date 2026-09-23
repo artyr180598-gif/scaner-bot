@@ -113,6 +113,12 @@ class ExchangeClient(ABC):
 class BybitClient(ExchangeClient):
     name = "BYBIT"
 
+    @staticmethod
+    def _market_symbol(symbol: str) -> str:
+        # Scaner/Hummingbot may use canonical BTC-USDT while Bybit V5 requires
+        # the exchange symbol BTCUSDT (uppercase, no separator).
+        return symbol.replace("/", "").replace("-", "").replace("_", "").upper()
+
     def __init__(self, base_url: str, timeout_seconds: float, concurrency: int) -> None:
         self.http = JsonClient(base_url, timeout_seconds, concurrency)
         self._symbols: frozenset[str] | None = None
@@ -176,7 +182,7 @@ class BybitClient(ExchangeClient):
                 "/v5/market/kline",
                 {
                     "category": "linear",
-                    "symbol": symbol.upper(),
+                    "symbol": self._market_symbol(symbol),
                     "interval": interval,
                     "limit": min(max(limit, 1), 1000),
                 },
@@ -216,7 +222,7 @@ class BybitClient(ExchangeClient):
                 "/v5/market/kline",
                 {
                     "category": "linear",
-                    "symbol": symbol.upper(),
+                    "symbol": self._market_symbol(symbol),
                     "interval": interval,
                     "limit": 1000,
                     "end": cursor_end,
