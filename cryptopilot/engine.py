@@ -101,6 +101,12 @@ class SignalEngine:
                 risks.append("Режим BTC временно недоступен")
 
         bias, readiness, reasons = self._early_base(primary)
+        hb = evaluate_hummingbot_fusion(bias, ticker)
+        readiness = int(np.clip(readiness + hb.score_delta, 0, 95))
+        reasons.extend(hb.reasons)
+        risks.extend(hb.risks)
+        if hb.data_points == 0:
+            risks.append("Microstructure context unavailable")
         if bias is Side.NO_TRADE:
             blockers.append("Направление будущего выхода из диапазона пока не подтверждено")
         structural_score = directional_score(structural)
