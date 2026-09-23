@@ -314,6 +314,9 @@ class BybitClient(ExchangeClient):
         values: list[float] = []
         taker_buy_ratio: float | None = None
         orderbook_imbalance: float | None = None
+        near_book_imbalance: float | None = None
+        buy_slippage_10k_bps: float | None = None
+        sell_slippage_10k_bps: float | None = None
         long_short_ratio: float | None = None
         spot_last: float | None = None
         spot_taker_buy_ratio: float | None = None
@@ -343,8 +346,21 @@ class BybitClient(ExchangeClient):
             bids = sum(float(row[0]) * float(row[1]) for row in (book_result or {}).get("b", []))
             asks = sum(float(row[0]) * float(row[1]) for row in (book_result or {}).get("a", []))
             orderbook_imbalance = (bids - asks) / (bids + asks) if bids + asks > 0 else None
+            near_book_imbalance = _near_book_imbalance(
+                (book_result or {}).get("b", []), (book_result or {}).get("a", []),
+                ticker.last, 0.005
+            )
+            buy_slippage_10k_bps = _slippage_bps(
+                (book_result or {}).get("a", []), 10_000.0, True, ticker.last
+            )
+            sell_slippage_10k_bps = _slippage_bps(
+                (book_result or {}).get("b", []), 10_000.0, False, ticker.last
+            )
         except (IndexError, TypeError, ValueError):
             orderbook_imbalance = None
+            near_book_imbalance = None
+            buy_slippage_10k_bps = None
+            sell_slippage_10k_bps = None
         try:
             latest = (ratio_result or {}).get("list", [])[0]
             sell_ratio = float(latest["sellRatio"])
@@ -406,6 +422,9 @@ class BybitClient(ExchangeClient):
             open_interest_change_pct=change,
             taker_buy_ratio=taker_buy_ratio,
             orderbook_imbalance=orderbook_imbalance,
+            near_book_imbalance=near_book_imbalance,
+            buy_slippage_10k_bps=buy_slippage_10k_bps,
+            sell_slippage_10k_bps=sell_slippage_10k_bps,
             long_short_ratio=long_short_ratio,
             spot_last=spot_last,
             spot_taker_buy_ratio=spot_taker_buy_ratio,
@@ -527,6 +546,9 @@ class BinanceClient(ExchangeClient):
                 {"symbol": ticker.symbol, "period": "15m", "limit": 1},
             ),
         )
+        near_book_imbalance: float | None = None
+        buy_slippage_10k_bps: float | None = None
+        sell_slippage_10k_bps: float | None = None
         try:
             ordered = sorted(oi_rows or [], key=lambda item: int(item["timestamp"]))
             values = [float(item.get("sumOpenInterestValue") or 0) for item in ordered]
@@ -543,8 +565,21 @@ class BinanceClient(ExchangeClient):
             bids = sum(float(row[0]) * float(row[1]) for row in (depth or {}).get("bids", []))
             asks = sum(float(row[0]) * float(row[1]) for row in (depth or {}).get("asks", []))
             orderbook_imbalance = (bids - asks) / (bids + asks) if bids + asks > 0 else None
+            near_book_imbalance = _near_book_imbalance(
+                (depth or {}).get("bids", []), (depth or {}).get("asks", []),
+                ticker.last, 0.005
+            )
+            buy_slippage_10k_bps = _slippage_bps(
+                (depth or {}).get("asks", []), 10_000.0, True, ticker.last
+            )
+            sell_slippage_10k_bps = _slippage_bps(
+                (depth or {}).get("bids", []), 10_000.0, False, ticker.last
+            )
         except (IndexError, TypeError, ValueError):
             orderbook_imbalance = None
+            near_book_imbalance = None
+            buy_slippage_10k_bps = None
+            sell_slippage_10k_bps = None
         try:
             long_short_ratio = float((ratio_rows or [])[0]["longShortRatio"])
         except (IndexError, KeyError, TypeError, ValueError):
@@ -556,6 +591,9 @@ class BinanceClient(ExchangeClient):
             open_interest_change_pct=change,
             taker_buy_ratio=taker_buy_ratio,
             orderbook_imbalance=orderbook_imbalance,
+            near_book_imbalance=near_book_imbalance,
+            buy_slippage_10k_bps=buy_slippage_10k_bps,
+            sell_slippage_10k_bps=sell_slippage_10k_bps,
             long_short_ratio=long_short_ratio,
         )
 
@@ -581,3 +619,51 @@ def _percentage_change(first: float, last: float) -> float | None:
     if first <= 0:
         return None
     return (last / first - 1) * 100
+
+
+def _near_book_imbalance(
+    bids: list[Any], asks: list[Any], mid: float, band_pct: float
+) -> float | None:
+    if mid <= 0:
+        return None
+    lower = mid * (1 - band_pct)
+    upper = mid * (1 + band_pct)
+    bid_notional = sum(
+        float(row[0]) * float(row[1])
+        for row in bids
+        if lower <= float(row[0]) <= mid
+    )
+    ask_notional = sum(
+        float(row[0]) * float(row[1])
+        for row in asks
+        if mid <= float(row[0]) <= upper
+    )
+    total = bid_notional + ask_notional
+    return (bid_notional - ask_notional) / total if total > 0 else None
+
+
+def _slippage_bps(
+    levels: list[Any], quote_notional: float, is_buy: bool, mid: float
+) -> float | None:
+    if quote_notional <= 0 or mid <= 0:
+        return None
+    remaining = quote_notional
+    base_acquired = 0.0
+    quote_used = 0.0
+    for row in levels:
+        price, size = float(row[0]), float(row[1])
+        available_quote = price * size
+        take_quote = min(remaining, available_quote)
+        base_acquired += take_quote / price
+        quote_used += take_quote
+        remaining -= take_quote
+        if remaining <= 1e-9:
+            break
+    if remaining > 1e-9 or base_acquired <= 0:
+        return None
+    average_price = quote_used / base_acquired
+    return (
+        (average_price / mid - 1) * 10_000
+        if is_buy
+        else (1 - average_price / mid) * 10_000
+    )
