@@ -231,8 +231,16 @@ class LabMarketScanner:
 
         stop_pct = abs(price - stop) / max(price, 1e-12) * 100
         if stop_pct > self.settings.hummingbot_lab_max_stop_pct * 100:
-            risks.append(f"stop distance {stop_pct:.1f}% is wide")
-            score = max(0, score - 7)
+            return None
+        if side is Side.LONG and f60.rsi14 > 68:
+            points -= 6
+            risks.append(f"RSI {f60.rsi14:.0f} is extended")
+        elif side is Side.SHORT and f60.rsi14 < 32:
+            points -= 6
+            risks.append(f"RSI {f60.rsi14:.0f} is extended")
+        if btc_feature is None or abs(directional_score(btc_feature)) < 15:
+            points -= 3
+            risks.append("BTC regime is neutral")
         rr = abs(tp2 - entry_high) / max(abs(entry_high - stop), 1e-12) if side is Side.LONG else abs(entry_low - tp2) / max(abs(stop - entry_low), 1e-12)
         leverage = 1 if score < 78 else min(2, self.settings.max_leverage)
 
