@@ -111,7 +111,7 @@ def build_router(
     router.message.middleware(AuthorizationMiddleware(settings.allowed_chat_ids))
     smart_money = smart_money or SmartMoneyScanner(exchange, settings)
     rid_scanner = rid_scanner or RidScanner(exchange, store, settings)
-    hb_lab = HummingbotLab(exchange, settings)
+    hb_lab = HummingbotLab(exchange, settings, scanner)
     search_lock = asyncio.Lock()
 
     @router.message(CommandStart())
@@ -374,26 +374,36 @@ def build_router(
     @router.message(F.text == HBLAB)
     async def hummingbot_lab_command(message: Message, state: FSMContext) -> None:
         await state.clear()
-        # Reply-keyboard button text is "🧪 Hummingbot Lab", not a command argument.
-        # Only parse an argument for /hblab; otherwise use the safe default.
-        # Previously the second word of the button label became the symbol "Lab".
         raw_text = (message.text or "").strip()
-        symbol = (
-            command_argument(raw_text)
-            if raw_text.lower().startswith("/hblab")
-            else "BTCUSDT"
-        ) or "BTCUSDT"
+        is_command = raw_text.lower().startswith("/hblab")
+        if is_command and command_argument(raw_text):
+            symbol = command_argument(raw_text) or "BTCUSDT"
+            progress = await message.answer(
+                f"⏳ Hummingbot Lab: глубокий тест {html.escape(symbol.upper())}. "
+                "Research/paper, без реальных ордеров."
+            )
+            try:
+                result = await hb_lab.compare(symbol)
+                await progress.edit_text(result)
+            except Exception as exc:
+                health.last_error = str(exc)
+                await progress.edit_text(
+                    f"⚠️ Hummingbot Lab не завершён: {html.escape(type(exc).__name__)} — "
+                    f"{html.escape(str(exc))[:300]}"
+                )
+            return
+
         progress = await message.answer(
-            f"⏳ Hummingbot Lab: тестирую {html.escape(symbol.upper())} "
-            "на исторических данных. Это research/paper, без реальных ордеров."
+            "⏳ Hummingbot Lab: сканирую рынок и ищу монеты для входа. "
+            "Сначала текущий сетап, затем 180-дневная research-проверка."
         )
         try:
-            result = await hb_lab.compare(symbol)
+            result = await hb_lab.search()
             await progress.edit_text(result)
         except Exception as exc:
             health.last_error = str(exc)
             await progress.edit_text(
-                f"⚠️ Hummingbot Lab не завершён: {html.escape(type(exc).__name__)} — "
+                f"⚠️ Hummingbot Lab поиск не завершён: {html.escape(type(exc).__name__)} — "
                 f"{html.escape(str(exc))[:300]}"
             )
 
