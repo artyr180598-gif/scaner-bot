@@ -372,7 +372,7 @@ def build_router(
 
     @router.message(Command("hblab"))
     @router.message(F.text == HBLAB)
-    async def hummingbot_lab(message: Message, state: FSMContext) -> None:
+    async def hummingbot_lab_command(message: Message, state: FSMContext) -> None:
         await state.clear()
         symbol = command_argument(message.text) or "BTCUSDT"
         progress = await message.answer(
