@@ -62,11 +62,18 @@ class JsonClient:
                     if response.status in {418, 429} or response.status >= 500:
                         raise MarketDataError(f"temporary HTTP {response.status}")
                     response.raise_for_status()
-                    return await response.json()
+                    payload = await response.json()
+                    # Bybit returns HTTP 200 with retCode=10006 when its request
+                    # quota is exhausted. Treat it like a transient transport error
+                    # and back off without changing any scanner strategy logic.
+                    if payload.get("retCode") == 10006:
+                        raise MarketDataError("Bybit 10006: Too many visits. Exceeded the API Rate Limit.")
+                    return payload
             except (aiohttp.ClientError, TimeoutError, MarketDataError) as exc:
                 last_error = exc
                 if attempt < 1:
-                    await asyncio.sleep(0.4 * (2**attempt))
+                    delay = 2.0 if "10006" in str(exc) else 0.4 * (2**attempt)
+                    await asyncio.sleep(delay)
         raise MarketDataError(f"GET {path} failed after retries: {last_error}")
 
 
@@ -82,48 +89,10 @@ class ExchangeClient(ABC):
     @abstractmethod
     async def candles(self, symbol: str, interval: str, limit: int = 260) -> list[Candle]: ...
 
+    @abstractmethod
     async def historical_candles(
         self, symbol: str, interval: str, *, days: int = 180
-    ) -> list[Candle]:
-        end_ms = int(time.time() * 1000)
-        start_ms = end_ms - max(1, days) * 86_400_000
-        duration = INTERVAL_MS[interval]
-        rows: list[Candle] = []
-        cursor_end = end_ms
-        target = days * 1440 // max(1, duration // 60_000) + 2000
-        while cursor_end > start_ms and len(rows) < target:
-            result = self._result(await self.http.get(
-                "/v5/market/kline",
-                {
-                    "category": "linear",
-                    "symbol": symbol.upper(),
-                    "interval": interval,
-                    "limit": 1000,
-                    "end": cursor_end,
-                },
-            ))
-            batch = result.get("list", [])
-            if not batch:
-                break
-            oldest = min(int(row[0]) for row in batch)
-            for row in batch:
-                opened = int(row[0])
-                if start_ms <= opened and opened + duration <= end_ms:
-                    rows.append(Candle(
-                        open_time_ms=opened,
-                        open=float(row[1]),
-                        high=float(row[2]),
-                        low=float(row[3]),
-                        close=float(row[4]),
-                        volume=float(row[5]),
-                        turnover=float(row[6]),
-                    ))
-            if oldest <= start_ms or oldest >= cursor_end:
-                break
-            cursor_end = oldest - 1
-            await asyncio.sleep(0.05)
-        unique = {item.open_time_ms: item for item in rows}
-        return [unique[key] for key in sorted(unique)]
+    ) -> list[Candle]: ...
 
     async def enrich_ticker(self, ticker: Ticker) -> Ticker:
         """Attach optional derivatives context without making core market data fragile."""
@@ -233,27 +202,33 @@ class BybitClient(ExchangeClient):
     async def historical_candles(
         self, symbol: str, interval: str, *, days: int = 180
     ) -> list[Candle]:
+        # Hummingbot Lab uses this method for long-history research. The previous
+        # implementation accidentally called Binance /fapi/v1/klines while the
+        # client was configured for Bybit, so the Lab could never obtain valid
+        # Bybit history. Keep it on the same V5 market-data path as candles().
         end_ms = int(time.time() * 1000)
         start_ms = end_ms - max(1, days) * 86_400_000
+        duration = INTERVAL_MS[interval]
         rows: list[Candle] = []
         cursor_end = end_ms
         while cursor_end > start_ms:
-            batch = await self.http.get(
-                "/fapi/v1/klines",
+            result = self._result(await self.http.get(
+                "/v5/market/kline",
                 {
+                    "category": "linear",
                     "symbol": symbol.upper(),
-                    "interval": self._intervals[interval],
-                    "limit": 1500,
-                    "endTime": cursor_end,
-                    "startTime": start_ms,
+                    "interval": interval,
+                    "limit": 1000,
+                    "end": cursor_end,
                 },
-            )
+            ))
+            batch = result.get("list", [])
             if not batch:
                 break
             oldest = min(int(row[0]) for row in batch)
             for row in batch:
                 opened = int(row[0])
-                if start_ms <= opened and int(row[6]) <= end_ms:
+                if start_ms <= opened and opened + duration <= end_ms:
                     rows.append(Candle(
                         open_time_ms=opened,
                         open=float(row[1]),
@@ -261,7 +236,7 @@ class BybitClient(ExchangeClient):
                         low=float(row[3]),
                         close=float(row[4]),
                         volume=float(row[5]),
-                        turnover=float(row[7]),
+                        turnover=float(row[6]),
                     ))
             if oldest <= start_ms or oldest >= cursor_end:
                 break
