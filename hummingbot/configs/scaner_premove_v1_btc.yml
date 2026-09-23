@@ -1,0 +1,28 @@
+# Hummingbot V2 controller config for Scaner PREMOVE research.
+# Copy into Hummingbot's conf/controllers/ (or upload via Hummingbot API).
+id: scaner_premove_v1_btc
+controller_name: scaner_premove_v1
+controller_type: directional_trading
+connector_name: binance_perpetual
+trading_pair: BTC-USDT
+candles_connector: binance_perpetual
+candles_trading_pair: BTC-USDT
+interval: 15m
+total_amount_quote: 100
+max_executors_per_side: 1
+cooldown_time: 3600
+leverage: 2
+position_mode: HEDGE
+stop_loss: 0.025
+take_profit: 0.05
+time_limit: 86400
+take_profit_order_type: MARKET
+trailing_stop: null
+range_length: 20
+ema_fast: 20
+ema_slow: 50
+max_range_pct: 0.045
+max_volume_ratio: 1.35
+long_range_position: 0.65
+short_range_position: 0.35
+max_atr_pct: 0.018
