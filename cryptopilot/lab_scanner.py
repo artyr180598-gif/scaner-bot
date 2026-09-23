@@ -202,10 +202,10 @@ class LabMarketScanner:
             points -= 8
             risks.append("price stretched from VWAP")
 
-        score = float(np.clip(45 + points + min(18, abs(raw) * 0.18), 0, 100))
+        score = float(np.clip(45 + points + min(14, abs(raw) * 0.14), 0, 100))
         confidence = int(np.clip(score, 50, 95))
         stage = "EARLY WATCH"
-        if score >= 78 and aligned and not (f15.breakout_up or f15.breakout_down):
+        if score >= 80 and aligned and not (f15.breakout_up or f15.breakout_down):
             stage = "ENTRY SETUP"
         elif score >= 68:
             stage = "PREPARE"
