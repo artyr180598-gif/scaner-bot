@@ -241,6 +241,24 @@ Paper-статистика основного SignalEngine фильтруетс�
 | `PRIME_MAX_LEVERAGE` | `2` | Верхний предел PRIME-плана |
 | `RISK_PER_TRADE_PCT` | `0.5` | Расчётный риск на сделку |
 
+## Hummingbot Lab
+
+Добавлен отдельный research-слой, который не меняет PRIME/RID и не размещает реальные ордера.
+
+В Telegram доступны `🧪 Hummingbot Lab`, `/hblab BTCUSDT` и `/hbstatus`.
+
+Lab:
+- загружает до 180 дней закрытых 5m/15m/30m/1h/4h свечей с пагинацией;
+- сравнивает PREMOVE, MOMENTUM и BREAKOUT гипотезы;
+- считает trades, win rate, expectancy R, profit factor, max drawdown и total R;
+- использует консервативное правило: если SL и TP попали в одну OHLC-свечу, считается SL;
+- не меняет существующие PRIME/RID thresholds и бюджеты уведомлений;
+- не содержит пути для размещения ордеров.
+
+Опционально `HUMMINGBOT_API_ENABLED=true` позволяет подключить Hummingbot API только для read-only health status. Официальный Hummingbot API также предоставляет V2 backtesting endpoint, но передавать туда конфигурацию и тем более включать live deployment нужно отдельно; CryptoPilot по умолчанию этого не делает.
+
+Hummingbot v2.17.0 вышел 22 сентября 2026 года. V2 Controllers используют MarketDataProvider и Executors и поддерживают backtesting; Hummingbot API предоставляет отдельные backtesting endpoints. См. официальную документацию: https://hummingbot.org/strategies/v2-strategies/controllers/ и https://hummingbot.org/hummingbot-api/routers/.
+
 ## Railway
 
 1. Подключите GitHub-репозиторий как Railway service.
