@@ -374,7 +374,15 @@ def build_router(
     @router.message(F.text == HBLAB)
     async def hummingbot_lab_command(message: Message, state: FSMContext) -> None:
         await state.clear()
-        symbol = command_argument(message.text) or "BTCUSDT"
+        # Reply-keyboard button text is "🧪 Hummingbot Lab", not a command argument.
+        # Only parse an argument for /hblab; otherwise use the safe default.
+        # Previously the second word of the button label became the symbol "Lab".
+        raw_text = (message.text or "").strip()
+        symbol = (
+            command_argument(raw_text)
+            if raw_text.lower().startswith("/hblab")
+            else "BTCUSDT"
+        ) or "BTCUSDT"
         progress = await message.answer(
             f"⏳ Hummingbot Lab: тестирую {html.escape(symbol.upper())} "
             "на исторических данных. Это research/paper, без реальных ордеров."
