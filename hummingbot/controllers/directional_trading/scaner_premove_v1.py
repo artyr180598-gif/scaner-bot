@@ -19,8 +19,8 @@ from hummingbot.strategy_v2.controllers.directional_trading_controller_base impo
 class AScanerPremoveV1ControllerConfig(_DirectionalTradingControllerConfigBase):
     controller_name: str = "scaner_premove_v1"
 
-    candles_connector: str = Field(default=None)
-    candles_trading_pair: str = Field(default=None)
+    candles_connector: str | None = Field(default=None)
+    candles_trading_pair: str | None = Field(default=None)
     interval: str = Field(default="15m")
     range_length: int = Field(default=20, ge=10, le=100)
     ema_fast: int = Field(default=20, ge=5, le=100)
