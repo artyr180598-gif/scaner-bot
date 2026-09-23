@@ -219,6 +219,8 @@ async def run() -> None:
                 BotCommand(command="flowstats", description="Forward-проверка ранних Flow алертов"),
                 BotCommand(command="primestats", description="Реальная Shadow-статистика PRIME"),
                 BotCommand(command="lab", description="Лаборатория сжатия: виртуальные сделки"),
+                BotCommand(command="hblab", description="Hummingbot research Lab"),
+                BotCommand(command="hbstatus", description="Статус Hummingbot API"),
                 BotCommand(command="help", description="Как читать сигналы"),
             ]
         )
