@@ -19,6 +19,7 @@ from cryptopilot.backtest import WalkForwardBacktester
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.health import RuntimeHealth
+from cryptopilot.hummingbot_lab import HummingbotLab
 from cryptopilot.models import (
     CURRENT_RID_STRATEGY_VERSION,
     CURRENT_STRATEGY_VERSION,
@@ -45,6 +46,7 @@ PRIME = "🎯 PRIME поиск"
 RID = "🧭 Стратегия RID"
 BEST = "⭐ Лучший сейчас"
 BACKTEST = "📊 Бэктест"
+HBLAB = "🧪 Hummingbot Lab"
 STATUS = "⚙️ Статус"
 PERFORMANCE = "📈 Результаты"
 HELP = "❓ Помощь"
@@ -87,6 +89,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=UNIFIED), KeyboardButton(text=ANALYZE)],
             [KeyboardButton(text=RID), KeyboardButton(text=EARLY)],
             [KeyboardButton(text=BEST), KeyboardButton(text=BACKTEST)],
+            [KeyboardButton(text=HBLAB), KeyboardButton(text=PERFORMANCE)],
             [KeyboardButton(text=PERFORMANCE), KeyboardButton(text=STATUS)],
             [KeyboardButton(text=HELP)],
         ],
@@ -108,6 +111,7 @@ def build_router(
     router.message.middleware(AuthorizationMiddleware(settings.allowed_chat_ids))
     smart_money = smart_money or SmartMoneyScanner(exchange, settings)
     rid_scanner = rid_scanner or RidScanner(exchange, store, settings)
+    hummingbot_lab = HummingbotLab(exchange, settings)
     search_lock = asyncio.Lock()
 
     @router.message(CommandStart())
@@ -365,6 +369,35 @@ def build_router(
     async def analyze_input(message: Message, state: FSMContext) -> None:
         await state.clear()
         await run_analysis(message, scanner, smart_money, message.text or "")
+
+    @router.message(Command("hblab"))
+    @router.message(F.text == HBLAB)
+    async def hummingbot_lab(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        symbol = command_argument(message.text) or "BTCUSDT"
+        progress = await message.answer(
+            f"⏳ Hummingbot Lab: тестирую {html.escape(symbol.upper())} "
+            "на исторических данных. Это research/paper, без реальных ордеров."
+        )
+        try:
+            result = await hummingbot_lab.compare(symbol)
+            await progress.edit_text(result)
+        except Exception as exc:
+            health.last_error = str(exc)
+            await progress.edit_text(
+                f"⚠️ Hummingbot Lab не завершён: {html.escape(type(exc).__name__)} — "
+                f"{html.escape(str(exc))[:300]}"
+            )
+
+    @router.message(Command("hbstatus"))
+    async def hummingbot_status(message: Message) -> None:
+        await message.answer(
+            "<b>Hummingbot integration</b>\n"
+            f"Research Lab: {'ON' if settings.hummingbot_lab_enabled else 'OFF'}\n"
+            f"API bridge: {'ON' if settings.hummingbot_api_enabled else 'OFF'}\n"
+            f"API: {html.escape(await hummingbot_lab.status())}\n"
+            "Live trading from CryptoPilot is disabled."
+        )
 
     @router.message(Command("backtest"))
     async def backtest_command(message: Message, state: FSMContext) -> None:
