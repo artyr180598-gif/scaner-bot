@@ -287,7 +287,7 @@ class HummingbotLab:
                 )
         lines.extend([
             "<b>Сравнение research-моделей (R-модель, не реальные деньги)</b>",
-        ]
+        ])
         for item in report.metrics:
             pf = "∞" if math.isinf(item.profit_factor) else f"{item.profit_factor:.2f}"
             lines.append(
