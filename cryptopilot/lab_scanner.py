@@ -10,6 +10,7 @@ import numpy as np
 from cryptopilot.config import Settings
 from cryptopilot.exchange import ExchangeClient
 from cryptopilot.indicators import compute_features, directional_score, InsufficientData
+from cryptopilot.hummingbot_fusion import evaluate as evaluate_hummingbot_fusion
 from cryptopilot.models import Candle, Side, Ticker
 
 
@@ -132,6 +133,14 @@ class LabMarketScanner:
         reasons: list[str] = []
         risks: list[str] = []
         points = 0.0
+
+        # Fuse Hummingbot-style trades/order-book/execution data into the
+        # independent Lab ranking. This is confirmation, not a standalone
+        # entry trigger.
+        hb = evaluate_hummingbot_fusion(side, ticker)
+        points += hb.score_delta
+        reasons.extend(hb.reasons)
+        risks.extend(hb.risks)
 
         aligned = (s60 > 0 and s240 > 0) if side is Side.LONG else (s60 < 0 and s240 < 0)
         if aligned:
