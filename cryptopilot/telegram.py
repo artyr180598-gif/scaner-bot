@@ -111,7 +111,7 @@ def build_router(
     router.message.middleware(AuthorizationMiddleware(settings.allowed_chat_ids))
     smart_money = smart_money or SmartMoneyScanner(exchange, settings)
     rid_scanner = rid_scanner or RidScanner(exchange, store, settings)
-    hummingbot_lab = HummingbotLab(exchange, settings)
+    hb_lab = HummingbotLab(exchange, settings)
     search_lock = asyncio.Lock()
 
     @router.message(CommandStart())
@@ -380,7 +380,7 @@ def build_router(
             "на исторических данных. Это research/paper, без реальных ордеров."
         )
         try:
-            result = await hummingbot_lab.compare(symbol)
+            result = await hb_lab.compare(symbol)
             await progress.edit_text(result)
         except Exception as exc:
             health.last_error = str(exc)
