@@ -9,8 +9,8 @@ import numpy as np
 from cryptopilot.config import Settings
 from cryptopilot.economics import net_reward_risk
 from cryptopilot.exchange import INTERVAL_MS
-from cryptopilot.indicators import InsufficientData, compute_features, directional_score
 from cryptopilot.hummingbot_fusion import evaluate as evaluate_hummingbot_fusion
+from cryptopilot.indicators import InsufficientData, compute_features, directional_score
 from cryptopilot.models import Candle, EarlySetup, FeatureSet, Side, Signal, Ticker, TradePlan
 
 
