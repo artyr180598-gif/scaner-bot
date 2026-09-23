@@ -96,7 +96,8 @@ class LabMarketScanner:
                         self.exchange.candles(ticker.symbol, "60", 230),
                         self.exchange.candles(ticker.symbol, "240", 230),
                     )
-                    return self._candidate(ticker, c15, c60, c240, btc_feature)
+                    enriched = await self.exchange.enrich_ticker(ticker)
+                    return self._candidate(enriched, c15, c60, c240, btc_feature)
                 except Exception:
                     return None
 
@@ -202,14 +203,6 @@ class LabMarketScanner:
             points -= 8
             risks.append("price stretched from VWAP")
 
-        score = float(np.clip(45 + points + min(14, abs(raw) * 0.14), 0, 100))
-        confidence = int(np.clip(score, 50, 95))
-        stage = "EARLY WATCH"
-        if score >= 80 and aligned and not (f15.breakout_up or f15.breakout_down):
-            stage = "ENTRY SETUP"
-        elif score >= 68:
-            stage = "PREPARE"
-
         price = ticker.last
         atr = max(f15.atr14, price * 0.002)
         if side is Side.LONG:
@@ -241,6 +234,23 @@ class LabMarketScanner:
         if btc_feature is None or abs(directional_score(btc_feature)) < 15:
             points -= 3
             risks.append("BTC regime is neutral")
+        if abs(f15.vwap_distance_atr) > 1.8:
+            return None
+        if side is Side.LONG and f60.rsi14 >= 72:
+            return None
+        if side is Side.SHORT and f60.rsi14 <= 28:
+            return None
+        if stop_pct > 3.5:
+            return None
+
+        score = float(np.clip(45 + points + min(14, abs(raw) * 0.14), 0, 100))
+        confidence = int(np.clip(score, 50, 95))
+        stage = "EARLY WATCH"
+        if score >= 80 and aligned and not (f15.breakout_up or f15.breakout_down):
+            stage = "ENTRY SETUP"
+        elif score >= 68:
+            stage = "PREPARE"
+
         rr = abs(tp2 - entry_high) / max(abs(entry_high - stop), 1e-12) if side is Side.LONG else abs(entry_low - tp2) / max(abs(stop - entry_low), 1e-12)
         leverage = 1 if score < 78 else min(2, self.settings.max_leverage)
 
