@@ -82,9 +82,57 @@ class ExchangeClient(ABC):
     @abstractmethod
     async def candles(self, symbol: str, interval: str, limit: int = 260) -> list[Candle]: ...
 
+    async def historical_candles(
+        self, symbol: str, interval: str, *, days: int = 180
+    ) -> list[Candle]:
+        end_ms = int(time.time() * 1000)
+        start_ms = end_ms - max(1, days) * 86_400_000
+        duration = INTERVAL_MS[interval]
+        rows: list[Candle] = []
+        cursor_end = end_ms
+        target = days * 1440 // max(1, duration // 60_000) + 2000
+        while cursor_end > start_ms and len(rows) < target:
+            result = self._result(await self.http.get(
+                "/v5/market/kline",
+                {
+                    "category": "linear",
+                    "symbol": symbol.upper(),
+                    "interval": interval,
+                    "limit": 1000,
+                    "end": cursor_end,
+                },
+            ))
+            batch = result.get("list", [])
+            if not batch:
+                break
+            oldest = min(int(row[0]) for row in batch)
+            for row in batch:
+                opened = int(row[0])
+                if start_ms <= opened and opened + duration <= end_ms:
+                    rows.append(Candle(
+                        open_time_ms=opened,
+                        open=float(row[1]),
+                        high=float(row[2]),
+                        low=float(row[3]),
+                        close=float(row[4]),
+                        volume=float(row[5]),
+                        turnover=float(row[6]),
+                    ))
+            if oldest <= start_ms or oldest >= cursor_end:
+                break
+            cursor_end = oldest - 1
+            await asyncio.sleep(0.05)
+        unique = {item.open_time_ms: item for item in rows}
+        return [unique[key] for key in sorted(unique)]
+
     async def enrich_ticker(self, ticker: Ticker) -> Ticker:
         """Attach optional derivatives context without making core market data fragile."""
         return ticker
+
+    async def historical_candles(
+        self, symbol: str, interval: str, *, days: int = 180
+    ) -> list[Candle]:
+        raise NotImplementedError
 
     @abstractmethod
     async def ping(self) -> bool: ...
@@ -181,6 +229,46 @@ class BybitClient(ExchangeClient):
             for row in rows
             if int(row[0]) + duration <= now_ms
         ]
+
+    async def historical_candles(
+        self, symbol: str, interval: str, *, days: int = 180
+    ) -> list[Candle]:
+        end_ms = int(time.time() * 1000)
+        start_ms = end_ms - max(1, days) * 86_400_000
+        rows: list[Candle] = []
+        cursor_end = end_ms
+        while cursor_end > start_ms:
+            batch = await self.http.get(
+                "/fapi/v1/klines",
+                {
+                    "symbol": symbol.upper(),
+                    "interval": self._intervals[interval],
+                    "limit": 1500,
+                    "endTime": cursor_end,
+                    "startTime": start_ms,
+                },
+            )
+            if not batch:
+                break
+            oldest = min(int(row[0]) for row in batch)
+            for row in batch:
+                opened = int(row[0])
+                if start_ms <= opened and int(row[6]) <= end_ms:
+                    rows.append(Candle(
+                        open_time_ms=opened,
+                        open=float(row[1]),
+                        high=float(row[2]),
+                        low=float(row[3]),
+                        close=float(row[4]),
+                        volume=float(row[5]),
+                        turnover=float(row[7]),
+                    ))
+            if oldest <= start_ms or oldest >= cursor_end:
+                break
+            cursor_end = oldest - 1
+            await asyncio.sleep(0.05)
+        unique = {item.open_time_ms: item for item in rows}
+        return [unique[key] for key in sorted(unique)]
 
     async def enrich_ticker(self, ticker: Ticker) -> Ticker:
         async def optional(path: str, params: dict[str, Any]) -> dict[str, Any] | None:
