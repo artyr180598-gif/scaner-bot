@@ -58,6 +58,34 @@ def evaluate(side: Side, ticker: Ticker) -> HummingbotFusion:
             delta -= 4.0
             risks.append(f"HB book: imbalance {directional:+.0%} opposes direction")
 
+    if ticker.near_book_imbalance is not None:
+        points += 1
+        directional = (
+            ticker.near_book_imbalance
+            if side is Side.LONG
+            else -ticker.near_book_imbalance
+        )
+        if directional >= 0.12:
+            delta += 2.5
+            reasons.append(f"HB near-book: {directional:+.0%} supports direction")
+        elif directional <= -0.18:
+            delta -= 3.0
+            risks.append(f"HB near-book: {directional:+.0%} opposes direction")
+
+    if ticker.buy_slippage_10k_bps is not None and ticker.sell_slippage_10k_bps is not None:
+        points += 1
+        adverse_slippage = (
+            ticker.buy_slippage_10k_bps
+            if side is Side.LONG
+            else ticker.sell_slippage_10k_bps
+        )
+        if adverse_slippage > 12:
+            delta -= min(4.0, (adverse_slippage - 12) * 0.35)
+            risks.append(f"HB depth: execution cost {adverse_slippage:.1f} bps")
+        elif adverse_slippage <= 4:
+            delta += 1.5
+            reasons.append(f"HB depth: execution cost {adverse_slippage:.1f} bps is low")
+
     # Spot/perp basis is useful as a confirmation/quality filter, not a signal
     # by itself. A large adverse basis can indicate crowded positioning.
     if ticker.spot_perp_basis_bps is not None:
@@ -96,7 +124,7 @@ def evaluate(side: Side, ticker: Ticker) -> HummingbotFusion:
         risks.append(f"HB execution: spread {ticker.spread_bps:.1f} bps")
 
     return HummingbotFusion(
-        score_delta=max(-10.0, min(10.0, delta)),
+        score_delta=max(-12.0, min(12.0, delta)),
         reasons=tuple(reasons[:4]),
         risks=tuple(risks[:4]),
         data_points=points,
