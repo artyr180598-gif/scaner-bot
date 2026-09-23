@@ -101,14 +101,19 @@ class HummingbotLab:
             )
             qualified = []
             for candidate, metrics, error in validated:
+                positive_models = [
+                    m for m in metrics
+                    if m.trades >= 30
+                    and m.profit_factor >= 1.05
+                    and m.total_r > 0
+                    and m.expectancy_r > 0
+                ]
                 research_ok = (
                     not error
-                    and any(
-                        getattr(m, "samples", 0) >= 30
-                        and getattr(m, "profit_factor", 0.0) >= 1.0
-                        and getattr(m, "total_r", -999.0) > 0
-                        for m in metrics
-                    )
+                    and len(metrics) == 3
+                    and len(positive_models) >= 2
+                    and sum(m.total_r for m in metrics) > 0
+                    and sum(m.trades for m in metrics) >= 90
                 )
                 if research_ok:
                     qualified.append((candidate, metrics, error))
