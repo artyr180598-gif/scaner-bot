@@ -54,78 +54,81 @@ class HummingbotLab:
 
 
     async def search(self, limit: int = 5) -> str:
-        """Find current coin candidates, then validate the shortlist with the Lab.
+        """Independently scan the market for early research candidates.
 
-        The old Hummingbot Lab only accepted one symbol (default BTCUSDT), so the
-        Telegram button could never choose a coin. This method keeps PRIME/RID
-        untouched: it uses the existing scanner for current candidates and then
-        applies the Lab's independent historical tests. No orders are placed.
+        This path intentionally does NOT call MarketScanner.scan_market(), PRIME,
+        RID, or their final signal filters.
         """
-        if self.scanner is None:
-            raise RuntimeError("Hummingbot Lab market scanner is not configured")
-        async with self._lock:
-            report = await self.scanner.scan_market()
-            candidates = list(report.signals[:max(1, limit)])
-            if not candidates:
-                return (
-                    "<b>🧪 Hummingbot Lab · поиск рынка</b>\n"
-                    f"Проверено ликвидных рынков: {report.universe_count}\n"
-                    f"Глубоко проверено: {report.analyzed_count}\n\n"
-                    "Сейчас нет актуального сигнала, который прошёл текущие фильтры. "
-                    "Lab не будет придумывать вход."
-                )
+        from cryptopilot.lab_scanner import LabMarketScanner
 
-            async def validate(signal):
+        async with self._lock:
+            universe_count, analyzed_count, candidates = await LabMarketScanner(
+                self.exchange, self.settings
+            ).scan(limit=max(1, limit))
+            lines = [
+                "<b>🧪 Hummingbot Lab · independent market scan</b>",
+                f"Ликвидный universe: {universe_count} · глубокий анализ: {analyzed_count}",
+                "Отдельный Lab-рейтинг: multi-timeframe + volume/flow + structure + research.",
+                "",
+            ]
+            if not candidates:
+                lines.extend([
+                    "<b>Нет кандидата с достаточным качеством.</b>",
+                    "Независимый Lab-фильтр сейчас не нашёл сетап, который стоит оформлять как вход.",
+                    "Ничего не придумываю.",
+                    "",
+                    "Индикаторы: EMA, RSI, MACD, ADX, ATR, Bollinger/Keltner squeeze, "
+                    "CMF, RVOL, VWAP, Supertrend, StochRSI, MFI, OBV, PSAR/trailing trend, "
+                    "Donchian, FVG и liquidity sweep.",
+                ])
+                return "\n".join(lines)
+
+            async def validate(candidate):
                 try:
                     candles = await self._history(
-                        signal.symbol, self.settings.hummingbot_lab_interval
+                        candidate.symbol, self.settings.hummingbot_lab_interval
                     )
                     metrics = tuple(
                         self._backtest(name, candles)
                         for name in ("PREMOVE", "MOMENTUM", "BREAKOUT")
                     )
-                    return signal, metrics, None
+                    return candidate, metrics, None
                 except Exception as exc:
-                    return signal, (), f"{type(exc).__name__}: {exc}"
+                    return candidate, (), f"{type(exc).__name__}: {exc}"
 
-            validated = await asyncio.gather(*(validate(item) for item in candidates[:3]))
-            lines = [
-                "<b>🧪 Hummingbot Lab · поиск монет</b>",
-                f"Ликвидный universe: {report.universe_count} · подробно: {report.analyzed_count}",
-                "Текущий сетап + 180-дневная Hummingbot research-проверка.",
-                "",
-            ]
-            for idx, (signal, metrics, error) in enumerate(validated, 1):
-                plan = signal.plan
-                icon = "🟢" if signal.side.value == "LONG" else "🔴"
+            validated = await asyncio.gather(
+                *(validate(item) for item in candidates[: min(3, len(candidates))])
+            )
+            for idx, (candidate, metrics, error) in enumerate(validated, 1):
+                icon = "🟢" if candidate.side.value == "LONG" else "🔴"
                 lines.extend([
-                    f"{icon} <b>#{idx} {signal.symbol} · {signal.side.value}</b>",
-                    f"Текущая цена: <code>{signal.price:.8g}</code> · качество: <b>{signal.confidence}/100</b>",
-                    f"Score: {signal.score:+.1f}/100 · режим BTC: {signal.regime}",
+                    f"{icon} <b>#{idx} {candidate.symbol} · {candidate.side.value} · {candidate.stage}</b>",
+                    f"Цена: <code>{candidate.price:.8g}</code> · Lab score: <b>{candidate.score:.1f}/100</b>",
+                    f"Вход: <code>{candidate.entry_low:.8g}–{candidate.entry_high:.8g}</code>",
+                    f"SL: <code>{candidate.stop:.8g}</code>",
+                    f"TP1: <code>{candidate.tp1:.8g}</code> · TP2: <code>{candidate.tp2:.8g}</code> · TP3: <code>{candidate.tp3:.8g}</code>",
+                    f"R/R до TP2: <b>{candidate.rr:.2f}</b> · плечо: ≤{candidate.leverage}x · режим BTC: {candidate.regime}",
+                    "Почему: " + " · ".join(candidate.reasons[:5]),
+                    "Индикаторы: " + " · ".join(candidate.indicators[:6]),
                 ])
-                if plan is not None:
-                    lines.extend([
-                        f"Вход: <code>{plan.entry_low:.8g}–{plan.entry_high:.8g}</code>",
-                        f"SL: <code>{plan.stop_loss:.8g}</code>",
-                        f"TP1: <code>{plan.take_profit_1:.8g}</code> · TP2: <code>{plan.take_profit_2:.8g}</code> · TP3: <code>{plan.take_profit_3:.8g}</code>",
-                        f"R/R TP2: {plan.risk_reward_2:.2f} · плечо до {plan.recommended_leverage}x",
-                    ])
-                if signal.reasons:
-                    lines.append("Почему: " + " · ".join(signal.reasons[:3]))
+                if candidate.risks:
+                    lines.append("Риски: " + " · ".join(candidate.risks[:3]))
                 if error:
-                    lines.append(f"Историческая проверка: ошибка · {error}")
-                elif metrics:
+                    lines.append(f"180д research: ошибка · {error}")
+                else:
                     summary = " · ".join(
                         f"{m.name}: PF {m.profit_factor:.2f}, win {m.win_rate:.1f}%, {m.total_r:+.1f}R"
                         for m in metrics
                     )
-                    lines.append("180д Lab: " + summary)
+                    lines.append("180д research: " + summary)
                 lines.append("")
+
             lines.extend([
-                "<b>Как использовать</b>",
-                "• Lab теперь сам ищет монеты, а не тестирует только BTC.",
-                "• Вход/SL/TP — из текущего анализа; исторические метрики — проверка гипотез.",
-                "• Это research/paper: ордера не открываются.",
+                "<b>Что изменилось</b>",
+                "• Lab ищет раннюю фазу сам, а не ждёт готового PRIME-сигнала.",
+                "• Entry/SL/TP — исследовательский сценарий на текущих данных.",
+                "• Hummingbot используется только для research/backtest; реальные ордера не открываются.",
+                "• PRIME и RID не изменены и не участвуют в этом рейтинге.",
             ])
             return "\n".join(lines)
 
