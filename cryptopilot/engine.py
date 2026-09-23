@@ -10,6 +10,7 @@ from cryptopilot.config import Settings
 from cryptopilot.economics import net_reward_risk
 from cryptopilot.exchange import INTERVAL_MS
 from cryptopilot.indicators import InsufficientData, compute_features, directional_score
+from cryptopilot.hummingbot_fusion import evaluate as evaluate_hummingbot_fusion
 from cryptopilot.models import Candle, EarlySetup, FeatureSet, Side, Signal, Ticker, TradePlan
 
 
@@ -369,6 +370,16 @@ class SignalEngine:
         if self.settings.main_scan_premove_only:
             blockers.extend(premove_blockers)
             reasons.extend(premove_reasons)
+
+        # Hummingbot-inspired microstructure confirmation is a separate layer:
+        # it can strengthen/weaken the existing signal, but never creates a
+        # signal by itself. This keeps the proven Scaner pre-move logic intact.
+        hb = evaluate_hummingbot_fusion(side, ticker)
+        score += hb.score_delta
+        reasons.extend(hb.reasons)
+        risks.extend(hb.risks)
+        if hb.data_points == 0:
+            risks.append("Hummingbot microstructure context unavailable")
 
         if ticker.turnover_24h < self.settings.min_volume_usdt:
             blockers.append("Суточный оборот ниже фильтра ликвидности")
