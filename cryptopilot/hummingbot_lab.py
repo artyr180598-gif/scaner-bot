@@ -5,6 +5,7 @@ import math
 from base64 import b64encode
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import time
 import aiohttp
 
 from cryptopilot.config import Settings
@@ -34,6 +35,7 @@ class LabReport:
     generated_at: datetime
     metrics: tuple[LabMetrics, ...]
     hummingbot_api: str
+    hummingbot_backtest: dict | None = None
 
 
 class HummingbotLab:
@@ -84,6 +86,7 @@ class HummingbotLab:
                 self._backtest(name, candles)
                 for name in ("PREMOVE", "MOMENTUM", "BREAKOUT")
             )
+            api_backtest = await self._api_backtest(symbol.upper(), candles)
             start = candles[0].open_time_ms
             end = candles[-1].open_time_ms
             period_days = max(0.0, (end - start) / 86_400_000)
@@ -95,7 +98,80 @@ class HummingbotLab:
                 generated_at=datetime.now(UTC),
                 metrics=metrics,
                 hummingbot_api=await self.status(),
+                hummingbot_backtest=api_backtest,
             )
+
+    async def _api_backtest(self, symbol: str, candles: list[Candle]) -> dict | None:
+        """Run the real Hummingbot V2 PREMOVE controller through the API."""
+        if not self.settings.hummingbot_api_enabled or not self.settings.hummingbot_api_url:
+            return None
+        start = int(candles[0].open_time_ms / 1000)
+        end = int((candles[-1].open_time_ms + 1000) / 1000)
+        interval = self.settings.hummingbot_lab_interval
+        if interval.isdigit():
+            interval = f"{interval}m"
+        pair = symbol.replace("/", "-").replace("USDT", "-USDT").replace("--", "-")
+        if not pair.endswith("-USDT"):
+            pair = f"{pair}-USDT"
+        payload = {
+            "start_time": start,
+            "end_time": end,
+            "backtesting_resolution": interval,
+            "trade_cost": self.settings.hummingbot_lab_cost_r / 100.0,
+            "config": {
+                "id": "scaner_premove_lab",
+                "controller_name": "scaner_premove_v1",
+                "controller_type": "directional_trading",
+                "connector_name": "binance_perpetual",
+                "trading_pair": pair,
+                "candles_connector": "binance_perpetual",
+                "candles_trading_pair": pair,
+                "interval": interval,
+                "total_amount_quote": 100,
+                "max_executors_per_side": 1,
+                "cooldown_time": 3600,
+                "leverage": 2,
+                "position_mode": "HEDGE",
+                "stop_loss": 0.025,
+                "take_profit": 0.05,
+                "time_limit": self.settings.hummingbot_lab_holding_hours * 3600,
+                "take_profit_order_type": "MARKET",
+                "trailing_stop": None,
+                "range_length": 20,
+                "ema_fast": 20,
+                "ema_slow": 50,
+                "max_range_pct": 0.045,
+                "max_volume_ratio": 1.35,
+                "long_range_position": 0.65,
+                "short_range_position": 0.35,
+                "max_atr_pct": 0.018,
+            },
+        }
+        token = b64encode(
+            f"{self.settings.hummingbot_api_username}:{self.settings.hummingbot_api_password}".encode()
+        ).decode()
+        headers = {"Authorization": f"Basic {token}"}
+        timeout = aiohttp.ClientTimeout(total=max(120, self.settings.http_timeout_seconds))
+        started = time.monotonic()
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    self.settings.hummingbot_api_url.rstrip("/") + "/backtesting/run",
+                    json=payload,
+                    headers=headers,
+                ) as response:
+                    body = await response.json(content_type=None)
+                    if response.status >= 400:
+                        return {"error": body.get("detail", body), "http": response.status}
+                    result = body.get("results", body if isinstance(body, dict) else {})
+                    return {
+                        "results": result,
+                        "elapsed_seconds": round(time.monotonic() - started, 2),
+                        "pair": pair,
+                        "resolution": interval,
+                    }
+        except Exception as exc:
+            return {"error": f"{type(exc).__name__}: {exc}"}
 
     async def _history(self, symbol: str, interval: str) -> list[Candle]:
         # Exchange clients expose a paginated history helper when available.
@@ -194,6 +270,22 @@ class HummingbotLab:
             f"История: {report.period_days:.0f} дней · {report.bars} свечей · {report.interval}",
             f"Hummingbot API: {report.hummingbot_api}",
             "",
+        ]
+        if report.hummingbot_backtest:
+            hb = report.hummingbot_backtest
+            if "error" in hb:
+                lines.append(f"Hummingbot V2 PREMOVE: ошибка · {hb['error']}")
+            else:
+                r = hb.get("results", {})
+                lines.append(
+                    "<b>Hummingbot V2 PREMOVE (реальный engine):</b> "
+                    f"PNL={r.get('net_pnl_quote', r.get('net_pnl', 0))}, "
+                    f"DD={r.get('max_drawdown', 0)}, Sharpe={r.get('sharpe_ratio', 0)}, "
+                    f"PF={r.get('profit_factor', 0)}, "
+                    f"executors={r.get('total_executors_with_position', r.get('total_executors', 0))}, "
+                    f"time={hb.get('elapsed_seconds', 0)}s"
+                )
+        lines.extend([
             "<b>Сравнение research-моделей (R-модель, не реальные деньги)</b>",
         ]
         for item in report.metrics:
