@@ -395,7 +395,7 @@ def build_router(
             "<b>Hummingbot integration</b>\n"
             f"Research Lab: {'ON' if settings.hummingbot_lab_enabled else 'OFF'}\n"
             f"API bridge: {'ON' if settings.hummingbot_api_enabled else 'OFF'}\n"
-            f"API: {html.escape(await hummingbot_lab.status())}\n"
+            f"API: {html.escape(await hb_lab.status())}\n"
             "Live trading from CryptoPilot is disabled."
         )
 
