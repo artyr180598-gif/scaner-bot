@@ -213,6 +213,18 @@ class Settings(BaseSettings):
     preferred_leverage: int = Field(default=2, ge=1, le=3)
     max_leverage: int = Field(default=3, ge=1, le=3)
 
+    # Optional Hummingbot API bridge. Disabled by default and never used for live orders.
+    hummingbot_api_enabled: bool = False
+    hummingbot_api_url: str = ""
+    hummingbot_api_username: str = ""
+    hummingbot_api_password: str = ""
+    hummingbot_lab_enabled: bool = True
+    hummingbot_lab_interval: str = "15"
+    hummingbot_lab_history_days: int = Field(default=180, ge=30, le=365)
+    hummingbot_lab_holding_hours: int = Field(default=24, ge=1, le=168)
+    hummingbot_lab_max_stop_pct: float = Field(default=0.035, ge=0.005, le=0.15)
+    hummingbot_lab_cost_r: float = Field(default=0.08, ge=0.0, le=1.0)
+
     data_dir: Path = Path("./data")
     log_level: str = "INFO"
     port: int = Field(default=8080, ge=1, le=65_535)
@@ -271,6 +283,10 @@ class Settings(BaseSettings):
             raise ValueError("RID_MIN_RETRACEMENT must be below RID_MAX_RETRACEMENT")
         if self.rid_min_impulse_atr >= self.rid_max_impulse_atr:
             raise ValueError("RID_MIN_IMPULSE_ATR must be below RID_MAX_IMPULSE_ATR")
+        if self.hummingbot_lab_interval not in {"5", "15", "30", "60", "240"}:
+            raise ValueError("HUMMINGBOT_LAB_INTERVAL must be one of 5, 15, 30, 60, 240")
+        if self.hummingbot_api_enabled and not self.hummingbot_api_url.strip():
+            raise ValueError("HUMMINGBOT_API_URL is required when HUMMINGBOT_API_ENABLED=true")
         return self
 
     @property
