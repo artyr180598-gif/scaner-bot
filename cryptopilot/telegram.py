@@ -90,7 +90,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=RID), KeyboardButton(text=EARLY)],
             [KeyboardButton(text=BEST), KeyboardButton(text=BACKTEST)],
             [KeyboardButton(text=HBLAB), KeyboardButton(text=PERFORMANCE)],
-            [KeyboardButton(text=PERFORMANCE), KeyboardButton(text=STATUS)],
+            [KeyboardButton(text=STATUS)],
             [KeyboardButton(text=HELP)],
         ],
         resize_keyboard=True,
